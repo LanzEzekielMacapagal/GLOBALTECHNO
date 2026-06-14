@@ -9,6 +9,7 @@ const classroomName = document.querySelector("#classroomName");
 const classroomLabel = document.querySelector("#classroomLabel");
 const courseSearchForms = document.querySelectorAll(".course-search");
 const dashboardBackButtons = document.querySelectorAll(".dashboard-back");
+const dashboardJumps = document.querySelectorAll("[data-open-section]");
 const announcementForm = document.querySelector("#announcementForm");
 const adminAnnouncements = document.querySelector("#adminAnnouncements");
 const studentAnnouncements = document.querySelector("#studentAnnouncements");
@@ -157,6 +158,190 @@ const demoInvitations = [
   }
 ];
 
+const courseWorkspaces = {
+  onboarding: {
+    code: "01",
+    title: "OJT Onboarding Essentials",
+    status: "In Progress",
+    progress: 92,
+    accent: "primary",
+    description: "Role orientation, workplace policies, and required first-week modules.",
+    next: "Complete the onboarding checklist and upload supervisor acknowledgment.",
+    modules: [
+      ["Welcome orientation", "Done"],
+      ["Workplace policies", "Done"],
+      ["Supervisor acknowledgment", "Due soon"]
+    ],
+    resources: ["Orientation walkthrough", "OJT checklist PDF", "Company policy guide"],
+    activity: ["Andrea Valdez completed the checklist", "New onboarding comment posted", "GMeet consultation available"]
+  },
+  safety: {
+    code: "02",
+    title: "Safety and Compliance",
+    status: "In Progress",
+    progress: 76,
+    accent: "coral",
+    description: "Incident reporting, lab safety, data privacy, and compliance checks.",
+    next: "Review the safety reminders before class and submit the compliance quiz.",
+    modules: [
+      ["Lab safety briefing", "Done"],
+      ["Incident reporting", "Open"],
+      ["Data privacy basics", "Quiz"]
+    ],
+    resources: ["Safety reminders", "Incident report template", "Privacy policy notes"],
+    activity: ["Jomar Mercado scored 81%", "Safety video posted", "Quiz deadline updated"]
+  },
+  supervisor: {
+    code: "03",
+    title: "Supervisor Skills Workshop",
+    status: "Upcoming",
+    progress: 48,
+    accent: "sand",
+    description: "Coaching checklists, feedback templates, and learner evaluation rubrics.",
+    next: "Preview the workshop packet and prepare one coaching scenario.",
+    modules: [
+      ["Coaching checklist", "Preview"],
+      ["Feedback templates", "Locked"],
+      ["Learner evaluation", "Locked"]
+    ],
+    resources: ["Workshop overview", "Evaluation rubric", "Coaching scenario sample"],
+    activity: ["Draft course prepared", "Resource packet added", "Learner evaluation rubric updated"]
+  }
+};
+
+function createTextElement(tag, className, text) {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  element.textContent = text;
+  return element;
+}
+
+function renderCourseWorkspace(courseId, triggerCard) {
+  const course = courseWorkspaces[courseId];
+  const courseList = triggerCard.closest("#courseList");
+  if (!course || !courseList) return;
+
+  courseCards.forEach((card) => {
+    const isActive = card === triggerCard;
+    card.classList.toggle("course-card-active", isActive);
+    card.setAttribute("aria-pressed", String(isActive));
+  });
+
+  courseList.parentElement.querySelector(".course-workspace")?.remove();
+
+  const workspace = document.createElement("section");
+  workspace.className = `course-workspace course-workspace-${course.accent}`;
+  workspace.setAttribute("aria-live", "polite");
+
+  const hero = document.createElement("div");
+  hero.className = "course-workspace-hero";
+
+  const heroText = document.createElement("div");
+  heroText.append(
+    createTextElement("p", "section-label mb-1", "Course workspace"),
+    createTextElement("h3", "h4 mb-2", course.title),
+    createTextElement("p", "text-secondary mb-0", course.description)
+  );
+
+  const heroMeta = document.createElement("div");
+  heroMeta.className = "course-workspace-meta";
+  heroMeta.append(
+    createTextElement("span", "badge text-bg-info", course.status),
+    createTextElement("strong", "", `${course.progress}%`)
+  );
+
+  hero.append(heroText, heroMeta);
+
+  const progress = document.createElement("div");
+  progress.className = "course-workspace-progress progress";
+  progress.setAttribute("role", "progressbar");
+  progress.setAttribute("aria-label", `${course.title} progress`);
+  progress.setAttribute("aria-valuenow", String(course.progress));
+  progress.setAttribute("aria-valuemin", "0");
+  progress.setAttribute("aria-valuemax", "100");
+
+  const progressBar = document.createElement("div");
+  progressBar.className = `progress-bar ${course.accent === "coral" ? "bg-coral" : course.accent === "sand" ? "bg-sand" : ""}`;
+  progressBar.style.width = `${course.progress}%`;
+  progress.appendChild(progressBar);
+
+  const body = document.createElement("div");
+  body.className = "course-workspace-grid";
+
+  const stream = document.createElement("article");
+  stream.className = "course-workspace-panel course-workspace-panel-main";
+  stream.append(
+    createTextElement("p", "section-label mb-1", "Next up"),
+    createTextElement("h4", "h6 mb-2", course.next)
+  );
+
+  const moduleList = document.createElement("div");
+  moduleList.className = "course-module-list";
+  course.modules.forEach(([title, state], index) => {
+    const item = document.createElement("div");
+    item.className = "course-module-item";
+    item.append(
+      createTextElement("span", "course-module-number", String(index + 1).padStart(2, "0")),
+      createTextElement("strong", "", title),
+      createTextElement("span", "badge text-bg-info ms-auto", state)
+    );
+    moduleList.appendChild(item);
+  });
+  stream.appendChild(moduleList);
+
+  const side = document.createElement("aside");
+  side.className = "course-workspace-panel";
+
+  const resourceTitle = createTextElement("h4", "h6 mb-2", "Classwork and resources");
+  const resourceList = document.createElement("div");
+  resourceList.className = "vstack gap-2";
+  course.resources.forEach((resource) => {
+    resourceList.appendChild(createTextElement("button", "btn btn-outline-secondary btn-sm text-start", resource));
+  });
+
+  const activityTitle = createTextElement("h4", "h6 mt-4 mb-2", adminApp ? "Learner activity" : "Recent activity");
+  const activityList = document.createElement("div");
+  activityList.className = "course-activity-list";
+  course.activity.forEach((activity) => {
+    activityList.appendChild(createTextElement("p", "small text-secondary mb-2", activity));
+  });
+
+  side.append(resourceTitle, resourceList, activityTitle, activityList);
+  body.append(stream, side);
+  workspace.append(hero, progress, body);
+  courseList.insertAdjacentElement("afterend", workspace);
+  observeMotionElements(workspace);
+  workspace.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "nearest" });
+}
+
+courseCards.forEach((card) => {
+  card.tabIndex = 0;
+  card.role = "button";
+  card.setAttribute("aria-pressed", "false");
+
+  card.addEventListener("click", () => {
+    renderCourseWorkspace(card.dataset.course, card);
+  });
+
+  card.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    renderCourseWorkspace(card.dataset.course, card);
+  });
+});
+
+dashboardJumps.forEach((jump) => {
+  jump.addEventListener("click", () => {
+    showStudentSection(jump.dataset.openSection, { updateHash: true });
+  });
+
+  jump.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    showStudentSection(jump.dataset.openSection, { updateHash: true });
+  });
+});
+
 filterButtons.forEach((button) => {
   button.addEventListener("click", () => {
     const filter = button.dataset.filter;
@@ -168,6 +353,13 @@ filterButtons.forEach((button) => {
       const isVisible = filter === "all" || card.dataset.status === filter;
       card.classList.toggle("d-none", !isVisible);
     });
+
+    const activeCard = document.querySelector(".course-card-active");
+    if (activeCard?.classList.contains("d-none")) {
+      activeCard.classList.remove("course-card-active");
+      activeCard.setAttribute("aria-pressed", "false");
+      activeCard.closest("#courseList")?.parentElement.querySelector(".course-workspace")?.remove();
+    }
   });
 });
 
@@ -628,12 +820,24 @@ function renderVideoCard(video, options = {}) {
     time.textContent = formatDate(video.createdAt);
 
     const title = document.createElement("h3");
-    title.className = "h6 mb-0";
+    title.className = "h6 mb-2";
     title.textContent = video.title;
 
+    const details = document.createElement("div");
+    details.className = "video-announcement-details";
+    details.append(
+      createTextElement("span", "", "Recorded lesson"),
+      createTextElement("span", "", "Watch anytime"),
+      createTextElement("span", "", "Opens player")
+    );
+
+    const action = document.createElement("span");
+    action.className = "btn btn-primary btn-sm video-announcement-action";
+    action.textContent = "Watch";
+
     meta.append(classroom, time);
-    content.append(meta, title);
-    card.append(thumbnail, content);
+    content.append(meta, title, details);
+    card.append(thumbnail, content, action);
     wrapper.appendChild(card);
 
     return wrapper;
@@ -1064,7 +1268,7 @@ function getInvitations() {
 
 function renderInvitationCard(invitation, options = {}) {
   const article = document.createElement("article");
-  article.className = "announcement-item meeting-link-card";
+  article.className = options.admin ? "announcement-item meeting-link-card" : "announcement-item meeting-link-card student-meeting-card";
 
   const meta = document.createElement("div");
   meta.className = "d-flex flex-wrap gap-2 align-items-center mb-2";
@@ -1091,8 +1295,16 @@ function renderInvitationCard(invitation, options = {}) {
   link.textContent = "Open GMeet";
 
   const linkText = document.createElement("p");
-  linkText.className = "small text-secondary mb-3 text-break";
+  linkText.className = "small text-secondary mb-3 text-break meeting-link-url";
   linkText.textContent = invitation.link;
+
+  const sessionDetails = document.createElement("div");
+  sessionDetails.className = "meeting-session-details";
+  sessionDetails.append(
+    createTextElement("span", "", "Live consultation"),
+    createTextElement("span", "", "Google Meet"),
+    createTextElement("span", "", options.admin ? "Shared with learners" : "Ready to join")
+  );
 
   const actions = document.createElement("div");
   actions.className = "d-flex flex-wrap gap-2";
@@ -1108,7 +1320,15 @@ function renderInvitationCard(invitation, options = {}) {
     actions.appendChild(removeButton);
   }
 
-  article.append(meta, title, linkText, actions);
+  if (options.admin) {
+    article.append(meta, title, linkText, actions);
+  } else {
+    const content = document.createElement("div");
+    content.className = "student-meeting-content";
+    content.append(meta, title, sessionDetails, linkText);
+    article.append(content, actions);
+  }
+
   return article;
 }
 

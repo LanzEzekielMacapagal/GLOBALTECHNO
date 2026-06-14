@@ -27,7 +27,7 @@
   <main class="container-fluid px-3 px-lg-4 py-4">
     <header class="d-flex flex-column flex-xl-row justify-content-between gap-3 mb-4">
       <div>
-        <p class="section-label mb-1" id="classroomLabel">Client learning portal</p>
+        <p class="section-label mb-1" id="classroomLabel">Learner portal</p>
         <h1 class="display-title mb-0">My Training Dashboard</h1>
       </div>
       <div class="d-flex flex-wrap gap-2 align-items-start">
@@ -37,7 +37,7 @@
 
     <section class="row g-3 mb-3" id="dashboard" aria-label="Learner summary">
       <div class="col-12 col-sm-6 col-xl-3">
-        <article class="card metric-card h-100">
+        <article class="card metric-card h-100 dashboard-jump" data-open-section="courses" role="button" tabindex="0">
           <div class="card-body">
             <span class="text-secondary">Assigned courses</span>
             <strong class="metric-value d-block">3</strong>
@@ -81,9 +81,9 @@
         <a href="#courses" data-student-section-link="courses">Courses</a>
         <a href="#videos" data-student-section-link="videos">Videos</a>
         <a href="#assignments" data-student-section-link="assignments">Assignments</a>
-        <a href="#gmeet" data-student-section-link="gmeet">GMeet Links</a>
-        <a href="#grades" data-student-section-link="grades">Grades</a>
-        <a href="#student-chat" data-student-section-link="student-chat">Class Chats</a>
+        <a href="#gmeet" data-student-section-link="gmeet">Live Sessions</a>
+        <a href="#grades" data-student-section-link="grades">Performance</a>
+        <a href="#student-chat" data-student-section-link="student-chat">Class Chat</a>
       </aside>
 
       <div class="student-section-content">
@@ -110,7 +110,7 @@
 
             <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-3">
               <div>
-                <p class="section-label mb-1">Deliver courses</p>
+                <p class="section-label mb-1">Learning path</p>
                 <h2 class="h5 mb-0">Assigned Courses</h2>
               </div>
               <div class="btn-group align-self-start" role="group" aria-label="Course filter">
@@ -121,7 +121,7 @@
             </div>
 
             <div class="student-course-grid" id="courseList">
-              <article class="card course-card" data-status="live">
+              <article class="card course-card" data-course="onboarding" data-status="live">
                 <div class="row g-0">
                   <div class="col-md-3 course-strip course-strip-primary"><span>01</span></div>
                   <div class="col-md-9">
@@ -140,7 +140,7 @@
                 </div>
               </article>
 
-              <article class="card course-card" data-status="live">
+              <article class="card course-card" data-course="safety" data-status="live">
                 <div class="row g-0">
                   <div class="col-md-3 course-strip course-strip-coral"><span>02</span></div>
                   <div class="col-md-9">
@@ -159,7 +159,7 @@
                 </div>
               </article>
 
-              <article class="card course-card" data-status="draft">
+              <article class="card course-card" data-course="supervisor" data-status="draft">
                 <div class="row g-0">
                   <div class="col-md-3 course-strip course-strip-sand"><span>03</span></div>
                   <div class="col-md-9">
@@ -185,8 +185,8 @@
           <div class="card-body">
             <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3">
               <div>
-                <p class="section-label mb-1">Posted videos</p>
-                <h2 class="h5 mb-0">Videos</h2>
+                <p class="section-label mb-1">Learning resources</p>
+                <h2 class="h5 mb-0">Recorded Lessons</h2>
               </div>
               <span class="badge text-bg-info align-self-start" id="studentVideoClass">Current classroom</span>
             </div>
@@ -212,7 +212,7 @@
             <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3">
               <div>
                 <p class="section-label mb-1">Live sessions</p>
-                <h2 class="h5 mb-0">GMeet Links</h2>
+                <h2 class="h5 mb-0">Live Sessions</h2>
               </div>
               <span class="badge text-bg-info align-self-start" id="studentInvitationClass">Current classroom</span>
             </div>
@@ -222,7 +222,7 @@
 
         <section class="card student-section-card" id="grades" data-student-section="grades">
           <div class="card-body">
-            <p class="section-label mb-1">Grades</p>
+            <p class="section-label mb-1">Performance</p>
             <h2 class="h5 mb-3">Performance Summary</h2>
             <div class="grades-grid">
               <div class="grade-tile"><span>Coursework</span><strong>92%</strong></div>
@@ -238,7 +238,7 @@
             <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
               <div>
                 <p class="section-label mb-1">Class chat</p>
-                <h2 class="h5 mb-0">Class Chats</h2>
+                <h2 class="h5 mb-0">Class Chat</h2>
               </div>
             </div>
             <div class="chat-messages" id="chatMessages" aria-live="polite"></div>

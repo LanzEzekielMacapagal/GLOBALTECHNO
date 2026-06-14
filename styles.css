@@ -6,6 +6,11 @@
   --gth-sand: #ffd08a;
   --gth-cream: #fff6e8;
   --gth-bg: #f4f8fa;
+  --gth-muted: #66777e;
+  --gth-line: #d8e7ec;
+  --gth-surface: rgba(255, 255, 255, 0.86);
+  --gth-shadow-sm: 0 10px 28px rgba(12, 42, 51, 0.055);
+  --gth-shadow-md: 0 18px 46px rgba(12, 42, 51, 0.08);
   --bs-body-bg: var(--gth-bg);
   --bs-body-color: var(--gth-ink);
   --bs-primary: var(--gth-teal);
@@ -18,6 +23,9 @@
 
 body {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(25, 168, 200, 0.12), transparent 26rem),
+    linear-gradient(180deg, #f8fbfc 0%, var(--gth-bg) 46rem);
   animation: pageFadeIn 0.45s ease both;
 }
 
@@ -30,7 +38,9 @@ body {
 }
 
 .navbar {
-  box-shadow: 0 10px 30px rgba(12, 42, 51, 0.06);
+  background: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 10px 30px rgba(12, 42, 51, 0.045);
   animation: slideDown 0.45s ease both;
 }
 
@@ -137,26 +147,45 @@ body {
 }
 
 .card {
-  border-color: #d8e7ec;
+  border-color: var(--gth-line);
   border-radius: 0.5rem;
-  box-shadow: 0 18px 45px rgba(12, 42, 51, 0.07);
+  background: var(--gth-surface);
+  box-shadow: var(--gth-shadow-sm);
   transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
 }
 
 .card:hover {
   border-color: #bfdae2;
-  box-shadow: 0 26px 60px rgba(12, 42, 51, 0.13);
-  transform: translateY(-0.16rem);
+  box-shadow: var(--gth-shadow-md);
+  transform: translateY(-0.08rem);
 }
 
 .metric-card {
   border-top: 4px solid var(--gth-cyan);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 251, 252, 0.9)),
+    #fff;
   animation: riseIn 0.5s ease both;
+}
+
+.metric-card .card-body {
+  min-height: 7.25rem;
+  padding: 1.2rem;
+}
+
+.dashboard-jump {
+  cursor: pointer;
+}
+
+.dashboard-jump:focus-visible {
+  border-color: var(--gth-cyan);
+  box-shadow: 0 0 0 0.22rem rgba(25, 168, 200, 0.16), 0 26px 60px rgba(12, 42, 51, 0.13);
+  outline: 0;
 }
 
 .metric-value {
   color: var(--gth-teal);
-  font-size: 2rem;
+  font-size: 2.05rem;
   line-height: 1.1;
   margin: 0.45rem 0 0.2rem;
   animation: popIn 0.45s 0.14s ease both;
@@ -181,6 +210,8 @@ body {
 .form-control,
 .form-select,
 .form-check-input {
+  border-color: var(--gth-line);
+  background-color: rgba(255, 255, 255, 0.82);
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
@@ -220,15 +251,24 @@ body {
 }
 
 .course-card {
+  border-color: var(--gth-line);
   box-shadow: none;
+  cursor: pointer;
   overflow: hidden;
   transition: box-shadow 0.35s ease, transform 0.35s ease, border-color 0.35s ease;
 }
 
-.course-card:hover {
+.course-card:hover,
+.course-card:focus-visible,
+.course-card.course-card-active {
   border-color: var(--gth-cyan);
   box-shadow: 0 20px 48px rgba(8, 127, 155, 0.18);
-  transform: translateY(-0.26rem);
+  outline: 0;
+  transform: translateY(-0.12rem);
+}
+
+.course-card.course-card-active {
+  box-shadow: 0 24px 58px rgba(8, 127, 155, 0.24);
 }
 
 .course-card.course-search-match {
@@ -246,10 +286,117 @@ body {
   flex: 1 1 auto;
 }
 
+.course-workspace {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid #c9e0e7;
+  border-radius: 0.75rem;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(232, 246, 250, 0.58)),
+    #fff;
+  box-shadow: var(--gth-shadow-md);
+  animation: sectionIn 0.28s ease both;
+}
+
+.course-workspace-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: start;
+}
+
+.course-workspace-meta {
+  display: grid;
+  gap: 0.35rem;
+  justify-items: end;
+}
+
+.course-workspace-meta strong {
+  color: var(--gth-teal);
+  font-size: 1.75rem;
+  line-height: 1;
+}
+
+.course-workspace-progress {
+  height: 0.7rem;
+}
+
+.course-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(16rem, 0.65fr);
+  gap: 1rem;
+}
+
+.course-workspace-panel {
+  padding: 1rem;
+  border: 1px solid var(--gth-line);
+  border-radius: 0.65rem;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.course-workspace-panel-main {
+  background:
+    linear-gradient(180deg, #fff, #f8fbfc),
+    #fff;
+}
+
+.course-module-list {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.course-module-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--gth-line);
+  border-radius: 0.55rem;
+  background: #fff;
+}
+
+.course-module-number {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 2.25rem;
+  place-items: center;
+  border-radius: 0.5rem;
+  background: #e8f6fa;
+  color: var(--gth-teal);
+  font-weight: 900;
+}
+
+.course-activity-list {
+  padding-left: 0.75rem;
+  border-left: 3px solid #d8e7ec;
+}
+
+.course-workspace-coral {
+  border-color: rgba(231, 55, 79, 0.32);
+}
+
+.course-workspace-coral .course-module-number {
+  background: #fff0f2;
+  color: var(--gth-coral);
+}
+
+.course-workspace-sand {
+  border-color: rgba(244, 183, 94, 0.48);
+}
+
+.course-workspace-sand .course-module-number {
+  background: var(--gth-cream);
+  color: #81510b;
+}
+
 .announcement-item {
   position: relative;
   padding: 1rem;
-  border: 1px solid #d8e7ec;
+  border: 1px solid var(--gth-line);
   border-radius: 0.65rem;
   background:
     linear-gradient(180deg, #fff, #fbfdfe),
@@ -260,8 +407,8 @@ body {
 
 .announcement-item:hover {
   border-color: #bfdae2;
-  box-shadow: 0 16px 36px rgba(12, 42, 51, 0.11);
-  transform: translateY(-0.14rem);
+  box-shadow: 0 14px 34px rgba(12, 42, 51, 0.085);
+  transform: translateY(-0.08rem);
 }
 
 .announcement-item .badge,
@@ -638,6 +785,7 @@ body {
   display: flex;
   align-items: center;
   gap: 1rem;
+  min-height: 8rem;
   cursor: pointer;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
@@ -651,9 +799,9 @@ body {
 }
 
 .video-announcement-thumb {
-  width: 8rem;
+  width: clamp(8rem, 22vw, 15rem);
   aspect-ratio: 16 / 9;
-  flex: 0 0 8rem;
+  flex: 0 0 clamp(8rem, 22vw, 15rem);
   border-radius: 0.5rem;
   object-fit: cover;
   background: #e8f0f3;
@@ -661,7 +809,33 @@ body {
 }
 
 .video-announcement-content {
+  display: grid;
+  gap: 0.2rem;
+  flex: 1 1 auto;
   min-width: 0;
+}
+
+.video-announcement-details,
+.meeting-session-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.video-announcement-details span,
+.meeting-session-details span {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #d8e7ec;
+  border-radius: 999px;
+  background: rgba(232, 246, 250, 0.72);
+  color: #5f7279;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.video-announcement-action {
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .video-thumb {
@@ -952,6 +1126,36 @@ body {
 .meeting-link-card {
   position: relative;
   overflow: hidden;
+}
+
+.student-meeting-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  min-height: 8rem;
+}
+
+.student-meeting-content {
+  min-width: 0;
+}
+
+.student-meeting-card .d-flex.flex-wrap {
+  margin-bottom: 0.5rem !important;
+}
+
+.student-meeting-card h3 {
+  font-size: 1.05rem;
+}
+
+.student-meeting-card .meeting-link-url {
+  max-width: 54rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0 !important;
+}
+
+.student-meeting-card .btn {
+  min-width: 7.5rem;
 }
 
 .meeting-link-card::before {
@@ -1282,6 +1486,19 @@ body {
     min-height: 5.5rem;
   }
 
+  .course-workspace {
+    padding: 0.8rem;
+  }
+
+  .course-workspace-hero,
+  .course-workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .course-workspace-meta {
+    justify-items: start;
+  }
+
   .video-announcement-item {
     align-items: flex-start;
     gap: 0.75rem;
@@ -1290,6 +1507,18 @@ body {
   .video-announcement-thumb {
     width: 5.5rem;
     flex-basis: 5.5rem;
+  }
+
+  .video-announcement-action {
+    align-self: flex-start;
+  }
+
+  .student-meeting-card {
+    grid-template-columns: 1fr;
+  }
+
+  .student-meeting-card .btn {
+    width: fit-content;
   }
 
   #chatbox {
@@ -1384,6 +1613,16 @@ body {
   .video-announcement-thumb {
     width: 100%;
     flex-basis: auto;
+  }
+
+  .video-announcement-action,
+  .student-meeting-card .btn {
+    width: 100%;
+  }
+
+  .course-module-item {
+    align-items: flex-start;
+    flex-wrap: wrap;
   }
 
   .chat-messages {
