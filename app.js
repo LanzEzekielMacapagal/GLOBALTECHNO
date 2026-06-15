@@ -27,6 +27,7 @@ const studentVideos = document.querySelector("#studentVideos");
 const studentVideoClass = document.querySelector("#studentVideoClass");
 const assignmentForm = document.querySelector("#assignmentForm");
 const adminAssignments = document.querySelector("#adminAssignments");
+const adminGrades = document.querySelector("#adminGrades");
 const studentAssignments = document.querySelector("#studentAssignments");
 const studentAssignmentClass = document.querySelector("#studentAssignmentClass");
 const videoModal = document.querySelector("#videoModal");
@@ -56,7 +57,7 @@ const motionObserver = !prefersReducedMotion && "IntersectionObserver" in window
   : null;
 
 function observeMotionElements(root = document) {
-  const elements = root.querySelectorAll(".card, .announcement-item, .grade-tile, .chat-message, .student-section-nav");
+  const elements = root.querySelectorAll(".card, .announcement-item, .grade-tile, .gradebook-course, .chat-message, .student-section-nav");
 
   elements.forEach((element) => {
     if (element.classList.contains("motion-ready")) return;
@@ -103,9 +104,33 @@ const classroomTitles = {
   all: "All Classrooms"
 };
 
+const classroomStudents = {
+  ict: [
+    { id: "ict-andrea", name: "Andrea Valdez" },
+    { id: "ict-jomar", name: "Jomar Mercado" },
+    { id: "ict-mika", name: "Mika Santos" }
+  ],
+  css: [
+    { id: "css-ella", name: "Ella Reyes" },
+    { id: "css-paolo", name: "Paolo Cruz" },
+    { id: "css-nina", name: "Nina Ramos" }
+  ]
+};
+
 const requestedClassroom = new URLSearchParams(window.location.search).get("classroom") || "ict";
 const selectedClassroom = classroomTitles[requestedClassroom] ? requestedClassroom : "ict";
 const selectedClassroomTitle = classroomTitles[selectedClassroom];
+const currentStudent = {
+  ...((classroomStudents[selectedClassroom] || classroomStudents.ict)[0]),
+  classroom: selectedClassroom
+};
+
+const subjectCourseMap = {
+  "OJT Onboarding Essentials": "onboarding",
+  "Safety and Compliance": "safety",
+  "Supervisor Skills Workshop": "supervisor",
+  "General Activity": "onboarding"
+};
 
 const demoAnnouncements = [
   {
@@ -141,12 +166,15 @@ const demoAssignments = [
   {
     id: "demo-assignment-ict",
     classroom: "ict",
+    subject: "OJT Onboarding Essentials",
     title: "Onboarding Checklist Submission",
     instructions: "Upload your completed onboarding checklist and supervisor acknowledgment.",
-    dueDate: "2026-06-18",
+    dueDate: "2026-06-18T17:00",
     createdAt: "2026-06-11T12:00:00.000Z"
   }
 ];
+
+let expandedAssignmentId;
 
 const demoInvitations = [
   {
@@ -214,6 +242,61 @@ function createTextElement(tag, className, text) {
   if (className) element.className = className;
   element.textContent = text;
   return element;
+}
+
+function getAllStudents() {
+  return Object.entries(classroomStudents).flatMap(([classroom, students]) => {
+    return students.map((student) => ({ ...student, classroom }));
+  });
+}
+
+function getStudentGrades() {
+  return getStoredItems("gthStudentGrades", []);
+}
+
+function getStudentGrade(courseId, studentId) {
+  return getStudentGrades().find((grade) => grade.courseId === courseId && grade.studentId === studentId);
+}
+
+function calculateFinalGrade(grade = {}) {
+  const values = ["prelim", "midterm", "final"].map((key) => grade[key]);
+  if (values.some((value) => value === "" || value === null || value === undefined)) return null;
+  const parts = values.map((value) => Number(value));
+  if (parts.some((part) => Number.isNaN(part))) return null;
+  return Math.round(parts.reduce((total, part) => total + part, 0) / parts.length);
+}
+
+function renderCourseGradeSummary(courseId, student = currentStudent) {
+  const grade = getStudentGrade(courseId, student.id) || {};
+  const finalGrade = calculateFinalGrade(grade);
+  const summary = document.createElement("div");
+  summary.className = "course-grade-summary mt-3";
+
+  summary.append(
+    createTextElement("p", "section-label mb-1", "Current grades"),
+    createTextElement("h4", "h6 mb-3", student.name)
+  );
+
+  const grid = document.createElement("div");
+  grid.className = "course-grade-grid";
+
+  [
+    ["Prelim", grade.prelim],
+    ["Midterm", grade.midterm],
+    ["Final", grade.final],
+    ["Final Grade", finalGrade]
+  ].forEach(([label, value]) => {
+    const tile = document.createElement("div");
+    tile.className = "course-grade-tile";
+    tile.append(
+      createTextElement("span", "", label),
+      createTextElement("strong", "", value === null || value === undefined || value === "" ? "--" : `${value}%`)
+    );
+    grid.appendChild(tile);
+  });
+
+  summary.appendChild(grid);
+  return summary;
 }
 
 function renderCourseWorkspace(courseId, triggerCard) {
@@ -288,6 +371,7 @@ function renderCourseWorkspace(courseId, triggerCard) {
     moduleList.appendChild(item);
   });
   stream.appendChild(moduleList);
+  stream.appendChild(renderCourseGradeSummary(courseId));
 
   const side = document.createElement("aside");
   side.className = "course-workspace-panel";
@@ -307,6 +391,7 @@ function renderCourseWorkspace(courseId, triggerCard) {
   });
 
   side.append(resourceTitle, resourceList, activityTitle, activityList);
+
   body.append(stream, side);
   workspace.append(hero, progress, body);
   courseList.insertAdjacentElement("afterend", workspace);
@@ -1020,11 +1105,15 @@ function getAssignments() {
 }
 
 function formatDueDate(value) {
+  const date = value?.includes("T") ? new Date(value) : new Date(`${value}T00:00:00`);
+
   return new Intl.DateTimeFormat("en", {
     month: "short",
     day: "numeric",
-    year: "numeric"
-  }).format(new Date(`${value}T00:00:00`));
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
 }
 
 function formatFileSize(bytes) {
@@ -1037,18 +1126,198 @@ function getAssignmentSubmissions() {
   return getStoredItems("gthAssignmentSubmissions", []);
 }
 
-function getAssignmentSubmission(assignmentId) {
-  return getAssignmentSubmissions().find((submission) => {
-    return submission.assignmentId === assignmentId && submission.classroom === selectedClassroom;
+function getAssignmentClassrooms(assignment) {
+  if (assignment.classroom === "all") return Object.keys(classroomStudents);
+  return classroomStudents[assignment.classroom] ? [assignment.classroom] : [];
+}
+
+function getAssignmentStudents(assignment) {
+  return getAssignmentClassrooms(assignment).flatMap((classroom) => {
+    return classroomStudents[classroom].map((student) => ({ ...student, classroom }));
   });
 }
 
+function isSubmissionForStudent(submission, assignmentId, student) {
+  if (submission.assignmentId !== assignmentId) return false;
+  if (submission.studentId) return submission.studentId === student.id;
+  return submission.classroom === student.classroom && student.id === (classroomStudents[student.classroom] || [])[0]?.id;
+}
+
+function getAssignmentSubmission(assignmentId, student = currentStudent) {
+  return getAssignmentSubmissions().find((submission) => {
+    return isSubmissionForStudent(submission, assignmentId, student);
+  });
+}
+
+function createGradeForm(courseId, student, options = {}) {
+  const grade = getStudentGrade(courseId, student.id) || {};
+  const finalGrade = calculateFinalGrade(grade);
+  const gradeForm = document.createElement("form");
+  gradeForm.className = options.compact ? "assignment-grade-form gradebook-grade-form" : "assignment-grade-form";
+  gradeForm.dataset.studentGradeForm = courseId;
+  gradeForm.dataset.studentId = student.id;
+  gradeForm.dataset.studentName = student.name;
+  gradeForm.dataset.classroom = student.classroom;
+
+  [
+    ["prelim", "Prelim", grade.prelim],
+    ["midterm", "Midterm", grade.midterm],
+    ["final", "Final", grade.final]
+  ].forEach(([name, labelText, value]) => {
+    const label = document.createElement("label");
+    label.className = "form-label mb-0";
+    label.textContent = labelText;
+
+    const input = document.createElement("input");
+    input.className = "form-control form-control-sm mt-1";
+    input.name = name;
+    input.type = "number";
+    input.min = "0";
+    input.max = "100";
+    input.placeholder = "0";
+    input.value = value ?? "";
+
+    label.appendChild(input);
+    gradeForm.appendChild(label);
+  });
+
+  const finalDisplay = document.createElement("div");
+  finalDisplay.className = "assignment-final-grade";
+  finalDisplay.append(
+    createTextElement("span", "", "Final Grade"),
+    createTextElement("strong", "", finalGrade === null ? "--" : `${finalGrade}%`)
+  );
+
+  const gradeButton = document.createElement("button");
+  gradeButton.className = "btn btn-outline-primary btn-sm";
+  gradeButton.type = "submit";
+  gradeButton.textContent = "Save Grades";
+
+  gradeForm.append(finalDisplay, gradeButton);
+  return gradeForm;
+}
+
+function renderGradebook() {
+  if (!adminGrades) return;
+
+  adminGrades.replaceChildren();
+
+  Object.entries(courseWorkspaces).forEach(([courseId, course]) => {
+    const courseGrades = getAllStudents().map((student) => {
+      return calculateFinalGrade(getStudentGrade(courseId, student.id) || {});
+    }).filter((grade) => grade !== null);
+
+    const courseAverage = courseGrades.length
+      ? Math.round(courseGrades.reduce((total, grade) => total + grade, 0) / courseGrades.length)
+      : null;
+
+    const coursePanel = document.createElement("article");
+    coursePanel.className = "gradebook-course";
+
+    const header = document.createElement("div");
+    header.className = "gradebook-course-header";
+    const headerText = document.createElement("div");
+    headerText.append(
+      createTextElement("p", "section-label mb-1", "Course grading"),
+      createTextElement("h3", "h6 mb-1", course.title),
+      createTextElement("small", "text-secondary", "Record each learner's period grades. Final grade is calculated automatically.")
+    );
+
+    const average = document.createElement("div");
+    average.className = "gradebook-average";
+    average.append(
+      createTextElement("span", "", "Course average"),
+      createTextElement("strong", "", courseAverage === null ? "--" : `${courseAverage}%`)
+    );
+
+    header.append(headerText, average);
+
+    const rows = document.createElement("div");
+    rows.className = "gradebook-rows";
+
+    getAllStudents().forEach((student) => {
+      const row = document.createElement("section");
+      row.className = "gradebook-row";
+
+      const info = document.createElement("div");
+      info.className = "gradebook-student";
+
+      const initials = student.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+      info.append(
+        createTextElement("span", "avatar", initials),
+        createTextElement("strong", "", student.name),
+        createTextElement("small", "text-secondary", classroomTitles[student.classroom] || "Classroom")
+      );
+
+      row.append(info, createGradeForm(courseId, student, { compact: true }));
+      rows.appendChild(row);
+    });
+
+    coursePanel.append(header, rows);
+    adminGrades.appendChild(coursePanel);
+  });
+
+  observeMotionElements(adminGrades);
+}
+
+function renderAssignmentReview(assignment) {
+  const review = document.createElement("div");
+  review.className = "assignment-review mt-3";
+
+  const reviewTitle = document.createElement("strong");
+  reviewTitle.className = "d-block mb-2";
+  reviewTitle.textContent = "Submission status";
+
+  const list = document.createElement("div");
+  list.className = "vstack gap-2";
+
+  getAssignmentStudents(assignment).forEach((student) => {
+    const submission = getAssignmentSubmission(assignment.id, student);
+    const row = document.createElement("div");
+    row.className = "assignment-review-row";
+
+    const info = document.createElement("div");
+    info.className = "assignment-review-info";
+
+    const nameLine = document.createElement("div");
+    nameLine.className = "d-flex flex-wrap align-items-center gap-2";
+
+    const name = document.createElement("strong");
+    name.textContent = student.name;
+
+    const classroom = document.createElement("span");
+    classroom.className = "badge text-bg-light";
+    classroom.textContent = classroomTitles[student.classroom] || "Classroom";
+
+    const status = document.createElement("span");
+    status.className = `badge ${submission ? "text-bg-success" : "text-bg-secondary"}`;
+    status.textContent = submission ? "Submitted" : "Not passed yet";
+
+    nameLine.append(name, classroom, status);
+    info.appendChild(nameLine);
+
+    if (submission) {
+      const submitted = document.createElement("small");
+      submitted.className = "text-secondary d-block mt-1";
+      submitted.textContent = `Submitted ${formatDate(submission.submittedAt)} with ${submission.files.length} file${submission.files.length === 1 ? "" : "s"}.`;
+      info.appendChild(submitted);
+    }
+
+    row.append(info);
+    list.appendChild(row);
+  });
+
+  review.append(reviewTitle, list);
+  return review;
+}
+
 function renderAssignmentCard(assignment, options = {}) {
+  const isExpanded = expandedAssignmentId === assignment.id;
   const wrapper = document.createElement("article");
-  wrapper.className = options.admin ? "col-12 col-md-6 col-xxl-4" : "col-12";
+  wrapper.className = "col-12";
 
   const card = document.createElement("div");
-  card.className = options.admin ? "card video-resource h-100" : "announcement-item";
+  card.className = `${options.admin ? "card video-resource h-100" : "announcement-item"} assignment-card${isExpanded ? " assignment-card-expanded" : ""}`;
 
   const body = document.createElement("div");
   body.className = options.admin ? "card-body" : "";
@@ -1060,6 +1329,10 @@ function renderAssignmentCard(assignment, options = {}) {
   classroom.className = "badge text-bg-info";
   classroom.textContent = classroomTitles[assignment.classroom] || "Classroom";
 
+  const subject = document.createElement("span");
+  subject.className = "badge text-bg-light";
+  subject.textContent = assignment.subject || "General Activity";
+
   const dueDate = document.createElement("span");
   dueDate.className = "badge text-bg-warning";
   dueDate.textContent = `Due ${formatDueDate(assignment.dueDate)}`;
@@ -1069,17 +1342,46 @@ function renderAssignmentCard(assignment, options = {}) {
   created.textContent = formatDate(assignment.createdAt);
 
   const title = document.createElement("h3");
-  title.className = "h6 mb-2";
+  title.className = "h6 mb-0";
   title.textContent = assignment.title;
 
   const instructions = document.createElement("p");
   instructions.className = "text-secondary mb-0";
   instructions.textContent = assignment.instructions;
 
-  meta.append(classroom, dueDate, created);
-  body.append(meta, title, instructions);
+  const toggle = document.createElement("button");
+  toggle.className = "assignment-toggle";
+  toggle.type = "button";
+  toggle.dataset.assignmentAction = "toggle";
+  toggle.dataset.assignmentId = assignment.id;
+  toggle.setAttribute("aria-expanded", String(isExpanded));
+  toggle.append(
+    createTextElement("span", "", isExpanded ? "Hide details" : "View details"),
+    createTextElement("span", "assignment-toggle-icon", isExpanded ? "-" : "+")
+  );
+
+  const header = document.createElement("div");
+  header.className = "assignment-card-header";
+  header.append(title, toggle);
+
+  const details = document.createElement("div");
+  details.className = "assignment-card-details";
+
+  meta.append(classroom, subject, dueDate, created);
+  body.append(meta, header);
+
+  if (!isExpanded) {
+    const preview = document.createElement("p");
+    preview.className = "assignment-preview text-secondary mb-0";
+    preview.textContent = assignment.instructions;
+    body.appendChild(preview);
+  }
+
+  if (isExpanded) details.appendChild(instructions);
 
   if (options.admin) {
+    if (isExpanded) details.appendChild(renderAssignmentReview(assignment));
+
     const actions = document.createElement("div");
     actions.className = "d-flex flex-wrap gap-2 mt-3";
 
@@ -1091,7 +1393,7 @@ function renderAssignmentCard(assignment, options = {}) {
     removeButton.textContent = "Remove";
 
     actions.appendChild(removeButton);
-    body.appendChild(actions);
+    if (isExpanded) details.appendChild(actions);
   } else {
     const submission = getAssignmentSubmission(assignment.id);
     const uploadForm = document.createElement("form");
@@ -1116,7 +1418,7 @@ function renderAssignmentCard(assignment, options = {}) {
 
     uploadLabel.appendChild(fileInput);
     uploadForm.append(uploadLabel, submitButton);
-    body.appendChild(uploadForm);
+    if (isExpanded) details.appendChild(uploadForm);
 
     if (submission) {
       const submitted = document.createElement("div");
@@ -1141,10 +1443,11 @@ function renderAssignmentCard(assignment, options = {}) {
       });
 
       submitted.append(submittedTitle, submittedTime, fileList);
-      body.appendChild(submitted);
+      if (isExpanded) details.appendChild(submitted);
     }
   }
 
+  if (isExpanded) body.appendChild(details);
   card.appendChild(body);
   wrapper.appendChild(card);
   return wrapper;
@@ -1154,6 +1457,12 @@ function renderAssignments() {
   const assignments = getAssignments().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
   if (adminAssignments) {
+    if (expandedAssignmentId === undefined) {
+      expandedAssignmentId = assignments[0]?.id || null;
+    } else if (expandedAssignmentId !== null && !assignments.some((assignment) => assignment.id === expandedAssignmentId)) {
+      expandedAssignmentId = assignments[0]?.id || null;
+    }
+
     adminAssignments.replaceChildren();
 
     if (!assignments.length) {
@@ -1172,6 +1481,13 @@ function renderAssignments() {
 
   if (studentAssignments) {
     const classroomAssignments = assignments.filter(isVisibleForSelectedClassroom);
+    if (!adminAssignments) {
+      if (expandedAssignmentId === undefined) {
+        expandedAssignmentId = classroomAssignments[0]?.id || null;
+      } else if (expandedAssignmentId !== null && !classroomAssignments.some((assignment) => assignment.id === expandedAssignmentId)) {
+        expandedAssignmentId = classroomAssignments[0]?.id || null;
+      }
+    }
 
     studentAssignments.replaceChildren();
     if (studentAssignmentClass) studentAssignmentClass.textContent = selectedClassroomTitle;
@@ -1190,27 +1506,33 @@ function renderAssignments() {
 
     observeMotionElements(studentAssignments);
   }
+
+  renderGradebook();
 }
 
 assignmentForm?.addEventListener("submit", (event) => {
   event.preventDefault();
 
   const title = document.querySelector("#assignmentTitle").value.trim();
+  const subject = document.querySelector("#assignmentSubject").value;
   const instructions = document.querySelector("#assignmentInstructions").value.trim();
   const dueDate = document.querySelector("#assignmentDueDate").value;
 
-  if (!title || !instructions || !dueDate) return;
+  if (!title || !subject || !instructions || !dueDate) return;
 
   const assignments = getAssignments();
+  const assignmentId = `assignment-${Date.now()}`;
   assignments.unshift({
-    id: `assignment-${Date.now()}`,
+    id: assignmentId,
     classroom: document.querySelector("#assignmentClassroom").value,
+    subject,
     title,
     instructions,
     dueDate,
     createdAt: new Date().toISOString()
   });
 
+  expandedAssignmentId = assignmentId;
   saveStoredItems("gthAssignments", assignments);
   assignmentForm.reset();
   renderAssignments();
@@ -1220,7 +1542,14 @@ document.addEventListener("click", (event) => {
   const actionButton = event.target.closest("[data-assignment-action]");
   if (!actionButton) return;
 
+  if (actionButton.dataset.assignmentAction === "toggle") {
+    expandedAssignmentId = expandedAssignmentId === actionButton.dataset.assignmentId ? null : actionButton.dataset.assignmentId;
+    renderAssignments();
+    return;
+  }
+
   if (actionButton.dataset.assignmentAction === "remove") {
+    if (expandedAssignmentId === actionButton.dataset.assignmentId) expandedAssignmentId = null;
     saveStoredItems("gthAssignments", getAssignments().filter((item) => item.id !== actionButton.dataset.assignmentId));
     saveStoredItems("gthAssignmentSubmissions", getAssignmentSubmissions().filter((item) => item.assignmentId !== actionButton.dataset.assignmentId));
     renderAssignments();
@@ -1238,14 +1567,17 @@ document.addEventListener("submit", (event) => {
   if (!files.length) return;
 
   const assignmentId = form.dataset.assignmentUploadForm;
+  expandedAssignmentId = assignmentId;
   const submissions = getAssignmentSubmissions().filter((submission) => {
-    return !(submission.assignmentId === assignmentId && submission.classroom === selectedClassroom);
+    return !isSubmissionForStudent(submission, assignmentId, currentStudent);
   });
 
   submissions.push({
     id: `assignment-submission-${Date.now()}`,
     assignmentId,
     classroom: selectedClassroom,
+    studentId: currentStudent.id,
+    studentName: currentStudent.name,
     files: files.map((file) => ({
       name: file.name,
       size: file.size,
@@ -1256,6 +1588,44 @@ document.addEventListener("submit", (event) => {
 
   saveStoredItems("gthAssignmentSubmissions", submissions);
   renderAssignments();
+});
+
+document.addEventListener("submit", (event) => {
+  const form = event.target.closest("[data-student-grade-form]");
+  if (!form) return;
+
+  event.preventDefault();
+
+  const grades = getStudentGrades().filter((grade) => {
+    return !(grade.courseId === form.dataset.studentGradeForm && grade.studentId === form.dataset.studentId);
+  });
+
+  const readGrade = (name) => {
+    const value = form.querySelector(`[name='${name}']`)?.value.trim();
+    return value === "" ? "" : Math.max(0, Math.min(100, Number(value)));
+  };
+
+  const grade = {
+    id: `student-grade-${Date.now()}`,
+    courseId: form.dataset.studentGradeForm,
+    studentId: form.dataset.studentId,
+    studentName: form.dataset.studentName,
+    classroom: form.dataset.classroom,
+    prelim: readGrade("prelim"),
+    midterm: readGrade("midterm"),
+    final: readGrade("final"),
+    updatedAt: new Date().toISOString()
+  };
+
+  grade.finalGrade = calculateFinalGrade(grade);
+  grades.push(grade);
+
+  saveStoredItems("gthStudentGrades", grades);
+  renderAssignments();
+  renderGradebook();
+
+  const activeCourseCard = document.querySelector(`.course-card-active[data-course='${form.dataset.studentGradeForm}']`);
+  if (activeCourseCard) renderCourseWorkspace(form.dataset.studentGradeForm, activeCourseCard);
 });
 
 function getInvitations() {

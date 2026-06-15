@@ -91,6 +91,7 @@
           <a href="#announcements" class="active" data-student-section-link="announcements">Announcements</a>
           <a href="#videos" data-student-section-link="videos">Videos</a>
           <a href="#assignments" data-student-section-link="assignments">Assignments</a>
+          <a href="#grades" data-student-section-link="grades">Student Grades</a>
           <a href="#invitations" data-student-section-link="invitations">Live Sessions</a>
           <a href="#courses" data-student-section-link="courses">Courses</a>
           <a href="#class-chat" data-student-section-link="class-chat">Class Chat</a>
@@ -189,9 +190,9 @@
         </div>
       </section>
 
-      <section class="row g-3 student-section-card" id="assignments" data-student-section="assignments">
-        <div class="col-12 col-xl-5">
-          <section class="card h-100">
+      <section class="row g-3 student-section-card assignment-workspace" id="assignments" data-student-section="assignments">
+        <div class="col-12 col-xl-5 assignment-form-column">
+          <section class="card">
             <div class="card-body">
               <p class="section-label mb-1">Assignment task</p>
               <h2 class="h5 mb-3">Post Assignment</h2>
@@ -204,16 +205,25 @@
                     <option value="all">All Classrooms</option>
                   </select>
                 </label>
+                <label class="form-label mb-0">
+                  Subject
+                  <select class="form-select mt-1" id="assignmentSubject" required>
+                    <option>OJT Onboarding Essentials</option>
+                    <option>Safety and Compliance</option>
+                    <option>Supervisor Skills Workshop</option>
+                    <option>General Activity</option>
+                  </select>
+                </label>
                 <label class="form-label mb-0">Title<input class="form-control mt-1" id="assignmentTitle" type="text" placeholder="Assignment title" required></label>
                 <label class="form-label mb-0">Instructions<textarea class="form-control mt-1" id="assignmentInstructions" rows="4" placeholder="Write assignment instructions" required></textarea></label>
-                <label class="form-label mb-0">Due date<input class="form-control mt-1" id="assignmentDueDate" type="date" required></label>
+                <label class="form-label mb-0">Due date and time<input class="form-control mt-1" id="assignmentDueDate" type="datetime-local" required></label>
                 <button class="btn btn-primary" type="submit">Post Assignment</button>
               </form>
             </div>
           </section>
         </div>
-        <div class="col-12 col-xl-7">
-          <section class="card">
+        <div class="col-12 col-xl-7 assignment-list-column">
+          <section class="card assignment-list-card">
             <div class="card-body">
               <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3">
                 <div>
@@ -225,6 +235,33 @@
               <div class="row g-3" id="adminAssignments"></div>
             </div>
           </section>
+        </div>
+      </section>
+
+      <section class="card student-section-card" id="grades" data-student-section="grades">
+        <div class="card-body">
+          <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3">
+            <div>
+              <p class="section-label mb-1">Assessment records</p>
+              <h2 class="h5 mb-0">Student Gradebook</h2>
+            </div>
+            <span class="badge text-bg-info align-self-start">Prelim + Midterm + Final</span>
+          </div>
+          <div class="gradebook-summary mb-3">
+            <article>
+              <span>Tracked learners</span>
+              <strong>6</strong>
+            </article>
+            <article>
+              <span>Grading periods</span>
+              <strong>3</strong>
+            </article>
+            <article>
+              <span>Final grade formula</span>
+              <strong>Average</strong>
+            </article>
+          </div>
+          <div class="vstack gap-3" id="adminGrades"></div>
         </div>
       </section>
 
