@@ -895,7 +895,7 @@ function getVideoSource(url) {
       provider: "youtube",
       providerLabel: "YouTube",
       sourceId: youtubeId,
-      embedUrl: `https://www.youtube.com/embed/${youtubeId}`,
+      embedUrl: `https://www.youtube.com/embed/${youtubeId}?autoplay=1&playsinline=1&rel=0`,
       thumbnailUrl: `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg`
     };
   }
@@ -927,7 +927,7 @@ function getSavedVideoSource(video) {
       provider: "youtube",
       providerLabel: "YouTube",
       sourceId: video.youtubeId,
-      embedUrl: `https://www.youtube.com/embed/${video.youtubeId}`,
+      embedUrl: `https://www.youtube.com/embed/${video.youtubeId}?autoplay=1&playsinline=1&rel=0`,
       thumbnailUrl: `https://img.youtube.com/vi/${video.youtubeId}/hqdefault.jpg`
     };
   }
@@ -943,6 +943,47 @@ function createVideoPlaceholder(providerLabel = "Video") {
     createTextElement("strong", "", providerLabel)
   );
   return placeholder;
+}
+
+function showVideoModal() {
+  if (!videoModal) return false;
+
+  if (window.bootstrap?.Modal) {
+    bootstrap.Modal.getOrCreateInstance(videoModal).show();
+    return true;
+  }
+
+  videoModal.classList.add("show");
+  videoModal.removeAttribute("aria-hidden");
+  videoModal.setAttribute("aria-modal", "true");
+  videoModal.setAttribute("role", "dialog");
+  videoModal.style.display = "block";
+  document.body.classList.add("modal-open");
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop fade show video-modal-backdrop";
+  backdrop.dataset.videoModalBackdrop = "true";
+  document.body.appendChild(backdrop);
+
+  return true;
+}
+
+function hideVideoModal() {
+  if (!videoModal) return;
+
+  if (window.bootstrap?.Modal) {
+    bootstrap.Modal.getOrCreateInstance(videoModal).hide();
+    return;
+  }
+
+  if (videoModalFrame) videoModalFrame.src = "";
+  videoModal.classList.remove("show");
+  videoModal.setAttribute("aria-hidden", "true");
+  videoModal.removeAttribute("aria-modal");
+  videoModal.removeAttribute("role");
+  videoModal.style.display = "";
+  document.body.classList.remove("modal-open");
+  document.querySelector("[data-video-modal-backdrop='true']")?.remove();
 }
 
 function renderVideoCard(video, options = {}) {
