@@ -606,6 +606,29 @@ function saveCourseQuizSubmissions(submissions) {
   saveStoredItems("gthCourseQuizSubmissions", submissions);
 }
 
+function getQuizExtraChances() {
+  return getStoredItems("gthQuizExtraChances", []);
+}
+
+function saveQuizExtraChances(chances) {
+  saveStoredItems("gthQuizExtraChances", chances);
+}
+
+function getQuizExtraChance(quizId, studentId = currentStudent.id) {
+  return getQuizExtraChances().find((chance) => chance.quizId === quizId && chance.studentId === studentId && !chance.usedAt);
+}
+
+function hasQuizExtraChance(quizId, studentId = currentStudent.id) {
+  return Boolean(getQuizExtraChance(quizId, studentId));
+}
+
+function consumeQuizExtraChance(quizId, studentId = currentStudent.id) {
+  saveQuizExtraChances(getQuizExtraChances().map((chance) => {
+    if (chance.quizId !== quizId || chance.studentId !== studentId || chance.usedAt) return chance;
+    return { ...chance, usedAt: new Date().toISOString() };
+  }));
+}
+
 function getCourseNextPosts() {
   return getStoredItems("gthCourseNextPosts", []);
 }
@@ -1259,6 +1282,48 @@ function getMatchingQuestionScore(question, answer) {
   }, 0);
 }
 
+function getMatchingAnswerChoice(question, answerText = "") {
+  return (question.pairs || []).find((pair) => normalizeAnswer(pair.answer) === normalizeAnswer(answerText));
+}
+
+function renderMatchingResultChoice(label, text, image, stateClass = "") {
+  const choice = document.createElement("div");
+  choice.className = `course-matching-result-choice${stateClass ? ` ${stateClass}` : ""}`;
+  choice.append(
+    createTextElement("small", "", label),
+    renderMatchingText(text || "No answer", image || "", text ? `Image for ${text}` : "")
+  );
+  return choice;
+}
+
+function renderMatchingResultRow(question, pair, pairIndex, submittedAnswer, options = {}) {
+  const submittedChoice = getMatchingAnswerChoice(question, submittedAnswer);
+  const isCorrect = normalizeAnswer(submittedAnswer) === normalizeAnswer(pair.answer);
+  const row = document.createElement("div");
+  row.className = `course-matching-result-row${isCorrect ? " course-matching-result-correct" : " course-matching-result-wrong"}`;
+
+  const header = document.createElement("div");
+  header.className = "course-matching-result-header";
+  header.append(
+    createTextElement("span", "course-quiz-letter", String(pairIndex + 1)),
+    createTextElement("strong", "", isCorrect ? "Correct match" : "Needs correction")
+  );
+
+  const grid = document.createElement("div");
+  grid.className = "course-matching-result-grid";
+  grid.append(
+    renderMatchingResultChoice("Item", pair.prompt, pair.promptImage),
+    renderMatchingResultChoice(options.adminView ? "Student picked" : "Your answer", submittedAnswer || "No answer", submittedChoice?.answerImage || "", isCorrect ? "is-correct" : "is-wrong")
+  );
+
+  if (!isCorrect || options.showCorrect) {
+    grid.append(renderMatchingResultChoice("Correct answer", pair.answer, pair.answerImage, "is-correct"));
+  }
+
+  row.append(header, grid);
+  return row;
+}
+
 function getQuizScore(quiz, submission) {
   if (!submission) return 0;
   return getQuizQuestions(quiz).reduce((total, question, index) => {
@@ -1292,13 +1357,7 @@ function renderSubmittedAnswerForAdmin(quiz, question, submission, index) {
   if (type === "matching" && typeof answer === "object") {
     wrapper.classList.add("course-grade-matching-answer");
     (question.pairs || []).forEach((pair, pairIndex) => {
-      const row = document.createElement("div");
-      row.className = "course-grade-answer-row";
-      row.append(
-        renderMatchingText(pair.prompt, pair.promptImage, `Image for ${pair.prompt}`),
-        createTextElement("span", "", answer[pairIndex] || "No answer")
-      );
-      wrapper.appendChild(row);
+      wrapper.appendChild(renderMatchingResultRow(question, pair, pairIndex, answer[pairIndex] || "", { adminView: true }));
     });
     return wrapper;
   }
@@ -1377,6 +1436,59 @@ function renderQuizGradingPanel(quiz) {
   return panel;
 }
 
+function renderQuizExtraChancePanel(quiz) {
+  const panel = document.createElement("div");
+  panel.className = "course-extra-chance-panel";
+  panel.append(
+    createTextElement("h4", "h6 mb-1", "Missed due time"),
+    createTextElement("p", "small text-secondary mb-2", "Grant one extra front-end attempt to learners who missed the due date.")
+  );
+
+  if (!isPastDue(quiz.dueAt)) {
+    panel.appendChild(createTextElement("p", "text-secondary small mb-0", "Extra chances appear after the due time passes."));
+    return panel;
+  }
+
+  const submittedStudentIds = new Set(getCourseQuizSubmissions()
+    .filter((submission) => submission.quizId === quiz.id)
+    .map((submission) => submission.studentId));
+  const missedStudents = getAllStudents().filter((student) => !submittedStudentIds.has(student.id));
+
+  if (!missedStudents.length) {
+    panel.appendChild(createTextElement("p", "text-secondary small mb-0", "No missed students for this quiz."));
+    return panel;
+  }
+
+  const list = document.createElement("div");
+  list.className = "course-extra-chance-list";
+  missedStudents.forEach((student) => {
+    const row = document.createElement("div");
+    row.className = "course-extra-chance-row";
+    const granted = hasQuizExtraChance(quiz.id, student.id);
+    const info = document.createElement("div");
+    info.append(
+      createTextElement("strong", "", student.name),
+      createTextElement("small", "text-secondary d-block", classroomTitles[student.classroom] || student.classroom)
+    );
+
+    const button = document.createElement("button");
+    button.className = `btn btn-sm ${granted ? "btn-outline-success" : "btn-outline-primary"}`;
+    button.type = "button";
+    button.dataset.quizChanceAction = "grant";
+    button.dataset.quizId = quiz.id;
+    button.dataset.courseId = quiz.courseId;
+    button.dataset.studentId = student.id;
+    button.dataset.studentName = student.name;
+    button.disabled = granted;
+    button.textContent = granted ? "Chance granted" : "Grant chance";
+    row.append(info, button);
+    list.appendChild(row);
+  });
+
+  panel.appendChild(list);
+  return panel;
+}
+
 function renderCourseQuizItem(quiz) {
   const item = document.createElement("details");
   item.className = "course-quiz-item";
@@ -1439,16 +1551,7 @@ function renderCourseQuizItem(quiz) {
         const submittedPairs = getSubmittedAnswer(submission, question, index) || {};
         const matchingScore = getMatchingQuestionScore(question, submittedPairs);
         (question.pairs || []).forEach((pair, pairIndex) => {
-          const optionRow = document.createElement("div");
-          const isCorrect = adminApp || normalizeAnswer(submittedPairs[pairIndex]) === normalizeAnswer(pair.answer);
-          optionRow.className = `course-quiz-option course-matching-review-row${isCorrect ? " course-quiz-option-correct" : ""}${submittedPairs[pairIndex] ? " course-quiz-option-selected" : ""}`;
-          optionRow.append(
-            createTextElement("span", "course-quiz-letter", String(pairIndex + 1)),
-            renderMatchingText(pair.prompt, pair.promptImage, `Image for ${pair.prompt}`),
-            createTextElement("span", "", "->"),
-            renderMatchingText(adminApp ? pair.answer : submittedPairs[pairIndex] || "No answer", adminApp ? pair.answerImage : "", `Image for ${pair.answer}`)
-          );
-          options.appendChild(optionRow);
+          options.appendChild(renderMatchingResultRow(question, pair, pairIndex, adminApp ? pair.answer : submittedPairs[pairIndex] || "", { showCorrect: adminApp, adminView: adminApp }));
         });
         questionBlock.appendChild(options);
         if (submission && !adminApp) {
@@ -1487,6 +1590,7 @@ function renderCourseQuizItem(quiz) {
 
   if (adminApp) {
     content.appendChild(renderQuizGradingPanel(quiz));
+    content.appendChild(renderQuizExtraChancePanel(quiz));
 
     const actions = document.createElement("div");
     actions.className = "d-flex flex-wrap gap-2";
