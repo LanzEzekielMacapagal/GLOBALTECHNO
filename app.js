@@ -42,6 +42,7 @@ const studentAssignments = document.querySelector("#studentAssignments");
 const studentAssignmentClass = document.querySelector("#studentAssignmentClass");
 const videoModal = document.querySelector("#videoModal");
 const videoModalFrame = document.querySelector("#videoModalFrame");
+const videoModalPlayer = document.querySelector("#videoModalPlayer");
 const videoModalLabel = document.querySelector("#videoModalLabel");
 const invitationForm = document.querySelector("#invitationForm");
 const studentInvitations = document.querySelector("#studentInvitations");
@@ -163,8 +164,11 @@ const demoVideos = [
     id: "demo-video-ict",
     classroom: "ict",
     title: "OJT Orientation Walkthrough",
-    youtubeId: "dQw4w9WgXcQ",
-    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    provider: "drive",
+    providerLabel: "Google Drive",
+    url: "https://drive.google.com/file/d/demo-ict-ojt/preview",
+    embedUrl: "https://drive.google.com/file/d/demo-ict-ojt/preview",
+    thumbnailUrl: "",
     createdAt: "2026-06-11T10:00:00.000Z"
   }
 ];
@@ -293,7 +297,22 @@ function renderCourseWorkspace(courseId, triggerCard) {
     createTextElement("strong", "", `${course.progress}%`)
   );
 
-  hero.append(heroText, heroMeta);
+  const inviteCode = course.invitationCode || createInvitationCode(course.title, course.id);
+  const invitePanel = document.createElement("div");
+  invitePanel.className = "course-invite-code course-invite-code-hero";
+  const inviteText = document.createElement("div");
+  inviteText.append(
+    createTextElement("span", "", "Subject invitation code"),
+    createTextElement("strong", "", inviteCode)
+  );
+  const copyInvite = document.createElement("button");
+  copyInvite.className = "btn btn-outline-primary btn-sm";
+  copyInvite.type = "button";
+  copyInvite.dataset.copyInviteCode = inviteCode;
+  copyInvite.textContent = "Copy";
+  invitePanel.append(inviteText, copyInvite);
+
+  hero.append(heroText, invitePanel, heroMeta);
 
   const progress = document.createElement("div");
   progress.className = "course-workspace-progress progress";
@@ -325,7 +344,7 @@ function renderCourseWorkspace(courseId, triggerCard) {
 
   if (adminApp) stream.appendChild(renderCourseNextForm(courseId, currentNext));
 
-  const quizTitle = createTextElement("h4", "h6 mt-4 mb-2", "Quizzes");
+  const quizTitle = createTextElement("h4", "h6 mt-4 mb-2", "Tests");
   const quizList = document.createElement("div");
   quizList.className = "course-post-list";
   const quizzes = getCourseItems(getCourseQuizzes(), courseId);
@@ -338,13 +357,13 @@ function renderCourseWorkspace(courseId, triggerCard) {
     scoreSummary.className = "course-quiz-score";
     scoreSummary.append(
       createTextElement("span", "", "Quiz score"),
-      createTextElement("strong", "", `${quizScore.points}/${quizScore.total} points`)
+      createTextElement("strong", "", `${formatQuizScore(quizScore.points)}/${quizScore.total} points`)
     );
     stream.appendChild(scoreSummary);
   }
 
   if (!quizzes.length) {
-    quizList.appendChild(createTextElement("p", "text-secondary small mb-0", adminApp ? "No quizzes posted yet." : "No quizzes for this course yet."));
+    quizList.appendChild(createTextElement("p", "text-secondary small mb-0", adminApp ? "No tests posted yet." : "No tests for this course yet."));
   } else {
     quizzes.forEach((quiz) => quizList.appendChild(renderCourseQuizItem(quiz)));
   }
@@ -649,6 +668,7 @@ function renderCourseNextForm(courseId, currentNext = {}) {
 function renderCourseResourceItem(resource) {
   const item = document.createElement("details");
   item.className = "course-resource-item";
+  item.dataset.resourceId = resource.id;
 
   const summary = document.createElement("summary");
   summary.className = "course-resource-summary";
@@ -657,31 +677,50 @@ function renderCourseResourceItem(resource) {
     createTextElement("strong", "", resource.title),
     createTextElement("small", "text-secondary d-block", resource.description || "Open to view details")
   );
-  summary.append(summaryText, createTextElement("span", "badge text-bg-info", "Open"));
+  summary.append(summaryText, createTextElement("span", "badge text-bg-info", "View"));
 
   const content = document.createElement("div");
   content.className = "course-resource-content";
   content.appendChild(createTextElement("p", "text-secondary small mb-2", resource.description || "Posted course material"));
 
+  const preview = renderCourseResourcePreview(resource);
+  if (preview) {
+    const previewShell = document.createElement("div");
+    previewShell.className = "course-resource-preview-shell";
+    previewShell.append(
+      createTextElement("strong", "small", "Preview"),
+      preview
+    );
+    content.appendChild(previewShell);
+  }
+
   if (resource.file?.name || resource.link) {
-    const details = document.createElement("p");
-    details.className = "small text-secondary mb-0";
+    const details = document.createElement("button");
+    details.className = "course-resource-file";
+    details.type = "button";
+    details.dataset.courseResourceAction = "view";
+    details.dataset.resourceId = resource.id;
     details.textContent = resource.file?.name || resource.link;
     content.appendChild(details);
   }
 
-  const preview = renderCourseResourcePreview(resource);
-  if (preview) content.appendChild(preview);
-
   const actions = document.createElement("div");
   actions.className = "d-flex flex-wrap gap-2";
+
+  const viewButton = document.createElement("button");
+  viewButton.className = "btn btn-outline-primary btn-sm";
+  viewButton.type = "button";
+  viewButton.dataset.courseResourceAction = "view";
+  viewButton.dataset.resourceId = resource.id;
+  viewButton.textContent = preview ? "View Preview" : resource.link ? "Open Link" : "View File";
+  actions.appendChild(viewButton);
 
   if (resource.file?.data) {
     const fileLink = document.createElement("a");
     fileLink.className = "btn btn-outline-secondary btn-sm";
     fileLink.href = resource.file.data;
     fileLink.download = resource.file.name;
-    fileLink.textContent = `Open ${resource.file.name}`;
+    fileLink.textContent = "Download";
     actions.appendChild(fileLink);
   }
 
@@ -691,7 +730,7 @@ function renderCourseResourceItem(resource) {
     link.href = resource.link;
     link.target = "_blank";
     link.rel = "noopener";
-    link.textContent = "Open Link";
+    link.textContent = "Open Original";
     actions.appendChild(link);
   }
 
@@ -769,7 +808,7 @@ function renderStaticCourseResource(resource, course) {
   summaryText.append(
     createTextElement("strong", "", resource)
   );
-  summary.append(summaryText, createTextElement("span", "badge text-bg-info", "Open"));
+  summary.append(summaryText, createTextElement("span", "badge text-bg-info", "View"));
 
   const content = document.createElement("div");
   content.className = "course-resource-content";
@@ -829,7 +868,31 @@ function getQuizSubmission(quizId, student = currentStudent) {
 function getQuizTypeLabel(type) {
   if (type === "multiple-choice") return "Multiple Choice";
   if (type === "true-false") return "True or False";
+  if (type === "matching") return "Matching Type";
+  if (type === "enumeration") return "Enumeration";
+  if (type === "essay") return "Essay";
   return "Modified True or False";
+}
+
+function getQuestionPoints(question) {
+  const points = Number(question.points);
+  return Number.isFinite(points) && points > 0 ? points : 1;
+}
+
+function formatQuizScore(value) {
+  const score = Number(value);
+  if (!Number.isFinite(score)) return "0";
+  return Number.isInteger(score) ? String(score) : score.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function getMatchingPairPoints(question) {
+  const pairs = Array.isArray(question.pairs) ? question.pairs : [];
+  if (!pairs.length) return 0;
+  return getQuestionPoints(question) / pairs.length;
+}
+
+function getQuizTotalPoints(quiz) {
+  return getQuizQuestions(quiz).reduce((total, question) => total + getQuestionPoints(question), 0);
 }
 
 function getQuizQuestions(quiz) {
@@ -840,8 +903,42 @@ function getQuizQuestions(quiz) {
     question: quiz.question,
     options: quiz.options || [],
     correctAnswer: quiz.correctAnswer,
-    correction: quiz.correction || ""
+    correction: quiz.correction || "",
+    points: 1
   }];
+}
+
+function getQuestionType(quiz, question = {}) {
+  return question.type || quiz.type || "multiple-choice";
+}
+
+function isManualGradeType(type) {
+  return ["enumeration", "essay", "modified-true-false"].includes(type);
+}
+
+function getManualQuestionScore(submission, question) {
+  if (!submission?.manualScores || !Object.prototype.hasOwnProperty.call(submission.manualScores, question.id)) return null;
+  const score = Number(submission.manualScores[question.id]);
+  return Number.isFinite(score) ? Math.min(Math.max(score, 0), getQuestionPoints(question)) : null;
+}
+
+function getQuizSections(quiz = {}) {
+  if (Array.isArray(quiz.sections) && quiz.sections.length) return quiz.sections;
+
+  const questions = getQuizQuestions(quiz);
+  const groups = [];
+  questions.forEach((question) => {
+    const sectionIndex = Number.isFinite(Number(question.sectionIndex)) ? Number(question.sectionIndex) : 0;
+    if (!groups[sectionIndex]) {
+      groups[sectionIndex] = {
+        type: getQuestionType(quiz, question),
+        questions: []
+      };
+    }
+    groups[sectionIndex].questions.push(question);
+  });
+
+  return groups.filter(Boolean);
 }
 
 function getSubmittedAnswer(submission, question, index) {
@@ -860,10 +957,247 @@ function getSubmittedCorrection(submission, question, index) {
   return index === 0 ? submission.correction || "" : "";
 }
 
+function renderQuizImage(src, alt = "") {
+  if (!src) return null;
+  const image = document.createElement("img");
+  image.className = "course-quiz-image";
+  image.src = src;
+  image.alt = alt;
+  return image;
+}
+
+function renderMatchingText(text, image, alt) {
+  const wrapper = document.createElement("span");
+  wrapper.className = "course-matching-text";
+  const quizImage = renderQuizImage(image, alt);
+  if (quizImage) wrapper.appendChild(quizImage);
+  wrapper.appendChild(createTextElement("span", "", text || "Untitled match"));
+  return wrapper;
+}
+
+function createMatchingPairRow(pair = {}, pairIndex = 0, key = "", activeType = "multiple-choice", totalPairs = 1) {
+  const pairRow = document.createElement("div");
+  pairRow.className = "course-matching-pair";
+  pairRow.dataset.matchingPairRow = "true";
+
+  const prompt = document.createElement("input");
+  prompt.className = "form-control form-control-sm";
+  prompt.name = `matchPrompt${pairIndex}-${key}`;
+  prompt.type = "text";
+  prompt.placeholder = `Item ${pairIndex + 1}`;
+  prompt.required = activeType === "matching";
+  prompt.value = pair.prompt || "";
+
+  const promptImage = document.createElement("input");
+  promptImage.className = "form-control form-control-sm";
+  promptImage.name = `matchPromptImage${pairIndex}-${key}`;
+  promptImage.type = "url";
+  promptImage.placeholder = "Item image URL optional";
+  promptImage.value = pair.promptImage || "";
+
+  const answer = document.createElement("input");
+  answer.className = "form-control form-control-sm";
+  answer.name = `matchAnswer${pairIndex}-${key}`;
+  answer.type = "text";
+  answer.placeholder = `Correct match ${pairIndex + 1}`;
+  answer.required = activeType === "matching";
+  answer.value = pair.answer || "";
+
+  const answerImage = document.createElement("input");
+  answerImage.className = "form-control form-control-sm";
+  answerImage.name = `matchAnswerImage${pairIndex}-${key}`;
+  answerImage.type = "url";
+  answerImage.placeholder = "Match image URL optional";
+  answerImage.value = pair.answerImage || "";
+
+  pairRow.append(prompt, promptImage, answer, answerImage);
+  if (totalPairs > 1) {
+    const remove = document.createElement("button");
+    remove.className = "btn btn-outline-danger btn-sm";
+    remove.type = "button";
+    remove.dataset.matchingPairAction = "remove";
+    remove.textContent = "Remove Pair";
+    pairRow.appendChild(remove);
+  }
+
+  return pairRow;
+}
+
+function refreshMatchingPairNumbers(container) {
+  const rows = Array.from(container.querySelectorAll("[data-matching-pair-row]"));
+  rows.forEach((row, index) => {
+    const prompt = row.querySelector("input[name^='matchPrompt']");
+    const answer = row.querySelector("input[name^='matchAnswer']");
+    if (prompt) prompt.placeholder = `Item ${index + 1}`;
+    if (answer) answer.placeholder = `Correct match ${index + 1}`;
+    let remove = row.querySelector("[data-matching-pair-action='remove']");
+    if (rows.length > 1 && !remove) {
+      remove = document.createElement("button");
+      remove.className = "btn btn-outline-danger btn-sm";
+      remove.type = "button";
+      remove.dataset.matchingPairAction = "remove";
+      remove.textContent = "Remove Pair";
+      row.appendChild(remove);
+    } else if (rows.length === 1) {
+      remove?.remove();
+    }
+  });
+}
+
+function drawMatchingLines(board) {
+  const svg = board.querySelector("[data-matching-lines]");
+  if (!svg) return;
+  svg.replaceChildren();
+  const boardRect = board.getBoundingClientRect();
+  board.querySelectorAll("[data-matching-answer]").forEach((input) => {
+    if (!input.value) return;
+    const left = board.querySelector(`[data-matching-left][data-pair-index='${input.dataset.pairIndex}']`);
+    const right = Array.from(board.querySelectorAll("[data-matching-right]")).find((button) => button.dataset.answer === input.value);
+    if (!left || !right) return;
+
+    const leftRect = left.getBoundingClientRect();
+    const rightRect = right.getBoundingClientRect();
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", String(leftRect.right - boardRect.left));
+    line.setAttribute("y1", String(leftRect.top + leftRect.height / 2 - boardRect.top));
+    line.setAttribute("x2", String(rightRect.left - boardRect.left));
+    line.setAttribute("y2", String(rightRect.top + rightRect.height / 2 - boardRect.top));
+    svg.appendChild(line);
+  });
+}
+
+function refreshMatchingBoardState(board) {
+  const selectedAnswers = Array.from(board.querySelectorAll("[data-matching-answer]"))
+    .map((input) => input.value)
+    .filter(Boolean);
+  board.querySelectorAll("[data-matching-left]").forEach((button) => {
+    const input = board.querySelector(`[data-matching-answer][data-pair-index='${button.dataset.pairIndex}']`);
+    button.classList.toggle("course-matching-node-linked", Boolean(input?.value));
+  });
+  board.querySelectorAll("[data-matching-right]").forEach((button) => {
+    button.classList.toggle("course-matching-node-linked", selectedAnswers.includes(button.dataset.answer || ""));
+  });
+  drawMatchingLines(board);
+}
+
+function getShuffledMatchingAnswers(pairs = []) {
+  const answers = pairs.map((pair, originalIndex) => ({
+    answer: pair.answer,
+    answerImage: pair.answerImage,
+    originalIndex
+  }));
+
+  for (let index = answers.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [answers[index], answers[swapIndex]] = [answers[swapIndex], answers[index]];
+  }
+
+  if (answers.length > 1) {
+    answers.forEach((item, index) => {
+      if (item.originalIndex !== index) return;
+      const swapIndex = index === answers.length - 1 ? index - 1 : index + 1;
+      [answers[index], answers[swapIndex]] = [answers[swapIndex], answers[index]];
+    });
+  }
+
+  return answers;
+}
+
+function createMatchingConnectBoard(question) {
+  const board = document.createElement("div");
+  board.className = "course-matching-connect";
+  board.dataset.matchingBoard = "true";
+
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.classList.add("course-matching-lines");
+  svg.dataset.matchingLines = "true";
+  svg.setAttribute("aria-hidden", "true");
+
+  const leftColumn = document.createElement("div");
+  leftColumn.className = "course-matching-column";
+  const rightColumn = document.createElement("div");
+  rightColumn.className = "course-matching-column";
+
+  const answers = getShuffledMatchingAnswers(question.pairs || []);
+
+  (question.pairs || []).forEach((pair, pairIndex) => {
+    const leftButton = document.createElement("button");
+    leftButton.className = "course-matching-node";
+    leftButton.type = "button";
+    leftButton.dataset.matchingLeft = "true";
+    leftButton.dataset.pairIndex = String(pairIndex);
+    leftButton.append(renderMatchingText(pair.prompt, pair.promptImage, `Image for ${pair.prompt}`));
+
+    const hidden = document.createElement("input");
+    hidden.type = "hidden";
+    hidden.name = `answer-${question.id}-${pairIndex}`;
+    hidden.dataset.matchingAnswer = "true";
+    hidden.dataset.pairIndex = String(pairIndex);
+    leftColumn.append(leftButton, hidden);
+  });
+
+  answers.forEach((pair) => {
+    const rightButton = document.createElement("button");
+    rightButton.className = "course-matching-node";
+    rightButton.type = "button";
+    rightButton.dataset.matchingRight = "true";
+    rightButton.dataset.answer = pair.answer;
+    rightButton.append(renderMatchingText(pair.answer, pair.answerImage, `Image for ${pair.answer}`));
+    rightColumn.appendChild(rightButton);
+  });
+
+  board.append(svg, leftColumn, rightColumn);
+  window.setTimeout(() => drawMatchingLines(board), 0);
+  return board;
+}
+
+function normalizeAnswer(value = "") {
+  return String(value).trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizeEnumerationAnswer(value = "") {
+  return String(value)
+    .split(/[\n,]+/)
+    .map((part) => normalizeAnswer(part))
+    .filter(Boolean)
+    .sort()
+    .join("|");
+}
+
+function isQuestionCorrect(quiz, question, submission, index) {
+  const answer = getSubmittedAnswer(submission, question, index);
+  const type = getQuestionType(quiz, question);
+  if (!answer) return false;
+  if (isManualGradeType(type)) return false;
+  if (type === "enumeration") return normalizeEnumerationAnswer(answer) === normalizeEnumerationAnswer(question.correctAnswer);
+  if (type === "essay") return false;
+  if (type === "matching") {
+    const pairs = question.pairs || [];
+    if (!pairs.length || typeof answer !== "object") return false;
+    return pairs.every((pair, pairIndex) => normalizeAnswer(answer[pairIndex]) === normalizeAnswer(pair.answer));
+  }
+  return answer === question.correctAnswer;
+}
+
+function getMatchingQuestionScore(question, answer) {
+  const pairs = Array.isArray(question.pairs) ? question.pairs : [];
+  if (!pairs.length || !answer || typeof answer !== "object") return 0;
+  const pairPoints = getMatchingPairPoints(question);
+  return pairs.reduce((score, pair, pairIndex) => {
+    return score + (normalizeAnswer(answer[pairIndex]) === normalizeAnswer(pair.answer) ? pairPoints : 0);
+  }, 0);
+}
+
 function getQuizScore(quiz, submission) {
   if (!submission) return 0;
   return getQuizQuestions(quiz).reduce((total, question, index) => {
-    return total + (getSubmittedAnswer(submission, question, index) === question.correctAnswer ? 1 : 0);
+    const manualScore = getManualQuestionScore(submission, question);
+    if (manualScore !== null) return total + manualScore;
+    if (isManualGradeType(getQuestionType(quiz, question))) return total;
+    if (getQuestionType(quiz, question) === "matching") {
+      return total + getMatchingQuestionScore(question, getSubmittedAnswer(submission, question, index));
+    }
+    return total + (isQuestionCorrect(quiz, question, submission, index) ? getQuestionPoints(question) : 0);
   }, 0);
 }
 
@@ -871,12 +1205,104 @@ function getCourseQuizScore(courseId, student = currentStudent) {
   const quizzes = getCourseItems(getCourseQuizzes(), courseId);
   return quizzes.reduce((score, quiz) => {
     const submission = getQuizSubmission(quiz.id, student);
-    const total = getQuizQuestions(quiz).length;
     return {
       points: score.points + getQuizScore(quiz, submission),
-      total: score.total + total
+      total: score.total + getQuizTotalPoints(quiz)
     };
   }, { points: 0, total: 0 });
+}
+
+function renderSubmittedAnswerForAdmin(quiz, question, submission, index) {
+  const type = getQuestionType(quiz, question);
+  const answer = getSubmittedAnswer(submission, question, index);
+  const wrapper = document.createElement("div");
+  wrapper.className = "course-answer-text";
+
+  if (type === "matching" && typeof answer === "object") {
+    (question.pairs || []).forEach((pair, pairIndex) => {
+      const row = document.createElement("div");
+      row.className = "course-grade-answer-row";
+      row.append(
+        renderMatchingText(pair.prompt, pair.promptImage, `Image for ${pair.prompt}`),
+        createTextElement("span", "", answer[pairIndex] || "No answer")
+      );
+      wrapper.appendChild(row);
+    });
+    return wrapper;
+  }
+
+  wrapper.textContent = answer || "No answer";
+  const correction = getSubmittedCorrection(submission, question, index);
+  if (correction) wrapper.appendChild(createTextElement("small", "text-secondary d-block mt-2", `Correction: ${correction}`));
+  return wrapper;
+}
+
+function renderQuizGradingPanel(quiz) {
+  const submissions = getCourseQuizSubmissions().filter((submission) => submission.quizId === quiz.id);
+  const panel = document.createElement("div");
+  panel.className = "course-grading-panel";
+
+  panel.appendChild(createTextElement("h4", "h6 mb-2", "Manual grading"));
+  if (!submissions.length) {
+    panel.appendChild(createTextElement("p", "text-secondary small mb-0", "No student submissions yet."));
+    return panel;
+  }
+
+  const questions = getQuizQuestions(quiz);
+  submissions.forEach((submission) => {
+    const form = document.createElement("form");
+    form.className = "course-grade-submission";
+    form.dataset.quizGradeForm = quiz.id;
+    form.dataset.submissionId = submission.id;
+
+    const score = getQuizScore(quiz, submission);
+    form.append(
+      createTextElement("strong", "", submission.studentName || "Student"),
+      createTextElement("small", "text-secondary", `Current score: ${formatQuizScore(score)}/${getQuizTotalPoints(quiz)} points`)
+    );
+
+    questions.forEach((question, index) => {
+      const type = getQuestionType(quiz, question);
+      const row = document.createElement("div");
+      row.className = "course-grade-question";
+      row.append(
+        createTextElement("p", "fw-bold mb-1", `${index + 1}. ${question.question}`),
+        renderSubmittedAnswerForAdmin(quiz, question, submission, index)
+      );
+
+      if (isManualGradeType(type)) {
+        const scoreLabel = document.createElement("label");
+        scoreLabel.className = "form-label small fw-bold mb-0";
+        const scoreInput = document.createElement("input");
+        scoreInput.className = "form-control form-control-sm mt-1";
+        scoreInput.name = `score-${question.id}`;
+        scoreInput.type = "number";
+        scoreInput.min = "0";
+        scoreInput.max = String(getQuestionPoints(question));
+        scoreInput.step = "0.01";
+        scoreInput.placeholder = `0-${getQuestionPoints(question)}`;
+        scoreInput.value = getManualQuestionScore(submission, question) ?? "";
+        scoreLabel.append(`Manual score out of ${getQuestionPoints(question)}`, scoreInput);
+        row.appendChild(scoreLabel);
+      } else {
+        const autoScore = type === "matching"
+          ? getMatchingQuestionScore(question, getSubmittedAnswer(submission, question, index))
+          : isQuestionCorrect(quiz, question, submission, index) ? getQuestionPoints(question) : 0;
+        row.appendChild(createTextElement("small", "text-secondary", `Auto score: ${formatQuizScore(autoScore)}/${getQuestionPoints(question)}`));
+      }
+
+      form.appendChild(row);
+    });
+
+    const save = document.createElement("button");
+    save.className = "btn btn-primary btn-sm align-self-start";
+    save.type = "submit";
+    save.textContent = "Save Scores";
+    form.appendChild(save);
+    panel.appendChild(form);
+  });
+
+  return panel;
 }
 
 function renderCourseQuizItem(quiz) {
@@ -884,26 +1310,29 @@ function renderCourseQuizItem(quiz) {
   item.className = "course-quiz-item";
 
   const questions = getQuizQuestions(quiz);
+  const sectionCount = getQuizSections(quiz).length;
   const submission = getQuizSubmission(quiz.id);
   const score = getQuizScore(quiz, submission);
+  const totalPoints = getQuizTotalPoints(quiz);
+  const quizTypeLabel = sectionCount > 1 ? `${sectionCount} test sections` : getQuizTypeLabel(quiz.type);
   const quizExpired = isPastDue(quiz.dueAt);
   const summary = document.createElement("summary");
   summary.className = "course-quiz-summary";
   const summaryText = document.createElement("span");
   summaryText.append(
     createTextElement("strong", "", quiz.title),
-    createTextElement("small", "text-secondary d-block", `${getQuizTypeLabel(quiz.type)} - ${questions.length} question${questions.length === 1 ? "" : "s"}`)
+    createTextElement("small", "text-secondary d-block", `${quizTypeLabel} - ${questions.length} question${questions.length === 1 ? "" : "s"} - ${totalPoints} point${totalPoints === 1 ? "" : "s"}`)
   );
   if (quiz.dueAt) {
     summaryText.appendChild(createTextElement("small", quizExpired && !submission ? "text-danger d-block" : "text-secondary d-block", `Due ${formatDateTime(quiz.dueAt)}`));
   }
-  const summaryBadge = createTextElement("span", `badge ${submission ? "text-bg-success" : quizExpired ? "text-bg-warning" : "text-bg-info"}`, submission ? `${score}/${questions.length} points` : quizExpired ? "Closed" : "Open");
+  const summaryBadge = createTextElement("span", `badge ${submission ? "text-bg-success" : quizExpired ? "text-bg-warning" : "text-bg-info"}`, submission ? `${formatQuizScore(score)}/${totalPoints} points` : quizExpired ? "Closed" : "Open");
   summary.append(summaryText, summaryBadge);
 
   const meta = document.createElement("div");
   meta.className = "d-flex flex-wrap gap-2 align-items-center mb-2";
   meta.append(
-    createTextElement("span", "badge text-bg-info", getQuizTypeLabel(quiz.type)),
+    createTextElement("span", "badge text-bg-info", quizTypeLabel),
     createTextElement("small", "text-secondary", formatDate(quiz.createdAt))
   );
   if (quiz.dueAt) {
@@ -915,51 +1344,101 @@ function renderCourseQuizItem(quiz) {
   content.appendChild(meta);
 
   if (adminApp || submission) {
+    let currentSectionIndex = null;
     questions.forEach((question, index) => {
+      const type = getQuestionType(quiz, question);
+      if (question.sectionIndex !== currentSectionIndex) {
+        currentSectionIndex = question.sectionIndex;
+        content.appendChild(createTextElement("p", "section-label mb-0", `Test ${Number(currentSectionIndex || 0) + 1} - ${getQuizTypeLabel(type)}`));
+      }
       const questionBlock = document.createElement("div");
       questionBlock.className = "course-quiz-question";
       questionBlock.appendChild(createTextElement("p", "fw-bold mb-2", `${index + 1}. ${question.question}`));
+      questionBlock.appendChild(createTextElement("small", "text-secondary mb-2", `${getQuestionPoints(question)} point${getQuestionPoints(question) === 1 ? "" : "s"}`));
 
       const options = document.createElement("div");
       options.className = "course-quiz-options mb-2";
-      const choices = quiz.type === "multiple-choice"
-        ? question.options.map((option, optionIndex) => [String.fromCharCode(65 + optionIndex), option])
-        : [["True", "True"], ["False", "False"]];
+      if (type === "enumeration" || type === "essay") {
+        const submittedText = getSubmittedAnswer(submission, question, index);
+        if (submittedText) {
+          questionBlock.appendChild(createTextElement("p", "course-answer-text mb-2", submittedText));
+        }
+      } else if (type === "matching") {
+        const submittedPairs = getSubmittedAnswer(submission, question, index) || {};
+        const matchingScore = getMatchingQuestionScore(question, submittedPairs);
+        (question.pairs || []).forEach((pair, pairIndex) => {
+          const optionRow = document.createElement("div");
+          const isCorrect = adminApp || normalizeAnswer(submittedPairs[pairIndex]) === normalizeAnswer(pair.answer);
+          optionRow.className = `course-quiz-option${isCorrect ? " course-quiz-option-correct" : ""}${submittedPairs[pairIndex] ? " course-quiz-option-selected" : ""}`;
+          optionRow.append(
+            createTextElement("span", "course-quiz-letter", String(pairIndex + 1)),
+            renderMatchingText(pair.prompt, pair.promptImage, `Image for ${pair.prompt}`),
+            createTextElement("span", "", "->"),
+            renderMatchingText(adminApp ? pair.answer : submittedPairs[pairIndex] || "No answer", adminApp ? pair.answerImage : "", `Image for ${pair.answer}`)
+          );
+          options.appendChild(optionRow);
+        });
+        questionBlock.appendChild(options);
+        if (submission && !adminApp) {
+          questionBlock.appendChild(createTextElement("small", "text-secondary", `Matching score: ${formatQuizScore(matchingScore)}/${getQuestionPoints(question)} points`));
+        }
+      } else {
+        const choices = type === "multiple-choice"
+          ? question.options.map((option, optionIndex) => [String.fromCharCode(65 + optionIndex), option])
+          : [["True", "True"], ["False", "False"]];
 
-      choices.forEach(([value, label]) => {
-        const optionRow = document.createElement("div");
-        const isCorrect = adminApp && question.correctAnswer === value;
-        const isSubmitted = getSubmittedAnswer(submission, question, index) === value;
-        optionRow.className = `course-quiz-option${isCorrect ? " course-quiz-option-correct" : ""}${isSubmitted ? " course-quiz-option-selected" : ""}`;
-        optionRow.append(
-          createTextElement("span", "course-quiz-letter", value),
-          createTextElement("span", "", label)
-        );
-        options.appendChild(optionRow);
-      });
+        choices.forEach(([value, label]) => {
+          const optionRow = document.createElement("div");
+          const isCorrect = adminApp && question.correctAnswer === value;
+          const isSubmitted = getSubmittedAnswer(submission, question, index) === value;
+          optionRow.className = `course-quiz-option${isCorrect ? " course-quiz-option-correct" : ""}${isSubmitted ? " course-quiz-option-selected" : ""}`;
+          optionRow.append(
+            createTextElement("span", "course-quiz-letter", value),
+            createTextElement("span", "", label)
+          );
+          options.appendChild(optionRow);
+        });
 
-      questionBlock.appendChild(options);
+        questionBlock.appendChild(options);
+      }
       if (adminApp) {
-        questionBlock.appendChild(createTextElement("p", "small text-secondary mb-0", `Answer key: ${question.correctAnswer}${question.correction ? ` - ${question.correction}` : ""}`));
+        const keyText = type === "matching"
+          ? (question.pairs || []).map((pair) => `${pair.prompt} = ${pair.answer}`).join("; ")
+          : type === "essay"
+            ? question.correctAnswer || "Essay answer guide"
+            : question.correctAnswer;
+        questionBlock.appendChild(createTextElement("p", "small text-secondary mb-0", `Answer key: ${keyText}${question.correction ? ` - ${question.correction}` : ""}`));
       }
       content.appendChild(questionBlock);
     });
   }
 
   if (adminApp) {
+    content.appendChild(renderQuizGradingPanel(quiz));
+
+    const actions = document.createElement("div");
+    actions.className = "d-flex flex-wrap gap-2";
+    const edit = document.createElement("button");
+    edit.className = "btn btn-outline-primary btn-sm";
+    edit.type = "button";
+    edit.dataset.courseQuizAction = "edit";
+    edit.dataset.quizId = quiz.id;
+    edit.textContent = "Edit";
+
     const remove = document.createElement("button");
     remove.className = "btn btn-outline-danger btn-sm";
     remove.type = "button";
     remove.dataset.courseQuizAction = "remove";
     remove.dataset.quizId = quiz.id;
     remove.textContent = "Remove";
-    content.appendChild(remove);
+    actions.append(edit, remove);
+    content.appendChild(actions);
   } else {
     if (submission) {
       const result = document.createElement("div");
       result.className = "course-quiz-result";
       result.append(
-        createTextElement("span", "badge text-bg-success", `Score: ${score}/${questions.length} points`),
+        createTextElement("span", "badge text-bg-success", `Score: ${formatQuizScore(score)}/${totalPoints} points`),
         createTextElement("small", "text-secondary", "Submitted answers are highlighted above.")
       );
       content.appendChild(result);
@@ -976,38 +1455,65 @@ function renderCourseQuizItem(quiz) {
       form.className = "course-quiz-answer vstack gap-2";
       form.dataset.courseQuizAnswer = quiz.id;
 
+      let currentSectionIndex = null;
       questions.forEach((question, index) => {
+        const type = getQuestionType(quiz, question);
+        if (question.sectionIndex !== currentSectionIndex) {
+          currentSectionIndex = question.sectionIndex;
+          form.appendChild(createTextElement("p", "section-label mb-0", `Test ${Number(currentSectionIndex || 0) + 1} - ${getQuizTypeLabel(type)}`));
+        }
         const answerBlock = document.createElement("div");
         answerBlock.className = "course-quiz-question";
         answerBlock.appendChild(createTextElement("p", "fw-bold mb-2", `${index + 1}. ${question.question}`));
+        answerBlock.appendChild(createTextElement("small", "text-secondary mb-2", `${getQuestionPoints(question)} point${getQuestionPoints(question) === 1 ? "" : "s"}`));
 
-        const choices = document.createElement("div");
-        choices.className = "course-answer-choices";
-        const answerChoices = quiz.type === "multiple-choice"
-          ? question.options.map((option, optionIndex) => [String.fromCharCode(65 + optionIndex), option])
-          : [["True", "True"], ["False", "False"]];
+        if (type === "enumeration") {
+          const answer = document.createElement("textarea");
+          answer.className = "form-control form-control-sm";
+          answer.name = `answer-${question.id}`;
+          answer.rows = 3;
+          answer.placeholder = "Write each answer separated by a comma or a new line";
+          answer.required = true;
+          answerBlock.appendChild(answer);
+        } else if (type === "essay") {
+          const answer = document.createElement("textarea");
+          answer.className = "form-control form-control-sm";
+          answer.name = `answer-${question.id}`;
+          answer.rows = 5;
+          answer.placeholder = "Write your essay answer";
+          answer.required = true;
+          answerBlock.appendChild(answer);
+        } else if (type === "matching") {
+          answerBlock.appendChild(createMatchingConnectBoard(question));
+        } else {
+          const choices = document.createElement("div");
+          choices.className = "course-answer-choices";
+          const answerChoices = type === "multiple-choice"
+            ? question.options.map((option, optionIndex) => [String.fromCharCode(65 + optionIndex), option])
+            : [["True", "True"], ["False", "False"]];
 
-        answerChoices.forEach(([value, labelText]) => {
-          const label = document.createElement("label");
-          label.className = "course-answer-choice";
+          answerChoices.forEach(([value, labelText]) => {
+            const label = document.createElement("label");
+            label.className = "course-answer-choice";
 
-          const input = document.createElement("input");
-          input.className = "visually-hidden";
-          input.name = `answer-${question.id}`;
-          input.type = "radio";
-          input.value = value;
-          input.required = true;
+            const input = document.createElement("input");
+            input.className = "visually-hidden";
+            input.name = `answer-${question.id}`;
+            input.type = "radio";
+            input.value = value;
+            input.required = true;
 
-          label.append(
-            input,
-            createTextElement("span", "course-quiz-letter", value),
-            createTextElement("span", "", labelText)
-          );
-          choices.appendChild(label);
-        });
-        answerBlock.appendChild(choices);
+            label.append(
+              input,
+              createTextElement("span", "course-quiz-letter", value),
+              createTextElement("span", "", labelText)
+            );
+            choices.appendChild(label);
+          });
+          answerBlock.appendChild(choices);
+        }
 
-        if (quiz.type === "modified-true-false") {
+        if (type === "modified-true-false") {
           const correction = document.createElement("input");
           correction.className = "form-control form-control-sm mt-2";
           correction.name = `correction-${question.id}`;
@@ -1032,9 +1538,10 @@ function renderCourseQuizItem(quiz) {
   return item;
 }
 
-function createQuizCorrectChoice(name, value, text, checked = false) {
+function createQuizCorrectChoice(name, value, text, checked = false, variant = "") {
   const label = document.createElement("label");
-  label.className = "course-correct-choice";
+  label.className = `course-correct-choice${variant ? ` ${variant}` : ""}`;
+  label.title = text ? `${value} ${text}` : `Mark choice ${value} as correct`;
 
   const input = document.createElement("input");
   input.className = "visually-hidden";
@@ -1044,15 +1551,19 @@ function createQuizCorrectChoice(name, value, text, checked = false) {
   input.required = true;
   input.checked = checked;
 
-  label.append(
-    input,
-    createTextElement("span", "course-quiz-letter", value),
-    createTextElement("span", "", text)
-  );
+  if (variant === "course-correct-choice-bullet") {
+    label.append(input, createTextElement("span", "course-correct-bullet", ""));
+  } else {
+    label.append(
+      input,
+      createTextElement("span", "course-quiz-letter", value),
+      createTextElement("span", "", text)
+    );
+  }
   return label;
 }
 
-function createQuizQuestionRow(index, activeType = "multiple-choice") {
+function createQuizQuestionRow(index, activeType = "multiple-choice", existingQuestion = {}) {
   const key = `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`;
   const row = document.createElement("div");
   row.className = "course-quiz-question-form";
@@ -1080,6 +1591,17 @@ function createQuizQuestionRow(index, activeType = "multiple-choice") {
   question.rows = 2;
   question.placeholder = "Question";
   question.required = true;
+  question.value = existingQuestion.question || "";
+
+  const points = document.createElement("input");
+  points.className = "form-control form-control-sm";
+  points.name = `points-${key}`;
+  points.type = "number";
+  points.min = "1";
+  points.step = "1";
+  points.placeholder = "Points";
+  points.required = true;
+  points.value = existingQuestion.points || 1;
 
   const mcFields = document.createElement("div");
   mcFields.className = "course-quiz-fields";
@@ -1097,8 +1619,12 @@ function createQuizQuestionRow(index, activeType = "multiple-choice") {
     option.type = "text";
     option.placeholder = `Choice ${letter}`;
     option.required = activeType === "multiple-choice";
+    option.value = existingQuestion.options?.[letter.charCodeAt(0) - 65] || "";
 
-    choiceRow.append(option, createQuizCorrectChoice(`correctChoice-${key}`, letter, "Correct", letter === "A"));
+    choiceRow.append(
+      createQuizCorrectChoice(`correctChoice-${key}`, letter, "Correct", (existingQuestion.correctAnswer || "A") === letter, "course-correct-choice-bullet"),
+      option
+    );
     correctChoiceGroup.appendChild(choiceRow);
   });
   mcFields.appendChild(correctChoiceGroup);
@@ -1109,8 +1635,8 @@ function createQuizQuestionRow(index, activeType = "multiple-choice") {
   const tfChoices = document.createElement("div");
   tfChoices.className = "course-answer-choices";
   tfChoices.append(
-    createQuizCorrectChoice(`correctTf-${key}`, "True", "True", true),
-    createQuizCorrectChoice(`correctTf-${key}`, "False", "False")
+    createQuizCorrectChoice(`correctTf-${key}`, "True", "True", (existingQuestion.correctAnswer || "True") === "True"),
+    createQuizCorrectChoice(`correctTf-${key}`, "False", "False", existingQuestion.correctAnswer === "False")
   );
   tfFields.appendChild(tfChoices);
 
@@ -1120,17 +1646,58 @@ function createQuizQuestionRow(index, activeType = "multiple-choice") {
   const modifiedChoices = document.createElement("div");
   modifiedChoices.className = "course-answer-choices";
   modifiedChoices.append(
-    createQuizCorrectChoice(`correctModified-${key}`, "True", "True", true),
-    createQuizCorrectChoice(`correctModified-${key}`, "False", "False")
+    createQuizCorrectChoice(`correctModified-${key}`, "True", "True", (existingQuestion.correctAnswer || "True") === "True"),
+    createQuizCorrectChoice(`correctModified-${key}`, "False", "False", existingQuestion.correctAnswer === "False")
   );
   const correction = document.createElement("input");
   correction.className = "form-control form-control-sm mt-2";
   correction.name = `correction-${key}`;
   correction.type = "text";
   correction.placeholder = "Correction if the answer is false";
+  correction.value = existingQuestion.correction || "";
   modifiedFields.append(modifiedChoices, correction);
 
-  row.append(header, question, mcFields, tfFields, modifiedFields);
+  const matchingFields = document.createElement("div");
+  matchingFields.className = "course-quiz-fields d-none";
+  matchingFields.dataset.quizFields = "matching";
+  const matchingPairs = document.createElement("div");
+  matchingPairs.className = "course-matching-pair-list";
+  matchingPairs.dataset.matchingPairList = "true";
+  const pairs = existingQuestion.pairs?.length ? existingQuestion.pairs : [{}, {}, {}, {}];
+  pairs.forEach((pair, pairIndex) => {
+    matchingPairs.appendChild(createMatchingPairRow(pair, pairIndex, key, activeType, pairs.length));
+  });
+  const addPair = document.createElement("button");
+  addPair.className = "btn btn-outline-primary btn-sm align-self-start";
+  addPair.type = "button";
+  addPair.dataset.matchingPairAction = "add";
+  addPair.textContent = "Add Matching Item";
+  matchingFields.append(matchingPairs, addPair);
+
+  const enumerationFields = document.createElement("div");
+  enumerationFields.className = "course-quiz-fields d-none";
+  enumerationFields.dataset.quizFields = "enumeration";
+  const enumerationAnswer = document.createElement("textarea");
+  enumerationAnswer.className = "form-control form-control-sm";
+  enumerationAnswer.name = `enumerationAnswer-${key}`;
+  enumerationAnswer.rows = 3;
+  enumerationAnswer.placeholder = "Correct answers separated by commas or new lines";
+  enumerationAnswer.required = activeType === "enumeration";
+  enumerationAnswer.value = activeType === "enumeration" ? existingQuestion.correctAnswer || "" : "";
+  enumerationFields.appendChild(enumerationAnswer);
+
+  const essayFields = document.createElement("div");
+  essayFields.className = "course-quiz-fields d-none";
+  essayFields.dataset.quizFields = "essay";
+  const essayGuide = document.createElement("textarea");
+  essayGuide.className = "form-control form-control-sm";
+  essayGuide.name = `essayGuide-${key}`;
+  essayGuide.rows = 3;
+  essayGuide.placeholder = "Essay answer guide or rubric";
+  essayGuide.value = activeType === "essay" ? existingQuestion.correctAnswer || "" : "";
+  essayFields.appendChild(essayGuide);
+
+  row.append(header, question, points, mcFields, tfFields, modifiedFields, matchingFields, enumerationFields, essayFields);
   updateQuizQuestionRowType(row, activeType);
   return row;
 }
@@ -1141,7 +1708,8 @@ function updateQuizQuestionRowType(row, type) {
     group.classList.toggle("d-none", !isActive);
     group.querySelectorAll("input, textarea, select").forEach((field) => {
       const isCorrection = field.name.startsWith("correction-");
-      field.required = isActive && !isCorrection;
+      const isEssayGuide = field.name.startsWith("essayGuide-");
+      field.required = isActive && !isCorrection && !isEssayGuide;
     });
   });
 }
@@ -1154,67 +1722,122 @@ function refreshQuizQuestionNumbers(container) {
   });
 }
 
-function renderCourseQuizForm(courseId) {
+function createQuizTestSection(index, editingSection = null) {
+  const section = document.createElement("div");
+  section.className = "course-test-section";
+  section.dataset.quizTestSection = "true";
+  section.dataset.testIndex = String(index);
+
+  const heading = document.createElement("div");
+  heading.className = "course-test-section-header";
+  heading.append(
+    createTextElement("strong", "", `Test ${index + 1}`),
+    createTextElement("small", "text-secondary", "Choose the type for this test only")
+  );
+
+  const type = document.createElement("select");
+  type.className = "form-select form-select-sm mt-1";
+  type.name = `type-${index}`;
+  type.dataset.quizTypeSelect = "true";
+  type.required = true;
+  type.append(
+    new Option("Multiple Choice", "multiple-choice"),
+    new Option("True or False", "true-false"),
+    new Option("Modified True or False", "modified-true-false"),
+    new Option("Matching Type", "matching"),
+    new Option("Enumeration", "enumeration"),
+    new Option("Essay", "essay")
+  );
+  type.value = editingSection?.type || "multiple-choice";
+  const typeLabel = document.createElement("label");
+  typeLabel.className = "form-label small fw-bold mb-0";
+  typeLabel.append("Type of this test", type);
+
+  const questions = document.createElement("div");
+  questions.className = "course-quiz-question-list";
+  questions.dataset.quizQuestions = "true";
+  const sectionQuestions = editingSection?.questions?.length ? editingSection.questions : [{}];
+  sectionQuestions.forEach((questionItem, questionIndex) => {
+    questions.appendChild(createQuizQuestionRow(questionIndex, type.value, questionItem));
+  });
+
+  const addQuestion = document.createElement("button");
+  addQuestion.className = "btn btn-outline-primary btn-sm align-self-start";
+  addQuestion.type = "button";
+  addQuestion.dataset.quizQuestionAction = "add";
+  addQuestion.textContent = "Add Question to This Test";
+
+  section.append(heading, typeLabel, questions, addQuestion);
+  return section;
+}
+
+function refreshQuizTestNumbers(form) {
+  form.querySelectorAll("[data-quiz-test-section]").forEach((section, index) => {
+    section.dataset.testIndex = String(index);
+    const heading = section.querySelector(".course-test-section-header strong");
+    if (heading) heading.textContent = `Test ${index + 1}`;
+  });
+}
+
+function renderCourseQuizForm(courseId, editingQuiz = null) {
   const panel = document.createElement("details");
   panel.className = "course-add-quiz course-post-form mt-3";
+  if (editingQuiz) panel.open = true;
 
   const summary = document.createElement("summary");
   summary.className = "course-quiz-summary";
   const summaryText = document.createElement("span");
   summaryText.append(
-    createTextElement("strong", "", "Add Quiz"),
-    createTextElement("small", "text-secondary d-block", "Create multiple questions with pressable answer keys")
+    createTextElement("strong", "", editingQuiz ? "Edit Test" : "Add Test"),
+    createTextElement("small", "text-secondary d-block", "One due date for the whole test paper")
   );
   summary.append(summaryText, createTextElement("span", "badge text-bg-info", "Admin"));
 
   const form = document.createElement("form");
   form.className = "course-quiz-form vstack gap-2";
   form.dataset.courseQuizForm = courseId;
+  if (editingQuiz) form.dataset.quizId = editingQuiz.id;
 
-  const type = document.createElement("select");
-  type.className = "form-select form-select-sm";
-  type.name = "type";
-  type.dataset.quizTypeSelect = "true";
-  type.required = true;
-  type.append(
-    new Option("Multiple Choice", "multiple-choice"),
-    new Option("True or False", "true-false"),
-    new Option("Modified True or False", "modified-true-false")
-  );
+  const paperTitle = document.createElement("input");
+  paperTitle.className = "form-control form-control-sm";
+  paperTitle.name = "title";
+  paperTitle.type = "text";
+  paperTitle.placeholder = "Test paper title";
+  paperTitle.required = true;
+  paperTitle.value = editingQuiz?.title || "New Test Paper";
 
-  const title = document.createElement("input");
-  title.className = "form-control form-control-sm";
-  title.name = "title";
-  title.type = "text";
-  title.placeholder = "Quiz title";
-  title.required = true;
+  const paperDueAt = document.createElement("input");
+  paperDueAt.className = "form-control form-control-sm mt-1";
+  paperDueAt.name = "dueAt";
+  paperDueAt.type = "datetime-local";
+  paperDueAt.required = true;
+  paperDueAt.value = editingQuiz?.dueAt || "";
+  const paperDueAtLabel = document.createElement("label");
+  paperDueAtLabel.className = "form-label small fw-bold mb-0";
+  paperDueAtLabel.append("Due date and time", paperDueAt);
 
-  const dueAt = document.createElement("input");
-  dueAt.className = "form-control form-control-sm mt-1";
-  dueAt.name = "dueAt";
-  dueAt.type = "datetime-local";
-  dueAt.required = true;
-  const dueAtLabel = document.createElement("label");
-  dueAtLabel.className = "form-label small fw-bold mb-0";
-  dueAtLabel.append("Quiz due date and time", dueAt);
+  const sections = document.createElement("div");
+  sections.className = "course-test-section-list";
+  sections.dataset.quizTestSections = "true";
+  const editingSections = editingQuiz ? getQuizSections(editingQuiz) : [];
+  (editingSections.length ? editingSections : [null]).forEach((section, index) => {
+    sections.appendChild(createQuizTestSection(index, section));
+  });
 
-  const questions = document.createElement("div");
-  questions.className = "course-quiz-question-list";
-  questions.dataset.quizQuestions = "true";
-  questions.appendChild(createQuizQuestionRow(0, type.value));
-
-  const addQuestion = document.createElement("button");
-  addQuestion.className = "btn btn-outline-primary btn-sm align-self-start";
-  addQuestion.type = "button";
-  addQuestion.dataset.quizQuestionAction = "add";
-  addQuestion.textContent = "Add Question";
+  const addTest = document.createElement("button");
+  addTest.className = "btn btn-outline-primary btn-sm align-self-start";
+  addTest.type = "button";
+  addTest.dataset.quizTestAction = "add";
+  addTest.textContent = "Add Test 2";
 
   const button = document.createElement("button");
   button.className = "btn btn-primary btn-sm align-self-start";
   button.type = "submit";
-  button.textContent = "Post Quiz";
+  button.textContent = editingQuiz ? "Save Test" : "Post Tests";
 
-  form.append(type, title, dueAtLabel, questions, addQuestion, button);
+  form.append(paperTitle, paperDueAtLabel, sections);
+  form.appendChild(addTest);
+  form.appendChild(button);
   panel.append(summary, form);
   return panel;
 }
@@ -1229,6 +1852,7 @@ function createCustomCourseWorkspace(course, index) {
     progress: adminApp ? 0 : 1,
     accent,
     cover: course.cover || "",
+    invitationCode: course.invitationCode || createInvitationCode(course.title, course.id),
     description: course.description,
     next: "Start reviewing the course materials and wait for new activities from the admin.",
     modules: [
@@ -1239,6 +1863,13 @@ function createCustomCourseWorkspace(course, index) {
     resources: [],
     activity: ["Course created by admin", "Ready for learner access"]
   };
+}
+
+function createInvitationCode(title = "", fallback = "") {
+  const source = `${title} ${fallback}`.trim() || "COURSE";
+  const letters = source.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 4).padEnd(4, "X");
+  const number = Math.abs(Array.from(source).reduce((total, character) => total + character.charCodeAt(0), 0) % 10000);
+  return `${letters}-${String(number).padStart(4, "0")}`;
 }
 
 function createCourseCard(course, index) {
@@ -1271,6 +1902,7 @@ function createCourseCard(course, index) {
 
   const body = document.createElement("div");
   body.className = "card-body";
+  const invitationCode = course.invitationCode || createInvitationCode(course.title, course.id);
 
   const header = document.createElement("div");
   header.className = "d-flex justify-content-between gap-2 mb-2";
@@ -1299,9 +1931,17 @@ function createCourseCard(course, index) {
   progressBar.style.width = adminApp ? "0%" : "1%";
   progress.appendChild(progressBar);
 
+  const invite = document.createElement("div");
+  invite.className = "course-invite-code";
+  invite.append(
+    createTextElement("span", "", "Subject code"),
+    createTextElement("strong", "", invitationCode)
+  );
+
   body.append(
     header,
     createTextElement("p", "text-secondary mb-3", course.description),
+    invite,
     progressMeta,
     progress
   );
@@ -1371,6 +2011,7 @@ courseForm?.addEventListener("submit", async (event) => {
     id: `custom-course-${Date.now()}`,
     title,
     description,
+    invitationCode: createInvitationCode(title, String(Date.now())),
     cover: await readCourseCover(courseCover?.files?.[0]),
     createdAt: new Date().toISOString()
   };
@@ -1404,14 +2045,18 @@ function refreshOpenCourseWorkspace(courseId) {
   if (activeCourseCard) renderCourseWorkspace(courseId, activeCourseCard);
 }
 
+window.addEventListener("resize", () => {
+  document.querySelectorAll("[data-matching-board]").forEach(drawMatchingLines);
+});
+
 document.addEventListener("change", (event) => {
   const select = event.target.closest("[data-quiz-type-select]");
   if (!select) return;
 
-  const form = select.closest("[data-course-quiz-form]");
-  if (!form) return;
+  const section = select.closest("[data-quiz-test-section]");
+  if (!section) return;
 
-  form.querySelectorAll("[data-quiz-question-row]").forEach((row) => updateQuizQuestionRowType(row, select.value));
+  section.querySelectorAll("[data-quiz-question-row]").forEach((row) => updateQuizQuestionRowType(row, select.value));
 });
 
 document.addEventListener("submit", (event) => {
@@ -1465,61 +2110,130 @@ document.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("submit", (event) => {
+  const gradeForm = event.target.closest("[data-quiz-grade-form]");
+  if (!gradeForm) return;
+
+  event.preventDefault();
+  const quiz = getCourseQuizzes().find((item) => item.id === gradeForm.dataset.quizGradeForm);
+  if (!quiz) return;
+
+  const questions = getQuizQuestions(quiz);
+  const submissions = getCourseQuizSubmissions().map((submission) => {
+    if (submission.id !== gradeForm.dataset.submissionId) return submission;
+
+    const manualScores = { ...(submission.manualScores || {}) };
+    questions.forEach((question) => {
+      if (!isManualGradeType(getQuestionType(quiz, question))) return;
+      const field = gradeForm.querySelector(`[name='score-${question.id}']`);
+      if (!field) return;
+      if (field.value === "") {
+        delete manualScores[question.id];
+        return;
+      }
+      const score = Math.min(Math.max(Number(field.value), 0), getQuestionPoints(question));
+      manualScores[question.id] = Number.isFinite(score) ? score : 0;
+    });
+
+    return {
+      ...submission,
+      manualScores,
+      gradedAt: new Date().toISOString()
+    };
+  });
+
+  saveCourseQuizSubmissions(submissions);
+  refreshOpenCourseWorkspace(quiz.courseId);
+});
+
+document.addEventListener("submit", (event) => {
   const quizForm = event.target.closest("[data-course-quiz-form]");
   if (!quizForm) return;
 
   event.preventDefault();
   const courseId = quizForm.dataset.courseQuizForm;
-  const type = quizForm.elements.type.value;
+  const existingQuizzes = getCourseQuizzes();
+  const existingQuiz = existingQuizzes.find((item) => item.id === quizForm.dataset.quizId);
+  const now = Date.now();
   const title = quizForm.elements.title.value.trim();
   const dueAt = quizForm.elements.dueAt.value;
+  const sections = Array.from(quizForm.querySelectorAll("[data-quiz-test-section]"));
+  const quizSections = [];
+  const allQuestions = [];
   if (!title || !dueAt) return;
 
+  for (const [sectionIndex, section] of sections.entries()) {
+    const type = section.querySelector("[data-quiz-type-select]")?.value || "multiple-choice";
+    const existingSection = existingQuiz ? getQuizSections(existingQuiz)[sectionIndex] : null;
+
+    const questionRows = Array.from(section.querySelectorAll("[data-quiz-question-row]"));
+    const questions = questionRows.map((row, index) => {
+      const questionText = row.querySelector("textarea[name^='question-']")?.value.trim() || "";
+      const question = {
+        id: existingSection?.questions?.[index]?.id || `q-${now}-${sectionIndex}-${index}`,
+        question: questionText,
+        type,
+        sectionIndex,
+        options: [],
+        correctAnswer: "",
+        correction: "",
+        pairs: [],
+        points: Math.max(1, Number(row.querySelector("input[name^='points-']")?.value || 1))
+      };
+
+      if (type === "multiple-choice") {
+        question.options = ["A", "B", "C", "D"].map((letter) => row.querySelector(`input[name^='option${letter}-']`)?.value.trim() || "");
+        question.correctAnswer = row.querySelector("input[name^='correctChoice-']:checked")?.value || "A";
+      } else if (type === "true-false") {
+        question.correctAnswer = row.querySelector("input[name^='correctTf-']:checked")?.value || "True";
+      } else if (type === "modified-true-false") {
+        question.correctAnswer = row.querySelector("input[name^='correctModified-']:checked")?.value || "True";
+        question.correction = row.querySelector("input[name^='correction-']")?.value.trim() || "";
+      } else if (type === "matching") {
+        question.pairs = Array.from(row.querySelectorAll(".course-matching-pair")).map((pairRow) => ({
+          prompt: pairRow.querySelector("input[name^='matchPrompt']")?.value.trim() || "",
+          promptImage: pairRow.querySelector("input[name^='matchPromptImage']")?.value.trim() || "",
+          answer: pairRow.querySelector("input[name^='matchAnswer']")?.value.trim() || "",
+          answerImage: pairRow.querySelector("input[name^='matchAnswerImage']")?.value.trim() || ""
+        }));
+        question.correctAnswer = question.pairs.map((pair) => `${pair.prompt}=${pair.answer}`).join("; ");
+      } else if (type === "enumeration") {
+        question.correctAnswer = row.querySelector("textarea[name^='enumerationAnswer-']")?.value.trim() || "";
+      } else if (type === "essay") {
+        question.correctAnswer = row.querySelector("textarea[name^='essayGuide-']")?.value.trim() || "";
+      }
+
+      return question;
+    });
+
+    if (!questions.length || questions.some((question) => !question.question)) return;
+    if (questions.some((question) => !Number.isFinite(question.points) || question.points < 1)) return;
+    if (type === "multiple-choice" && questions.some((question) => question.options.some((option) => !option))) return;
+    if (type === "matching" && questions.some((question) => !question.pairs.length || question.pairs.some((pair) => !pair.prompt || !pair.answer))) return;
+    if (type === "enumeration" && questions.some((question) => !question.correctAnswer)) return;
+
+    quizSections.push({ type, questions });
+    allQuestions.push(...questions);
+  }
+
   const quiz = {
-    id: `course-quiz-${Date.now()}`,
+    id: existingQuiz?.id || `course-quiz-${now}`,
     courseId,
-    type,
+    type: quizSections.length > 1 ? "mixed" : quizSections[0]?.type || "multiple-choice",
     title,
     dueAt,
-    createdAt: new Date().toISOString()
+    createdAt: existingQuiz?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    sections: quizSections,
+    questions: allQuestions,
+    question: allQuestions[0].question,
+    options: allQuestions[0].options,
+    correctAnswer: allQuestions[0].correctAnswer,
+    correction: allQuestions[0].correction
   };
 
-  const questionRows = Array.from(quizForm.querySelectorAll("[data-quiz-question-row]"));
-  const questions = questionRows.map((row, index) => {
-    const questionText = row.querySelector("textarea")?.value.trim() || "";
-    const question = {
-      id: `q-${Date.now()}-${index}`,
-      question: questionText,
-      options: [],
-      correctAnswer: "",
-      correction: ""
-    };
-
-    if (type === "multiple-choice") {
-      question.options = ["A", "B", "C", "D"].map((letter) => row.querySelector(`input[name^='option${letter}-']`)?.value.trim() || "");
-      question.correctAnswer = row.querySelector("input[name^='correctChoice-']:checked")?.value || "A";
-    } else if (type === "true-false") {
-      question.correctAnswer = row.querySelector("input[name^='correctTf-']:checked")?.value || "True";
-    } else {
-      question.correctAnswer = row.querySelector("input[name^='correctModified-']:checked")?.value || "True";
-      question.correction = row.querySelector("input[name^='correction-']")?.value.trim() || "";
-    }
-
-    return question;
-  });
-
-  if (!questions.length || questions.some((question) => !question.question)) return;
-  if (type === "multiple-choice" && questions.some((question) => question.options.some((option) => !option))) return;
-
-  quiz.questions = questions;
-  quiz.question = questions[0].question;
-  quiz.options = questions[0].options;
-  quiz.correctAnswer = questions[0].correctAnswer;
-  quiz.correction = questions[0].correction;
-
-  const quizzes = getCourseQuizzes();
-  quizzes.unshift(quiz);
-  saveCourseQuizzes(quizzes);
+  const savedQuizzes = existingQuizzes.filter((item) => item.id !== quiz.id);
+  saveCourseQuizzes([quiz, ...savedQuizzes]);
+  saveCourseQuizSubmissions(getCourseQuizSubmissions().filter((submission) => submission.quizId !== quiz.id));
   refreshOpenCourseWorkspace(courseId);
 });
 
@@ -1540,10 +2254,19 @@ document.addEventListener("submit", (event) => {
   const corrections = {};
   const questions = getQuizQuestions(quiz);
   const hasAllAnswers = questions.every((question) => {
-    const answer = answerForm.querySelector(`input[name='answer-${question.id}']:checked`)?.value || "";
+    const type = getQuestionType(quiz, question);
+    let answer = answerForm.querySelector(`input[name='answer-${question.id}']:checked`)?.value || "";
+    if (type === "enumeration" || type === "essay") {
+      answer = answerForm.querySelector(`[name='answer-${question.id}']`)?.value.trim() || "";
+    } else if (type === "matching") {
+      answer = {};
+      (question.pairs || []).forEach((pair, pairIndex) => {
+        answer[pairIndex] = answerForm.querySelector(`[name='answer-${question.id}-${pairIndex}']`)?.value || "";
+      });
+    }
     answers[question.id] = answer;
     corrections[question.id] = answerForm.querySelector(`input[name='correction-${question.id}']`)?.value.trim() || "";
-    return Boolean(answer);
+    return typeof answer === "object" ? Object.values(answer).every(Boolean) : Boolean(answer);
   });
   if (!hasAllAnswers) return;
 
@@ -1568,15 +2291,42 @@ document.addEventListener("submit", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const matchingLeft = event.target.closest("[data-matching-left]");
+  if (matchingLeft) {
+    const board = matchingLeft.closest("[data-matching-board]");
+    if (!board) return;
+    board.querySelectorAll("[data-matching-left]").forEach((button) => button.classList.remove("course-matching-node-active"));
+    matchingLeft.classList.add("course-matching-node-active");
+    board.dataset.activePairIndex = matchingLeft.dataset.pairIndex || "";
+    return;
+  }
+
+  const matchingRight = event.target.closest("[data-matching-right]");
+  if (matchingRight) {
+    const board = matchingRight.closest("[data-matching-board]");
+    if (!board || board.dataset.activePairIndex === undefined || board.dataset.activePairIndex === "") return;
+    const input = board.querySelector(`[data-matching-answer][data-pair-index='${board.dataset.activePairIndex}']`);
+    if (!input) return;
+    board.querySelectorAll("[data-matching-answer]").forEach((answerInput) => {
+      if (answerInput !== input && answerInput.value === matchingRight.dataset.answer) answerInput.value = "";
+    });
+    input.value = matchingRight.dataset.answer || "";
+    board.querySelectorAll("[data-matching-left]").forEach((button) => button.classList.remove("course-matching-node-active"));
+    board.dataset.activePairIndex = "";
+    refreshMatchingBoardState(board);
+    return;
+  }
+
   const questionAction = event.target.closest("[data-quiz-question-action]");
   if (questionAction) {
-    const form = questionAction.closest("[data-course-quiz-form]");
-    const questionList = form?.querySelector("[data-quiz-questions]");
-    if (!form || !questionList) return;
+    const section = questionAction.closest("[data-quiz-test-section]");
+    const questionList = section?.querySelector("[data-quiz-questions]");
+    if (!section || !questionList) return;
 
     if (questionAction.dataset.quizQuestionAction === "add") {
       const index = questionList.querySelectorAll("[data-quiz-question-row]").length;
-      questionList.appendChild(createQuizQuestionRow(index, form.elements.type.value));
+      const type = section.querySelector("[data-quiz-type-select]")?.value || "multiple-choice";
+      questionList.appendChild(createQuizQuestionRow(index, type));
       return;
     }
 
@@ -1587,6 +2337,48 @@ document.addEventListener("click", (event) => {
     }
   }
 
+  const testAction = event.target.closest("[data-quiz-test-action='add']");
+  if (testAction) {
+    const form = testAction.closest("[data-course-quiz-form]");
+    const sections = form?.querySelector("[data-quiz-test-sections]");
+    if (!form || !sections) return;
+    const index = sections.querySelectorAll("[data-quiz-test-section]").length;
+    sections.appendChild(createQuizTestSection(index));
+    testAction.textContent = `Add Test ${index + 2}`;
+    refreshQuizTestNumbers(form);
+    return;
+  }
+
+  const matchingPairAction = event.target.closest("[data-matching-pair-action]");
+  if (matchingPairAction) {
+    const questionRow = matchingPairAction.closest("[data-quiz-question-row]");
+    const pairList = questionRow?.querySelector("[data-matching-pair-list]");
+    if (!questionRow || !pairList) return;
+
+    if (matchingPairAction.dataset.matchingPairAction === "add") {
+      const index = pairList.querySelectorAll("[data-matching-pair-row]").length;
+      pairList.appendChild(createMatchingPairRow({}, index, `${Date.now()}-${index}`, "matching", index + 1));
+      refreshMatchingPairNumbers(pairList);
+      return;
+    }
+
+    if (matchingPairAction.dataset.matchingPairAction === "remove") {
+      matchingPairAction.closest("[data-matching-pair-row]")?.remove();
+      refreshMatchingPairNumbers(pairList);
+      return;
+    }
+  }
+
+  const copyInvite = event.target.closest("[data-copy-invite-code]");
+  if (copyInvite) {
+    navigator.clipboard?.writeText(copyInvite.dataset.copyInviteCode || "");
+    copyInvite.textContent = "Copied";
+    window.setTimeout(() => {
+      copyInvite.textContent = "Copy";
+    }, 1400);
+    return;
+  }
+
   const resourceButton = event.target.closest("[data-course-resource-action='remove']");
   if (resourceButton) {
     const resource = getCourseResources().find((item) => item.id === resourceButton.dataset.resourceId);
@@ -1595,7 +2387,42 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const resourceViewButton = event.target.closest("[data-course-resource-action='view']");
+  if (resourceViewButton) {
+    const resource = getCourseResources().find((item) => item.id === resourceViewButton.dataset.resourceId);
+    const resourceItem = resourceViewButton.closest(".course-resource-item");
+    resourceItem?.setAttribute("open", "");
+    const preview = resourceItem?.querySelector(".course-resource-preview-shell");
+    if (preview) {
+      preview.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "nearest" });
+      return;
+    }
+
+    if (resource?.file?.data) {
+      window.open(resource.file.data, "_blank", "noopener");
+      return;
+    }
+
+    if (resource?.link) {
+      window.open(resource.link, "_blank", "noopener");
+    }
+    return;
+  }
+
   const quizButton = event.target.closest("[data-course-quiz-action='remove']");
+  const editButton = event.target.closest("[data-course-quiz-action='edit']");
+  if (editButton) {
+    const quiz = getCourseQuizzes().find((item) => item.id === editButton.dataset.quizId);
+    if (!quiz) return;
+    const existingForm = document.querySelector(`[data-course-quiz-form][data-quiz-id='${quiz.id}']`);
+    if (existingForm) {
+      existingForm.closest(".course-add-quiz")?.remove();
+      return;
+    }
+    editButton.closest(".course-quiz-item")?.insertAdjacentElement("afterend", renderCourseQuizForm(quiz.courseId, quiz));
+    return;
+  }
+
   if (!quizButton) return;
 
   const quiz = getCourseQuizzes().find((item) => item.id === quizButton.dataset.quizId);
@@ -1910,26 +2737,6 @@ function getVideos() {
   return demoVideos;
 }
 
-function extractYoutubeId(url) {
-  try {
-    const parsedUrl = new URL(url);
-    let youtubeId = "";
-
-    if (parsedUrl.hostname.includes("youtu.be")) {
-      youtubeId = parsedUrl.pathname.replace("/", "");
-    } else if (parsedUrl.searchParams.has("v")) {
-      youtubeId = parsedUrl.searchParams.get("v");
-    } else {
-      const embedMatch = parsedUrl.pathname.match(/\/embed\/([^/?]+)/);
-      youtubeId = embedMatch ? embedMatch[1] : "";
-    }
-
-    return /^[\w-]{11}$/.test(youtubeId) ? youtubeId : "";
-  } catch {
-    return "";
-  }
-}
-
 function extractDriveId(url) {
   try {
     const parsedUrl = new URL(url);
@@ -1946,16 +2753,7 @@ function extractDriveId(url) {
 }
 
 function getVideoSource(url) {
-  const youtubeId = extractYoutubeId(url);
-  if (youtubeId) {
-    return {
-      provider: "youtube",
-      providerLabel: "YouTube",
-      sourceId: youtubeId,
-      embedUrl: `https://www.youtube.com/embed/${youtubeId}?autoplay=1&playsinline=1&rel=0`,
-      thumbnailUrl: `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg`
-    };
-  }
+  if (!url) return null;
 
   const driveId = extractDriveId(url);
   if (driveId) {
@@ -1968,26 +2766,45 @@ function getVideoSource(url) {
     };
   }
 
-  return null;
+  try {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.hostname.includes("mail.google.com") || parsedUrl.hostname.includes("gmail.com")) {
+      return {
+        provider: "gmail",
+        providerLabel: "Gmail Link",
+        sourceId: parsedUrl.href,
+        embedUrl: "",
+        thumbnailUrl: ""
+      };
+    }
+  } catch {
+    return null;
+  }
+
+  return {
+    provider: "link",
+    providerLabel: "Shared Link",
+    sourceId: url,
+    embedUrl: "",
+    thumbnailUrl: ""
+  };
 }
 
 function getSavedVideoSource(video) {
   if (!video) return null;
+  if (video.file?.data) {
+    return {
+      ...video,
+      provider: "upload",
+      providerLabel: "Uploaded Video",
+      embedUrl: video.file.data,
+      thumbnailUrl: ""
+    };
+  }
   if (video.provider && video.embedUrl) return video;
 
   const source = getVideoSource(video.url);
   if (source) return { ...video, ...source };
-
-  if (video.youtubeId) {
-    return {
-      ...video,
-      provider: "youtube",
-      providerLabel: "YouTube",
-      sourceId: video.youtubeId,
-      embedUrl: `https://www.youtube.com/embed/${video.youtubeId}?autoplay=1&playsinline=1&rel=0`,
-      thumbnailUrl: `https://img.youtube.com/vi/${video.youtubeId}/hqdefault.jpg`
-    };
-  }
 
   return video;
 }
@@ -2025,6 +2842,19 @@ function showVideoModal() {
   return true;
 }
 
+function clearVideoModalMedia() {
+  if (videoModalFrame) {
+    videoModalFrame.src = "";
+    videoModalFrame.classList.remove("d-none");
+  }
+  if (videoModalPlayer) {
+    videoModalPlayer.pause();
+    videoModalPlayer.removeAttribute("src");
+    videoModalPlayer.load();
+    videoModalPlayer.classList.add("d-none");
+  }
+}
+
 function hideVideoModal() {
   if (!videoModal) return;
 
@@ -2033,7 +2863,7 @@ function hideVideoModal() {
     return;
   }
 
-  if (videoModalFrame) videoModalFrame.src = "";
+  clearVideoModalMedia();
   videoModal.classList.remove("show");
   videoModal.setAttribute("aria-hidden", "true");
   videoModal.removeAttribute("aria-modal");
@@ -2215,11 +3045,18 @@ function renderVideos() {
   }
 }
 
-videoForm?.addEventListener("submit", (event) => {
+videoForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  const url = document.querySelector("#videoUrl").value.trim();
-  const source = getVideoSource(url);
+  const url = document.querySelector("#videoUrl")?.value.trim() || "";
+  const file = await readStorageFile(document.querySelector("#videoFile")?.files?.[0]);
+  const source = file ? {
+    provider: "upload",
+    providerLabel: "Uploaded Video",
+    sourceId: file.name,
+    embedUrl: file.data,
+    thumbnailUrl: ""
+  } : getVideoSource(url);
 
   if (!source) {
     videoError?.classList.remove("d-none");
@@ -2232,6 +3069,7 @@ videoForm?.addEventListener("submit", (event) => {
     classroom: document.querySelector("#videoClassroom").value,
     title: document.querySelector("#videoTitle").value.trim(),
     url,
+    file,
     ...source,
     createdAt: new Date().toISOString()
   });
@@ -2256,10 +3094,23 @@ document.addEventListener("click", (event) => {
     return;
   }
 
-  if (actionButton.dataset.videoAction === "watch" && video.embedUrl && videoModal && videoModalFrame && window.bootstrap?.Modal) {
-    videoModalFrame.src = video.embedUrl;
+  if (actionButton.dataset.videoAction === "watch" && video.provider === "upload" && video.embedUrl && videoModal && videoModalPlayer) {
+    clearVideoModalMedia();
+    videoModalPlayer.src = video.embedUrl;
+    videoModalPlayer.classList.remove("d-none");
+    videoModalFrame?.classList.add("d-none");
     if (videoModalLabel) videoModalLabel.textContent = video.title;
-    bootstrap.Modal.getOrCreateInstance(videoModal).show();
+    showVideoModal();
+    return;
+  }
+
+  if (actionButton.dataset.videoAction === "watch" && video.embedUrl && videoModal && videoModalFrame) {
+    clearVideoModalMedia();
+    videoModalFrame.src = video.embedUrl;
+    videoModalFrame.classList.remove("d-none");
+    videoModalPlayer?.classList.add("d-none");
+    if (videoModalLabel) videoModalLabel.textContent = video.title;
+    showVideoModal();
     return;
   }
 
@@ -2279,7 +3130,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 videoModal?.addEventListener("hidden.bs.modal", () => {
-  if (videoModalFrame) videoModalFrame.src = "";
+  clearVideoModalMedia();
 });
 
 function getAssignments() {

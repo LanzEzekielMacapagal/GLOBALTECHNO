@@ -168,8 +168,9 @@
                   </select>
                 </label>
                 <label class="form-label mb-0">Title<input class="form-control mt-1" id="videoTitle" type="text" placeholder="Video title" required></label>
-                <label class="form-label mb-0">Video link<input class="form-control mt-1" id="videoUrl" type="url" placeholder="YouTube or Google Drive video link" required></label>
-                <p class="alert alert-danger d-none mb-0" id="videoError">Enter a valid YouTube or Google Drive video link.</p>
+                <label class="form-label mb-0">Upload video file<input class="form-control mt-1" id="videoFile" type="file" accept="video/*"></label>
+                <label class="form-label mb-0">Gmail or Google Drive link<input class="form-control mt-1" id="videoUrl" type="url" placeholder="https://drive.google.com/..."></label>
+                <p class="alert alert-danger d-none mb-0" id="videoError">Upload a video file or enter a Gmail/Google Drive link.</p>
                 <button class="btn btn-primary" type="submit">Post Video</button>
               </form>
             </div>
@@ -521,7 +522,8 @@
           </div>
           <div class="modal-body">
             <div class="video-frame">
-              <iframe id="videoModalFrame" title="Class video player" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+              <iframe id="videoModalFrame" title="Class video player" allow="autoplay; fullscreen" allowfullscreen></iframe>
+              <video id="videoModalPlayer" class="d-none" controls playsinline></video>
             </div>
           </div>
         </div>
