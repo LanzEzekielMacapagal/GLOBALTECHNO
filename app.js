@@ -263,6 +263,25 @@ function renderCourseGradeSummary(courseId, student = currentStudent) {
   return summary;
 }
 
+function renderCourseResourcesPanel(course, courseId) {
+  const panel = document.createElement("aside");
+  panel.className = "course-workspace-panel course-workspace-resources-panel";
+
+  const resourceTitle = createTextElement("h4", "h6 mb-2", "Classwork and resources");
+  const resourceList = document.createElement("div");
+  resourceList.className = "course-post-list";
+  course.resources.forEach((resource) => {
+    resourceList.appendChild(renderStaticCourseResource(resource, course));
+  });
+  getCourseItems(getCourseResources(), courseId).forEach((resource) => {
+    resourceList.appendChild(renderCourseResourceItem(resource));
+  });
+  if (adminApp) resourceList.appendChild(renderCourseResourceForm(courseId));
+
+  panel.append(resourceTitle, resourceList);
+  return panel;
+}
+
 function renderCourseWorkspace(courseId, triggerCard) {
   const course = courseWorkspaces[courseId];
   const courseList = triggerCard.closest("#courseList");
@@ -275,6 +294,8 @@ function renderCourseWorkspace(courseId, triggerCard) {
   });
 
   courseList.parentElement.querySelector(".course-workspace")?.remove();
+  const adminResourcesSlot = document.getElementById("courseWorkspaceResources");
+  if (adminResourcesSlot) adminResourcesSlot.replaceChildren();
 
   const workspace = document.createElement("section");
   workspace.className = `course-workspace course-workspace-${course.accent}`;
@@ -329,6 +350,7 @@ function renderCourseWorkspace(courseId, triggerCard) {
 
   const body = document.createElement("div");
   body.className = "course-workspace-grid";
+  if (adminApp) body.classList.add("course-workspace-grid-expanded");
 
   const stream = document.createElement("article");
   stream.className = "course-workspace-panel course-workspace-panel-main";
@@ -371,30 +393,13 @@ function renderCourseWorkspace(courseId, triggerCard) {
   stream.appendChild(quizList);
   stream.appendChild(renderCourseGradeSummary(courseId));
 
-  const side = document.createElement("aside");
-  side.className = "course-workspace-panel";
-
-  const resourceTitle = createTextElement("h4", "h6 mb-2", "Classwork and resources");
-  const resourceList = document.createElement("div");
-  resourceList.className = "course-post-list";
-  course.resources.forEach((resource) => {
-    resourceList.appendChild(renderStaticCourseResource(resource, course));
-  });
-  getCourseItems(getCourseResources(), courseId).forEach((resource) => {
-    resourceList.appendChild(renderCourseResourceItem(resource));
-  });
-  if (adminApp) resourceList.appendChild(renderCourseResourceForm(courseId));
-
-  const activityTitle = createTextElement("h4", "h6 mt-4 mb-2", adminApp ? "Learner activity" : "Recent activity");
-  const activityList = document.createElement("div");
-  activityList.className = "course-activity-list";
-  course.activity.forEach((activity) => {
-    activityList.appendChild(createTextElement("p", "small text-secondary mb-2", activity));
-  });
-
-  side.append(resourceTitle, resourceList, activityTitle, activityList);
-
-  body.append(stream, side);
+  const resourcePanel = renderCourseResourcesPanel(course, courseId);
+  body.appendChild(stream);
+  if (adminResourcesSlot) {
+    adminResourcesSlot.appendChild(resourcePanel);
+  } else {
+    body.appendChild(resourcePanel);
+  }
   workspace.append(hero, progress, body);
   courseList.insertAdjacentElement("afterend", workspace);
   observeMotionElements(workspace);
@@ -450,6 +455,7 @@ filterButtons.forEach((button) => {
       activeCard.classList.remove("course-card-active");
       activeCard.setAttribute("aria-pressed", "false");
       activeCard.closest("#courseList")?.parentElement.querySelector(".course-workspace")?.remove();
+      document.getElementById("courseWorkspaceResources")?.replaceChildren();
     }
   });
 });
@@ -963,6 +969,7 @@ function renderQuizImage(src, alt = "") {
   image.className = "course-quiz-image";
   image.src = src;
   image.alt = alt;
+  image.loading = "lazy";
   return image;
 }
 
@@ -975,10 +982,25 @@ function renderMatchingText(text, image, alt) {
   return wrapper;
 }
 
+function createMatchingPairField(labelText, input) {
+  const label = document.createElement("label");
+  label.className = "course-matching-pair-field";
+  label.append(createTextElement("span", "", labelText), input);
+  return label;
+}
+
 function createMatchingPairRow(pair = {}, pairIndex = 0, key = "", activeType = "multiple-choice", totalPairs = 1) {
   const pairRow = document.createElement("div");
   pairRow.className = "course-matching-pair";
   pairRow.dataset.matchingPairRow = "true";
+
+  const pairNumber = createTextElement("span", "course-matching-pair-number", String(pairIndex + 1));
+  const itemPanel = document.createElement("div");
+  itemPanel.className = "course-matching-pair-panel";
+  itemPanel.appendChild(createTextElement("strong", "", "Item"));
+  const matchPanel = document.createElement("div");
+  matchPanel.className = "course-matching-pair-panel";
+  matchPanel.appendChild(createTextElement("strong", "", "Correct match"));
 
   const prompt = document.createElement("input");
   prompt.className = "form-control form-control-sm";
@@ -1010,13 +1032,22 @@ function createMatchingPairRow(pair = {}, pairIndex = 0, key = "", activeType = 
   answerImage.placeholder = "Match image URL optional";
   answerImage.value = pair.answerImage || "";
 
-  pairRow.append(prompt, promptImage, answer, answerImage);
+  itemPanel.append(
+    createMatchingPairField("Text", prompt),
+    createMatchingPairField("Image URL (optional)", promptImage)
+  );
+  matchPanel.append(
+    createMatchingPairField("Text", answer),
+    createMatchingPairField("Image URL (optional)", answerImage)
+  );
+
+  pairRow.append(pairNumber, itemPanel, matchPanel);
   if (totalPairs > 1) {
     const remove = document.createElement("button");
-    remove.className = "btn btn-outline-danger btn-sm";
+    remove.className = "btn btn-outline-danger btn-sm course-matching-pair-remove";
     remove.type = "button";
     remove.dataset.matchingPairAction = "remove";
-    remove.textContent = "Remove Pair";
+    remove.textContent = "Remove";
     pairRow.appendChild(remove);
   }
 
@@ -1030,13 +1061,15 @@ function refreshMatchingPairNumbers(container) {
     const answer = row.querySelector("input[name^='matchAnswer']");
     if (prompt) prompt.placeholder = `Item ${index + 1}`;
     if (answer) answer.placeholder = `Correct match ${index + 1}`;
+    const pairNumber = row.querySelector(".course-matching-pair-number");
+    if (pairNumber) pairNumber.textContent = String(index + 1);
     let remove = row.querySelector("[data-matching-pair-action='remove']");
     if (rows.length > 1 && !remove) {
       remove = document.createElement("button");
-      remove.className = "btn btn-outline-danger btn-sm";
+      remove.className = "btn btn-outline-danger btn-sm course-matching-pair-remove";
       remove.type = "button";
       remove.dataset.matchingPairAction = "remove";
-      remove.textContent = "Remove Pair";
+      remove.textContent = "Remove";
       row.appendChild(remove);
     } else if (rows.length === 1) {
       remove?.remove();
@@ -1079,6 +1112,39 @@ function refreshMatchingBoardState(board) {
   });
   drawMatchingLines(board);
 }
+
+function handleMatchingSelection(target) {
+  const matchingLeft = target.closest("[data-matching-left]");
+  if (matchingLeft) {
+    const board = matchingLeft.closest("[data-matching-board]");
+    if (!board) return false;
+    board.querySelectorAll("[data-matching-left]").forEach((button) => button.classList.remove("course-matching-node-active"));
+    matchingLeft.classList.add("course-matching-node-active");
+    board.dataset.activePairIndex = matchingLeft.dataset.pairIndex || "";
+    drawMatchingLines(board);
+    return true;
+  }
+
+  const matchingRight = target.closest("[data-matching-right]");
+  if (matchingRight) {
+    const board = matchingRight.closest("[data-matching-board]");
+    if (!board || board.dataset.activePairIndex === undefined || board.dataset.activePairIndex === "") return false;
+    const input = board.querySelector(`[data-matching-answer][data-pair-index='${board.dataset.activePairIndex}']`);
+    if (!input) return false;
+    board.querySelectorAll("[data-matching-answer]").forEach((answerInput) => {
+      if (answerInput !== input && answerInput.value === matchingRight.dataset.answer) answerInput.value = "";
+    });
+    input.value = matchingRight.dataset.answer || "";
+    board.querySelectorAll("[data-matching-left]").forEach((button) => button.classList.remove("course-matching-node-active"));
+    board.dataset.activePairIndex = "";
+    refreshMatchingBoardState(board);
+    return true;
+  }
+
+  return false;
+}
+
+let lastMatchingPointerAt = 0;
 
 function getShuffledMatchingAnswers(pairs = []) {
   const answers = pairs.map((pair, originalIndex) => ({
@@ -1147,6 +1213,11 @@ function createMatchingConnectBoard(question) {
   });
 
   board.append(svg, leftColumn, rightColumn);
+  board.querySelectorAll(".course-quiz-image").forEach((image) => {
+    if (image.complete) return;
+    image.addEventListener("load", () => drawMatchingLines(board), { once: true });
+    image.addEventListener("error", () => drawMatchingLines(board), { once: true });
+  });
   window.setTimeout(() => drawMatchingLines(board), 0);
   return board;
 }
@@ -1219,6 +1290,7 @@ function renderSubmittedAnswerForAdmin(quiz, question, submission, index) {
   wrapper.className = "course-answer-text";
 
   if (type === "matching" && typeof answer === "object") {
+    wrapper.classList.add("course-grade-matching-answer");
     (question.pairs || []).forEach((pair, pairIndex) => {
       const row = document.createElement("div");
       row.className = "course-grade-answer-row";
@@ -1369,7 +1441,7 @@ function renderCourseQuizItem(quiz) {
         (question.pairs || []).forEach((pair, pairIndex) => {
           const optionRow = document.createElement("div");
           const isCorrect = adminApp || normalizeAnswer(submittedPairs[pairIndex]) === normalizeAnswer(pair.answer);
-          optionRow.className = `course-quiz-option${isCorrect ? " course-quiz-option-correct" : ""}${submittedPairs[pairIndex] ? " course-quiz-option-selected" : ""}`;
+          optionRow.className = `course-quiz-option course-matching-review-row${isCorrect ? " course-quiz-option-correct" : ""}${submittedPairs[pairIndex] ? " course-quiz-option-selected" : ""}`;
           optionRow.append(
             createTextElement("span", "course-quiz-letter", String(pairIndex + 1)),
             renderMatchingText(pair.prompt, pair.promptImage, `Image for ${pair.prompt}`),
@@ -1463,7 +1535,7 @@ function renderCourseQuizItem(quiz) {
           form.appendChild(createTextElement("p", "section-label mb-0", `Test ${Number(currentSectionIndex || 0) + 1} - ${getQuizTypeLabel(type)}`));
         }
         const answerBlock = document.createElement("div");
-        answerBlock.className = "course-quiz-question";
+        answerBlock.className = `course-quiz-question course-quiz-question-${type}`;
         answerBlock.appendChild(createTextElement("p", "fw-bold mb-2", `${index + 1}. ${question.question}`));
         answerBlock.appendChild(createTextElement("small", "text-secondary mb-2", `${getQuestionPoints(question)} point${getQuestionPoints(question) === 1 ? "" : "s"}`));
 
@@ -1487,7 +1559,7 @@ function renderCourseQuizItem(quiz) {
           answerBlock.appendChild(createMatchingConnectBoard(question));
         } else {
           const choices = document.createElement("div");
-          choices.className = "course-answer-choices";
+          choices.className = `course-answer-choices course-answer-choices-${type}`;
           const answerChoices = type === "multiple-choice"
             ? question.options.map((option, optionIndex) => [String.fromCharCode(65 + optionIndex), option])
             : [["True", "True"], ["False", "False"]];
@@ -1633,22 +1705,32 @@ function createQuizQuestionRow(index, activeType = "multiple-choice", existingQu
   tfFields.className = "course-quiz-fields d-none";
   tfFields.dataset.quizFields = "true-false";
   const tfChoices = document.createElement("div");
-  tfChoices.className = "course-answer-choices";
-  tfChoices.append(
-    createQuizCorrectChoice(`correctTf-${key}`, "True", "True", (existingQuestion.correctAnswer || "True") === "True"),
-    createQuizCorrectChoice(`correctTf-${key}`, "False", "False", existingQuestion.correctAnswer === "False")
-  );
+  tfChoices.className = "course-correct-choice-group";
+  [["True", (existingQuestion.correctAnswer || "True") === "True"], ["False", existingQuestion.correctAnswer === "False"]].forEach(([value, checked]) => {
+    const choiceRow = document.createElement("div");
+    choiceRow.className = "course-correct-choice-row course-correct-choice-row-static";
+    choiceRow.append(
+      createQuizCorrectChoice(`correctTf-${key}`, value, "Correct", checked, "course-correct-choice-bullet"),
+      createTextElement("span", "course-static-choice-text", value)
+    );
+    tfChoices.appendChild(choiceRow);
+  });
   tfFields.appendChild(tfChoices);
 
   const modifiedFields = document.createElement("div");
   modifiedFields.className = "course-quiz-fields d-none";
   modifiedFields.dataset.quizFields = "modified-true-false";
   const modifiedChoices = document.createElement("div");
-  modifiedChoices.className = "course-answer-choices";
-  modifiedChoices.append(
-    createQuizCorrectChoice(`correctModified-${key}`, "True", "True", (existingQuestion.correctAnswer || "True") === "True"),
-    createQuizCorrectChoice(`correctModified-${key}`, "False", "False", existingQuestion.correctAnswer === "False")
-  );
+  modifiedChoices.className = "course-correct-choice-group";
+  [["True", (existingQuestion.correctAnswer || "True") === "True"], ["False", existingQuestion.correctAnswer === "False"]].forEach(([value, checked]) => {
+    const choiceRow = document.createElement("div");
+    choiceRow.className = "course-correct-choice-row course-correct-choice-row-static";
+    choiceRow.append(
+      createQuizCorrectChoice(`correctModified-${key}`, value, "Correct", checked, "course-correct-choice-bullet"),
+      createTextElement("span", "course-static-choice-text", value)
+    );
+    modifiedChoices.appendChild(choiceRow);
+  });
   const correction = document.createElement("input");
   correction.className = "form-control form-control-sm mt-2";
   correction.name = `correction-${key}`;
@@ -1660,6 +1742,12 @@ function createQuizQuestionRow(index, activeType = "multiple-choice", existingQu
   const matchingFields = document.createElement("div");
   matchingFields.className = "course-quiz-fields d-none";
   matchingFields.dataset.quizFields = "matching";
+  const matchingHelp = document.createElement("div");
+  matchingHelp.className = "course-matching-builder-note";
+  matchingHelp.append(
+    createTextElement("strong", "", "Matching pairs"),
+    createTextElement("span", "", "Images are optional for either side.")
+  );
   const matchingPairs = document.createElement("div");
   matchingPairs.className = "course-matching-pair-list";
   matchingPairs.dataset.matchingPairList = "true";
@@ -1672,7 +1760,7 @@ function createQuizQuestionRow(index, activeType = "multiple-choice", existingQu
   addPair.type = "button";
   addPair.dataset.matchingPairAction = "add";
   addPair.textContent = "Add Matching Item";
-  matchingFields.append(matchingPairs, addPair);
+  matchingFields.append(matchingHelp, matchingPairs, addPair);
 
   const enumerationFields = document.createElement("div");
   enumerationFields.className = "course-quiz-fields d-none";
@@ -1709,7 +1797,8 @@ function updateQuizQuestionRowType(row, type) {
     group.querySelectorAll("input, textarea, select").forEach((field) => {
       const isCorrection = field.name.startsWith("correction-");
       const isEssayGuide = field.name.startsWith("essayGuide-");
-      field.required = isActive && !isCorrection && !isEssayGuide;
+      const isMatchingImage = field.name.startsWith("matchPromptImage") || field.name.startsWith("matchAnswerImage");
+      field.required = isActive && !isCorrection && !isEssayGuide && !isMatchingImage;
     });
   });
 }
@@ -2037,6 +2126,7 @@ document.addEventListener("click", (event) => {
   saveCourseQuizzes(getCourseQuizzes().filter((item) => item.courseId !== courseId));
   saveCourseQuizSubmissions(getCourseQuizSubmissions().filter((item) => item.courseId !== courseId));
   document.querySelector(".course-workspace")?.remove();
+  document.getElementById("courseWorkspaceResources")?.replaceChildren();
   renderCustomCourses();
 });
 
@@ -2290,30 +2380,20 @@ document.addEventListener("submit", (event) => {
   refreshOpenCourseWorkspace(quiz.courseId);
 });
 
+document.addEventListener("pointerup", (event) => {
+  if (!handleMatchingSelection(event.target)) return;
+  lastMatchingPointerAt = Date.now();
+  event.preventDefault();
+});
+
 document.addEventListener("click", (event) => {
-  const matchingLeft = event.target.closest("[data-matching-left]");
-  if (matchingLeft) {
-    const board = matchingLeft.closest("[data-matching-board]");
-    if (!board) return;
-    board.querySelectorAll("[data-matching-left]").forEach((button) => button.classList.remove("course-matching-node-active"));
-    matchingLeft.classList.add("course-matching-node-active");
-    board.dataset.activePairIndex = matchingLeft.dataset.pairIndex || "";
+  if (Date.now() - lastMatchingPointerAt < 450 && event.target.closest("[data-matching-board]")) {
+    event.preventDefault();
     return;
   }
 
-  const matchingRight = event.target.closest("[data-matching-right]");
-  if (matchingRight) {
-    const board = matchingRight.closest("[data-matching-board]");
-    if (!board || board.dataset.activePairIndex === undefined || board.dataset.activePairIndex === "") return;
-    const input = board.querySelector(`[data-matching-answer][data-pair-index='${board.dataset.activePairIndex}']`);
-    if (!input) return;
-    board.querySelectorAll("[data-matching-answer]").forEach((answerInput) => {
-      if (answerInput !== input && answerInput.value === matchingRight.dataset.answer) answerInput.value = "";
-    });
-    input.value = matchingRight.dataset.answer || "";
-    board.querySelectorAll("[data-matching-left]").forEach((button) => button.classList.remove("course-matching-node-active"));
-    board.dataset.activePairIndex = "";
-    refreshMatchingBoardState(board);
+  if (handleMatchingSelection(event.target)) {
+    event.preventDefault();
     return;
   }
 
