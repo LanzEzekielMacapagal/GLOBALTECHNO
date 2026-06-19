@@ -24,6 +24,10 @@ const courseForm = document.querySelector("#courseForm");
 const courseTitle = document.querySelector("#courseTitle");
 const courseDescription = document.querySelector("#courseDescription");
 const courseCover = document.querySelector("#courseCover");
+const studentImportToggle = document.querySelector("#studentImportToggle");
+const studentImportForm = document.querySelector("#studentImportForm");
+const studentImportCode = document.querySelector("#studentImportCode");
+const studentImportMessage = document.querySelector("#studentImportMessage");
 const privateMessagePanel = document.querySelector(".private-message-panel");
 const privateMessageStudent = document.querySelector("#privateMessageStudent");
 const privateMessageStudentName = document.querySelector("#privateMessageStudentName");
@@ -303,6 +307,14 @@ function renderCourseWorkspace(courseId, triggerCard) {
 
   const hero = document.createElement("div");
   hero.className = "course-workspace-hero";
+  if (course.cover) hero.classList.add("course-workspace-hero-with-cover");
+
+  const heroCover = document.createElement("img");
+  if (course.cover) {
+    heroCover.className = "course-workspace-cover";
+    heroCover.src = course.cover;
+    heroCover.alt = `${course.title} cover photo`;
+  }
 
   const heroText = document.createElement("div");
   heroText.append(
@@ -333,6 +345,7 @@ function renderCourseWorkspace(courseId, triggerCard) {
   copyInvite.textContent = "Copy";
   invitePanel.append(inviteText, copyInvite);
 
+  if (course.cover) hero.appendChild(heroCover);
   hero.append(heroText, invitePanel, heroMeta);
 
   const progress = document.createElement("div");
@@ -580,6 +593,24 @@ function getCustomCourses() {
 
 function saveCustomCourses(courses) {
   saveStoredItems("gthCourses", courses);
+}
+
+function normalizeSubjectCode(value = "") {
+  return String(value).trim().toUpperCase();
+}
+
+function getJoinedCourseCodes() {
+  return getStoredItems(`gthJoinedCourseCodes-${currentStudent.id}`, []);
+}
+
+function saveJoinedCourseCodes(codes) {
+  saveStoredItems(`gthJoinedCourseCodes-${currentStudent.id}`, codes.map(normalizeSubjectCode).filter(Boolean));
+}
+
+function isCourseJoined(course) {
+  if (adminApp) return true;
+  const invitationCode = normalizeSubjectCode(course.invitationCode || createInvitationCode(course.title, course.id));
+  return getJoinedCourseCodes().includes(invitationCode);
 }
 
 function getCourseResources() {
@@ -1013,11 +1044,24 @@ function createMatchingPairField(labelText, input) {
 }
 
 function createMatchingPairRow(pair = {}, pairIndex = 0, key = "", activeType = "multiple-choice", totalPairs = 1) {
-  const pairRow = document.createElement("div");
+  const pairRow = document.createElement("details");
   pairRow.className = "course-matching-pair";
   pairRow.dataset.matchingPairRow = "true";
+  if (pairIndex === 0) pairRow.open = true;
 
   const pairNumber = createTextElement("span", "course-matching-pair-number", String(pairIndex + 1));
+  const pairSummary = document.createElement("summary");
+  pairSummary.className = "course-matching-pair-summary";
+  const summaryText = document.createElement("span");
+  summaryText.append(
+    createTextElement("strong", "", `Pair ${pairIndex + 1}`),
+    createTextElement("small", "text-secondary", pair.prompt && pair.answer ? `${pair.prompt} -> ${pair.answer}` : "Item and correct match")
+  );
+  pairSummary.append(pairNumber, summaryText);
+
+  const pairBody = document.createElement("div");
+  pairBody.className = "course-matching-pair-body";
+
   const itemPanel = document.createElement("div");
   itemPanel.className = "course-matching-pair-panel";
   itemPanel.appendChild(createTextElement("strong", "", "Item"));
@@ -1064,16 +1108,17 @@ function createMatchingPairRow(pair = {}, pairIndex = 0, key = "", activeType = 
     createMatchingPairField("Image URL (optional)", answerImage)
   );
 
-  pairRow.append(pairNumber, itemPanel, matchPanel);
+  pairBody.append(itemPanel, matchPanel);
   if (totalPairs > 1) {
     const remove = document.createElement("button");
     remove.className = "btn btn-outline-danger btn-sm course-matching-pair-remove";
     remove.type = "button";
     remove.dataset.matchingPairAction = "remove";
     remove.textContent = "Remove";
-    pairRow.appendChild(remove);
+    pairBody.appendChild(remove);
   }
 
+  pairRow.append(pairSummary, pairBody);
   return pairRow;
 }
 
@@ -1086,6 +1131,12 @@ function refreshMatchingPairNumbers(container) {
     if (answer) answer.placeholder = `Correct match ${index + 1}`;
     const pairNumber = row.querySelector(".course-matching-pair-number");
     if (pairNumber) pairNumber.textContent = String(index + 1);
+    const pairTitle = row.querySelector(".course-matching-pair-summary strong");
+    if (pairTitle) pairTitle.textContent = `Pair ${index + 1}`;
+    const pairSummaryText = row.querySelector(".course-matching-pair-summary small");
+    if (pairSummaryText) {
+      pairSummaryText.textContent = prompt?.value && answer?.value ? `${prompt.value} -> ${answer.value}` : "Item and correct match";
+    }
     let remove = row.querySelector("[data-matching-pair-action='remove']");
     if (rows.length > 1 && !remove) {
       remove = document.createElement("button");
@@ -1093,11 +1144,14 @@ function refreshMatchingPairNumbers(container) {
       remove.type = "button";
       remove.dataset.matchingPairAction = "remove";
       remove.textContent = "Remove";
-      row.appendChild(remove);
+      row.querySelector(".course-matching-pair-body")?.appendChild(remove);
     } else if (rows.length === 1) {
       remove?.remove();
     }
   });
+
+  const builderCount = container.closest(".course-matching-builder")?.querySelector(".course-matching-builder-count");
+  if (builderCount) builderCount.textContent = `${rows.length} pair${rows.length === 1 ? "" : "s"} - images optional`;
 }
 
 function drawMatchingLines(board) {
@@ -1290,7 +1344,7 @@ function renderMatchingResultChoice(label, text, image, stateClass = "") {
   const choice = document.createElement("div");
   choice.className = `course-matching-result-choice${stateClass ? ` ${stateClass}` : ""}`;
   choice.append(
-    createTextElement("small", "", label),
+    createTextElement("span", "course-matching-result-label", label),
     renderMatchingText(text || "No answer", image || "", text ? `Image for ${text}` : "")
   );
   return choice;
@@ -1299,6 +1353,7 @@ function renderMatchingResultChoice(label, text, image, stateClass = "") {
 function renderMatchingResultRow(question, pair, pairIndex, submittedAnswer, options = {}) {
   const submittedChoice = getMatchingAnswerChoice(question, submittedAnswer);
   const isCorrect = normalizeAnswer(submittedAnswer) === normalizeAnswer(pair.answer);
+  const answerLabel = options.answerLabel || (options.adminView ? "Student picked" : "Your answer");
   const row = document.createElement("div");
   row.className = `course-matching-result-row${isCorrect ? " course-matching-result-correct" : " course-matching-result-wrong"}`;
 
@@ -1306,17 +1361,17 @@ function renderMatchingResultRow(question, pair, pairIndex, submittedAnswer, opt
   header.className = "course-matching-result-header";
   header.append(
     createTextElement("span", "course-quiz-letter", String(pairIndex + 1)),
-    createTextElement("strong", "", isCorrect ? "Correct match" : "Needs correction")
+    createTextElement("strong", "", "Correct match")
   );
 
   const grid = document.createElement("div");
   grid.className = "course-matching-result-grid";
   grid.append(
     renderMatchingResultChoice("Item", pair.prompt, pair.promptImage),
-    renderMatchingResultChoice(options.adminView ? "Student picked" : "Your answer", submittedAnswer || "No answer", submittedChoice?.answerImage || "", isCorrect ? "is-correct" : "is-wrong")
+    renderMatchingResultChoice(answerLabel, submittedAnswer || "No answer", submittedChoice?.answerImage || "", isCorrect ? "is-correct" : "is-wrong")
   );
 
-  if (!isCorrect || options.showCorrect) {
+  if (options.showCorrect) {
     grid.append(renderMatchingResultChoice("Correct answer", pair.answer, pair.answerImage, "is-correct"));
   }
 
@@ -1440,8 +1495,8 @@ function renderQuizExtraChancePanel(quiz) {
   const panel = document.createElement("div");
   panel.className = "course-extra-chance-panel";
   panel.append(
-    createTextElement("h4", "h6 mb-1", "Missed due time"),
-    createTextElement("p", "small text-secondary mb-2", "Grant one extra front-end attempt to learners who missed the due date.")
+    createTextElement("h4", "h6 mb-1", "Add attempt approvals"),
+    createTextElement("p", "small text-secondary mb-2", "Open a classroom, then approve one extra quiz attempt for each enrolled student who missed the due date.")
   );
 
   if (!isPastDue(quiz.dueAt)) {
@@ -1461,28 +1516,53 @@ function renderQuizExtraChancePanel(quiz) {
 
   const list = document.createElement("div");
   list.className = "course-extra-chance-list";
-  missedStudents.forEach((student) => {
-    const row = document.createElement("div");
-    row.className = "course-extra-chance-row";
-    const granted = hasQuizExtraChance(quiz.id, student.id);
-    const info = document.createElement("div");
-    info.append(
-      createTextElement("strong", "", student.name),
-      createTextElement("small", "text-secondary d-block", classroomTitles[student.classroom] || student.classroom)
+  const studentsByClassroom = missedStudents.reduce((groups, student) => {
+    const key = student.classroom || "all";
+    groups[key] = [...(groups[key] || []), student];
+    return groups;
+  }, {});
+
+  Object.entries(studentsByClassroom).forEach(([classroom, students], groupIndex) => {
+    const group = document.createElement("details");
+    group.className = "course-extra-chance-group";
+    if (groupIndex === 0) group.open = true;
+
+    const grantedCount = students.filter((student) => hasQuizExtraChance(quiz.id, student.id)).length;
+    const summary = document.createElement("summary");
+    summary.className = "course-extra-chance-summary";
+    summary.append(
+      createTextElement("strong", "", classroomTitles[classroom] || "Classroom"),
+      createTextElement("span", "badge text-bg-info", `${grantedCount}/${students.length} approved`)
     );
 
-    const button = document.createElement("button");
-    button.className = `btn btn-sm ${granted ? "btn-outline-success" : "btn-outline-primary"}`;
-    button.type = "button";
-    button.dataset.quizChanceAction = "grant";
-    button.dataset.quizId = quiz.id;
-    button.dataset.courseId = quiz.courseId;
-    button.dataset.studentId = student.id;
-    button.dataset.studentName = student.name;
-    button.disabled = granted;
-    button.textContent = granted ? "Chance granted" : "Grant chance";
-    row.append(info, button);
-    list.appendChild(row);
+    const rows = document.createElement("div");
+    rows.className = "course-extra-chance-students";
+    students.forEach((student) => {
+      const row = document.createElement("div");
+      row.className = "course-extra-chance-row";
+      const granted = hasQuizExtraChance(quiz.id, student.id);
+      const info = document.createElement("div");
+      info.append(
+        createTextElement("strong", "", student.name),
+        createTextElement("small", "text-secondary d-block", granted ? "Extra attempt approved" : "Waiting for approval")
+      );
+
+      const button = document.createElement("button");
+      button.className = `btn btn-sm ${granted ? "btn-outline-success" : "btn-outline-primary"}`;
+      button.type = "button";
+      button.dataset.quizChanceAction = "grant";
+      button.dataset.quizId = quiz.id;
+      button.dataset.courseId = quiz.courseId;
+      button.dataset.studentId = student.id;
+      button.dataset.studentName = student.name;
+      button.disabled = granted;
+      button.textContent = granted ? "Approved" : "Approve attempt";
+      row.append(info, button);
+      rows.appendChild(row);
+    });
+
+    group.append(summary, rows);
+    list.appendChild(group);
   });
 
   panel.appendChild(list);
@@ -1500,6 +1580,8 @@ function renderCourseQuizItem(quiz) {
   const totalPoints = getQuizTotalPoints(quiz);
   const quizTypeLabel = sectionCount > 1 ? `${sectionCount} test sections` : getQuizTypeLabel(quiz.type);
   const quizExpired = isPastDue(quiz.dueAt);
+  const extraChance = hasQuizExtraChance(quiz.id);
+  const quizAvailable = !quizExpired || extraChance;
   const summary = document.createElement("summary");
   summary.className = "course-quiz-summary";
   const summaryText = document.createElement("span");
@@ -1510,7 +1592,7 @@ function renderCourseQuizItem(quiz) {
   if (quiz.dueAt) {
     summaryText.appendChild(createTextElement("small", quizExpired && !submission ? "text-danger d-block" : "text-secondary d-block", `Due ${formatDateTime(quiz.dueAt)}`));
   }
-  const summaryBadge = createTextElement("span", `badge ${submission ? "text-bg-success" : quizExpired ? "text-bg-warning" : "text-bg-info"}`, submission ? `${formatQuizScore(score)}/${totalPoints} points` : quizExpired ? "Closed" : "Open");
+  const summaryBadge = createTextElement("span", `badge ${submission ? "text-bg-success" : quizAvailable ? "text-bg-info" : "text-bg-warning"}`, submission ? `${formatQuizScore(score)}/${totalPoints} points` : extraChance ? "Extra attempt" : quizExpired ? "Closed" : "Open");
   summary.append(summaryText, summaryBadge);
 
   const meta = document.createElement("div");
@@ -1551,7 +1633,11 @@ function renderCourseQuizItem(quiz) {
         const submittedPairs = getSubmittedAnswer(submission, question, index) || {};
         const matchingScore = getMatchingQuestionScore(question, submittedPairs);
         (question.pairs || []).forEach((pair, pairIndex) => {
-          options.appendChild(renderMatchingResultRow(question, pair, pairIndex, adminApp ? pair.answer : submittedPairs[pairIndex] || "", { showCorrect: adminApp, adminView: adminApp }));
+          const answer = submission ? submittedPairs[pairIndex] || "" : pair.answer;
+          options.appendChild(renderMatchingResultRow(question, pair, pairIndex, answer, {
+            adminView: adminApp && Boolean(submission),
+            answerLabel: adminApp && !submission ? "Correct match" : undefined
+          }));
         });
         questionBlock.appendChild(options);
         if (submission && !adminApp) {
@@ -1576,7 +1662,7 @@ function renderCourseQuizItem(quiz) {
 
         questionBlock.appendChild(options);
       }
-      if (adminApp) {
+      if (adminApp && type !== "matching") {
         const keyText = type === "matching"
           ? (question.pairs || []).map((pair) => `${pair.prompt} = ${pair.answer}`).join("; ")
           : type === "essay"
@@ -1618,7 +1704,7 @@ function renderCourseQuizItem(quiz) {
         createTextElement("small", "text-secondary", "Submitted answers are highlighted above.")
       );
       content.appendChild(result);
-    } else if (quizExpired) {
+    } else if (!quizAvailable) {
       const closed = document.createElement("div");
       closed.className = "course-quiz-result";
       closed.append(
@@ -1704,7 +1790,7 @@ function renderCourseQuizItem(quiz) {
       const button = document.createElement("button");
       button.className = "btn btn-primary btn-sm align-self-start";
       button.type = "submit";
-      button.textContent = "Submit Answer";
+      button.textContent = extraChance ? "Submit Extra Attempt" : "Submit Answer";
       form.appendChild(button);
       content.appendChild(form);
     }
@@ -1846,16 +1932,22 @@ function createQuizQuestionRow(index, activeType = "multiple-choice", existingQu
   const matchingFields = document.createElement("div");
   matchingFields.className = "course-quiz-fields d-none";
   matchingFields.dataset.quizFields = "matching";
+  const matchingShell = document.createElement("details");
+  matchingShell.className = "course-matching-builder";
+  matchingShell.open = true;
+  const matchingSummary = document.createElement("summary");
+  matchingSummary.className = "course-matching-builder-summary";
   const matchingHelp = document.createElement("div");
   matchingHelp.className = "course-matching-builder-note";
+  const pairs = existingQuestion.pairs?.length ? existingQuestion.pairs : [{}, {}, {}, {}];
   matchingHelp.append(
     createTextElement("strong", "", "Matching pairs"),
-    createTextElement("span", "", "Images are optional for either side.")
+    createTextElement("span", "course-matching-builder-count", `${pairs.length} pair${pairs.length === 1 ? "" : "s"} - images optional`)
   );
+  matchingSummary.appendChild(matchingHelp);
   const matchingPairs = document.createElement("div");
   matchingPairs.className = "course-matching-pair-list";
   matchingPairs.dataset.matchingPairList = "true";
-  const pairs = existingQuestion.pairs?.length ? existingQuestion.pairs : [{}, {}, {}, {}];
   pairs.forEach((pair, pairIndex) => {
     matchingPairs.appendChild(createMatchingPairRow(pair, pairIndex, key, activeType, pairs.length));
   });
@@ -1864,7 +1956,8 @@ function createQuizQuestionRow(index, activeType = "multiple-choice", existingQu
   addPair.type = "button";
   addPair.dataset.matchingPairAction = "add";
   addPair.textContent = "Add Matching Item";
-  matchingFields.append(matchingHelp, matchingPairs, addPair);
+  matchingShell.append(matchingSummary, matchingPairs, addPair);
+  matchingFields.appendChild(matchingShell);
 
   const enumerationFields = document.createElement("div");
   enumerationFields.className = "course-quiz-fields d-none";
@@ -2095,7 +2188,6 @@ function createCourseCard(course, index) {
 
   const body = document.createElement("div");
   body.className = "card-body";
-  const invitationCode = course.invitationCode || createInvitationCode(course.title, course.id);
 
   const header = document.createElement("div");
   header.className = "d-flex justify-content-between gap-2 mb-2";
@@ -2124,17 +2216,9 @@ function createCourseCard(course, index) {
   progressBar.style.width = adminApp ? "0%" : "1%";
   progress.appendChild(progressBar);
 
-  const invite = document.createElement("div");
-  invite.className = "course-invite-code";
-  invite.append(
-    createTextElement("span", "", "Subject code"),
-    createTextElement("strong", "", invitationCode)
-  );
-
   body.append(
     header,
     createTextElement("p", "text-secondary mb-3", course.description),
-    invite,
     progressMeta,
     progress
   );
@@ -2171,12 +2255,54 @@ function renderCustomCourses() {
   courses.forEach(createCustomCourseWorkspace);
 
   lists.forEach((list) => {
-    list.querySelectorAll(".course-card-custom").forEach((card) => card.remove());
-    courses.forEach((course, index) => {
+    list.querySelectorAll(".course-card-custom, .course-empty-state").forEach((card) => card.remove());
+    const visibleCourses = courses.filter(isCourseJoined);
+    if (!adminApp && !visibleCourses.length) {
+      const empty = createTextElement("p", "text-secondary mb-0", "Import a subject code to join a course.");
+      empty.className = "course-empty-state text-secondary mb-0";
+      list.appendChild(empty);
+      return;
+    }
+
+    visibleCourses.forEach((course, index) => {
       list.appendChild(createCourseCard(course, index));
     });
   });
 }
+
+studentImportToggle?.addEventListener("click", () => {
+  studentImportForm?.classList.toggle("d-none");
+  if (!studentImportForm?.classList.contains("d-none")) studentImportCode?.focus();
+});
+
+studentImportForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+
+  const code = normalizeSubjectCode(studentImportCode?.value || "");
+  const course = getCustomCourses().find((item) => {
+    return normalizeSubjectCode(item.invitationCode || createInvitationCode(item.title, item.id)) === code;
+  });
+
+  if (!course) {
+    if (studentImportMessage) {
+      studentImportMessage.className = "course-import-message text-danger mb-0";
+      studentImportMessage.textContent = "Subject code not found.";
+    }
+    return;
+  }
+
+  const joinedCodes = new Set(getJoinedCourseCodes());
+  joinedCodes.add(code);
+  saveJoinedCourseCodes([...joinedCodes]);
+
+  if (studentImportMessage) {
+    studentImportMessage.className = "course-import-message text-success mb-0";
+    studentImportMessage.textContent = `Joined ${course.title}.`;
+  }
+
+  studentImportForm.reset();
+  renderCustomCourses();
+});
 
 function readCourseCover(file) {
   return new Promise((resolve) => {
@@ -2439,7 +2565,8 @@ document.addEventListener("submit", (event) => {
   const quizId = answerForm.dataset.courseQuizAnswer;
   const quiz = getCourseQuizzes().find((item) => item.id === quizId);
   if (!quiz) return;
-  if (isPastDue(quiz.dueAt)) {
+  const extraChance = hasQuizExtraChance(quizId);
+  if (isPastDue(quiz.dueAt) && !extraChance) {
     refreshOpenCourseWorkspace(quiz.courseId);
     return;
   }
@@ -2481,7 +2608,15 @@ document.addEventListener("submit", (event) => {
   });
 
   saveCourseQuizSubmissions(submissions);
+  if (extraChance) consumeQuizExtraChance(quizId);
   refreshOpenCourseWorkspace(quiz.courseId);
+});
+
+document.addEventListener("input", (event) => {
+  const pairRow = event.target.closest("[data-matching-pair-row]");
+  if (!pairRow) return;
+  const pairList = pairRow.closest("[data-matching-pair-list]");
+  if (pairList) refreshMatchingPairNumbers(pairList);
 });
 
 document.addEventListener("pointerup", (event) => {
@@ -2590,6 +2725,31 @@ document.addEventListener("click", (event) => {
     if (resource?.link) {
       window.open(resource.link, "_blank", "noopener");
     }
+    return;
+  }
+
+  const chanceButton = event.target.closest("[data-quiz-chance-action='grant']");
+  if (chanceButton) {
+    const chances = getQuizExtraChances();
+    const alreadyGranted = chances.some((chance) => {
+      return chance.quizId === chanceButton.dataset.quizId
+        && chance.studentId === chanceButton.dataset.studentId
+        && !chance.usedAt;
+    });
+
+    if (!alreadyGranted) {
+      chances.push({
+        id: `quiz-extra-chance-${Date.now()}`,
+        quizId: chanceButton.dataset.quizId,
+        courseId: chanceButton.dataset.courseId,
+        studentId: chanceButton.dataset.studentId,
+        studentName: chanceButton.dataset.studentName,
+        grantedAt: new Date().toISOString()
+      });
+      saveQuizExtraChances(chances);
+    }
+
+    refreshOpenCourseWorkspace(chanceButton.dataset.courseId);
     return;
   }
 

@@ -32,6 +32,7 @@
       </div>
       <div class="d-flex flex-wrap gap-2 align-items-start">
         <button class="btn btn-outline-secondary dashboard-back" type="button">Return</button>
+        <button class="btn btn-outline-secondary" type="button" id="studentImportToggle">Import</button>
       </div>
     </header>
 
@@ -107,6 +108,15 @@
               <label class="visually-hidden" for="clientCourseSearch">Search courses</label>
               <input class="form-control" id="clientCourseSearch" type="search" placeholder="Search assigned course names">
               <button class="btn btn-outline-secondary" type="submit">Search</button>
+            </form>
+
+            <form class="course-import-form d-none mb-3" id="studentImportForm">
+              <label class="form-label mb-0">
+                Subject code
+                <input class="form-control mt-1" id="studentImportCode" type="text" placeholder="Enter subject code" autocomplete="off" required>
+              </label>
+              <button class="btn btn-primary" type="submit">Join Subject</button>
+              <p class="course-import-message mb-0" id="studentImportMessage" aria-live="polite"></p>
             </form>
 
             <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-3">
