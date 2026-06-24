@@ -90,8 +90,6 @@
         <aside class="student-section-nav" id="sectionNav" aria-label="Admin sections">
           <a href="#announcements" class="active" data-student-section-link="announcements">Announcements</a>
           <a href="#videos" data-student-section-link="videos">Videos</a>
-          <a href="#assignments" data-student-section-link="assignments">Assignments</a>
-          <a href="#quizzes" data-student-section-link="quizzes">Quizzes</a>
           <a href="#grades" data-student-section-link="grades">Student Grades</a>
           <a href="#invitations" data-student-section-link="invitations">Live Sessions</a>
           <a href="#courses" data-student-section-link="courses">Courses</a>
@@ -190,67 +188,6 @@
               <div class="row g-3" id="adminVideos"></div>
             </div>
           </section>
-        </div>
-      </section>
-
-      <section class="row g-3 student-section-card assignment-workspace" id="assignments" data-student-section="assignments">
-        <div class="col-12 col-xl-5 assignment-form-column">
-          <section class="card">
-            <div class="card-body">
-              <p class="section-label mb-1">Assignment task</p>
-              <h2 class="h5 mb-3">Post Assignment</h2>
-              <form class="vstack gap-3" id="assignmentForm">
-                <label class="form-label mb-0">
-                  Classroom
-                  <select class="form-select mt-1" id="assignmentClassroom" required>
-                    <option value="ict">ICT OJT Classroom</option>
-                    <option value="css">Computer Systems Servicing</option>
-                    <option value="all">All Classrooms</option>
-                  </select>
-                </label>
-                <label class="form-label mb-0">
-                  Subject
-                  <select class="form-select mt-1" id="assignmentSubject" required>
-                    <option>OJT Onboarding Essentials</option>
-                    <option>Safety and Compliance</option>
-                    <option>Supervisor Skills Workshop</option>
-                    <option>General Activity</option>
-                  </select>
-                </label>
-                <label class="form-label mb-0">Title<input class="form-control mt-1" id="assignmentTitle" type="text" placeholder="Assignment title" required></label>
-                <label class="form-label mb-0">Instructions<textarea class="form-control mt-1" id="assignmentInstructions" rows="4" placeholder="Write assignment instructions" required></textarea></label>
-                <label class="form-label mb-0">Due date and time<input class="form-control mt-1" id="assignmentDueDate" type="datetime-local" required></label>
-                <button class="btn btn-primary" type="submit">Post Assignment</button>
-              </form>
-            </div>
-          </section>
-        </div>
-        <div class="col-12 col-xl-7 assignment-list-column">
-          <section class="card assignment-list-card">
-            <div class="card-body">
-              <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3">
-                <div>
-                  <p class="section-label mb-1">Class tasks</p>
-                  <h2 class="h5 mb-0">Posted Assignments</h2>
-                </div>
-                <span class="badge text-bg-info align-self-start">All classrooms</span>
-              </div>
-              <div class="row g-3" id="adminAssignments"></div>
-            </div>
-          </section>
-        </div>
-      </section>
-
-      <section class="card student-section-card" id="quizzes" data-student-section="quizzes">
-        <div class="card-body">
-          <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3">
-            <div>
-              <p class="section-label mb-1">Tests and progress</p>
-              <h2 class="h5 mb-0">Quizzes</h2>
-            </div>
-            <span class="badge text-bg-info align-self-start">All courses</span>
-          </div>
-          <div class="student-quiz-board admin-quiz-board" id="adminQuizzes"></div>
         </div>
       </section>
 
