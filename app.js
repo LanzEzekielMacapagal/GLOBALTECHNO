@@ -17,8 +17,12 @@ const studentAnnouncementClass = document.querySelector("#studentAnnouncementCla
 const chatbox = document.querySelector("#chatbox");
 const chatForm = document.querySelector("#chatForm");
 const chatMessage = document.querySelector("#chatMessage");
+const chatAttachment = document.querySelector("#chatAttachment");
 const chatMessages = document.querySelector("#chatMessages");
 const chatClassroom = document.querySelector("#chatClassroom");
+const chatRecentList = document.querySelector("#chatRecentList");
+const chatThreadTitle = document.querySelector("#chatThreadTitle");
+const chatInfoTitle = document.querySelector("#chatInfoTitle");
 const chatToggles = document.querySelectorAll(".chat-toggle");
 const courseForm = document.querySelector("#courseForm");
 const courseTitle = document.querySelector("#courseTitle");
@@ -31,19 +35,26 @@ const studentImportMessage = document.querySelector("#studentImportMessage");
 const privateMessagePanel = document.querySelector(".private-message-panel");
 const privateMessageStudent = document.querySelector("#privateMessageStudent");
 const privateMessageStudentName = document.querySelector("#privateMessageStudentName");
+const privateRecentList = document.querySelector("#privateRecentList");
+const privateInfoTitle = document.querySelector("#privateInfoTitle");
 const privateMessages = document.querySelector("#privateMessages");
 const privateMessageForm = document.querySelector("#privateMessageForm");
 const privateMessageText = document.querySelector("#privateMessageText");
+const privateMessageAttachment = document.querySelector("#privateMessageAttachment");
 const videoForm = document.querySelector("#videoForm");
 const videoError = document.querySelector("#videoError");
 const adminVideos = document.querySelector("#adminVideos");
 const studentVideos = document.querySelector("#studentVideos");
 const studentVideoClass = document.querySelector("#studentVideoClass");
 const assignmentForm = document.querySelector("#assignmentForm");
+const assignmentSubject = document.querySelector("#assignmentSubject");
 const adminAssignments = document.querySelector("#adminAssignments");
 const adminGrades = document.querySelector("#adminGrades");
+const adminQuizzes = document.querySelector("#adminQuizzes");
 const studentAssignments = document.querySelector("#studentAssignments");
 const studentAssignmentClass = document.querySelector("#studentAssignmentClass");
+const studentQuizzes = document.querySelector("#studentQuizzes");
+const studentQuizClass = document.querySelector("#studentQuizClass");
 const videoModal = document.querySelector("#videoModal");
 const videoModalFrame = document.querySelector("#videoModalFrame");
 const videoModalPlayer = document.querySelector("#videoModalPlayer");
@@ -72,7 +83,7 @@ const motionObserver = !prefersReducedMotion && "IntersectionObserver" in window
   : null;
 
 function observeMotionElements(root = document) {
-  const elements = root.querySelectorAll(".card, .announcement-item, .grade-tile, .gradebook-course, .chat-message, .student-section-nav");
+  const elements = root.querySelectorAll(".card, .announcement-item, .gradebook-course, .chat-message, .student-section-nav");
 
   elements.forEach((element) => {
     if (element.classList.contains("motion-ready")) return;
@@ -241,7 +252,7 @@ function renderCourseGradeSummary(courseId, student = currentStudent) {
   summary.className = "course-grade-summary mt-3";
 
   summary.append(
-    createTextElement("p", "section-label mb-1", "Current grades"),
+    createTextElement("p", "section-label mb-1", "Learning tracker"),
     createTextElement("h4", "h6 mb-3", student.name)
   );
 
@@ -286,6 +297,203 @@ function renderCourseResourcesPanel(course, courseId) {
   return panel;
 }
 
+function getCourseAssignments(course) {
+  const courseTitle = String(course?.title || "").trim().toLowerCase();
+  if (!courseTitle) return [];
+  return getAssignments().filter((assignment) => String(assignment.subject || "").trim().toLowerCase() === courseTitle);
+}
+
+function calculateLearnerCourseProgress(courseId, course, student) {
+  const quizzes = getCourseItems(getCourseQuizzes(), courseId);
+  const quizSubmissions = quizzes.filter((quiz) => getQuizSubmission(quiz.id, student)).length;
+  const courseAssignments = getCourseAssignments(course).filter((assignment) => {
+    return assignment.classroom === "all" || assignment.classroom === student.classroom;
+  });
+  const assignmentSubmissions = courseAssignments.filter((assignment) => getAssignmentSubmission(assignment.id, student)).length;
+  const graded = calculateFinalGrade(getStudentGrade(courseId, student.id) || {});
+  const requiredItems = quizzes.length + courseAssignments.length;
+  const completedItems = quizSubmissions + assignmentSubmissions;
+  const activityProgress = requiredItems ? Math.round((completedItems / requiredItems) * 100) : null;
+  const progress = activityProgress ?? graded ?? 0;
+
+  return {
+    progress,
+    requiredItems,
+    completedItems,
+    quizSubmissions,
+    quizTotal: quizzes.length,
+    assignmentSubmissions,
+    assignmentTotal: courseAssignments.length,
+    graded
+  };
+}
+
+function renderCourseLearnerTracker(course, courseId) {
+  const panel = document.createElement("section");
+  panel.className = "course-learner-tracker";
+
+  const header = document.createElement("div");
+  header.className = "course-learner-tracker-header";
+  header.append(
+    createTextElement("p", "section-label mb-1", "Guideline tracker"),
+    createTextElement("h4", "h6 mb-0", "Learner progress")
+  );
+
+  const students = getAllStudents();
+  const progressRows = students.map((student) => ({
+    student,
+    stats: calculateLearnerCourseProgress(courseId, course, student)
+  }));
+  const average = progressRows.length
+    ? Math.round(progressRows.reduce((total, row) => total + row.stats.progress, 0) / progressRows.length)
+    : 0;
+  header.appendChild(createTextElement("span", "badge text-bg-info", `${average}% avg`));
+
+  const list = document.createElement("div");
+  list.className = "course-learner-list";
+
+  progressRows.forEach(({ student, stats }) => {
+    const row = document.createElement("div");
+    row.className = "course-learner-row";
+
+    const info = document.createElement("div");
+    info.className = "course-learner-info";
+    info.append(
+      createTextElement("span", "avatar", getInitials(student.name)),
+      createTextElement("strong", "", student.name),
+      createTextElement("small", "text-secondary", `${stats.completedItems}/${stats.requiredItems || 0} activities done`)
+    );
+
+    const status = document.createElement("div");
+    status.className = "course-learner-status";
+    status.append(
+      createTextElement("strong", "", `${stats.progress}%`),
+      createTextElement("small", "text-secondary", stats.requiredItems ? `${stats.quizSubmissions}/${stats.quizTotal} tests, ${stats.assignmentSubmissions}/${stats.assignmentTotal} classwork` : "No activities yet")
+    );
+
+    row.append(info, status);
+    list.appendChild(row);
+  });
+
+  panel.append(header, list);
+  return panel;
+}
+
+function renderCourseQuizStack(courseId, options = {}) {
+  const course = options.course || courseWorkspaces[courseId];
+  const wrapper = document.createElement(options.article ? "article" : "div");
+  wrapper.className = options.article ? "student-course-quiz-panel" : "course-quiz-stack";
+  const currentNext = getCourseItems(getCourseNextPosts(), courseId)[0];
+  const quizzes = getCourseItems(getCourseQuizzes(), courseId);
+  const quizScore = getCourseQuizScore(courseId);
+
+  if (options.includeHeader && course) {
+    const header = document.createElement("div");
+    header.className = "student-course-quiz-header";
+    header.append(
+      createTextElement("p", "section-label mb-1", "Course quizzes"),
+      createTextElement("h3", "h6 mb-0", course.title)
+    );
+    wrapper.appendChild(header);
+  }
+
+  if (options.includeNext && course) {
+    const nextPanel = document.createElement("div");
+    nextPanel.className = "course-next-panel";
+    nextPanel.append(
+      createTextElement("p", "section-label mb-1", "Next up"),
+      createTextElement("h4", "h6 mb-2", currentNext?.title || course.next)
+    );
+
+    if (currentNext?.message) {
+      nextPanel.appendChild(createTextElement("p", "text-secondary small mb-0", currentNext.message));
+    }
+
+    if (options.adminControls) nextPanel.appendChild(renderCourseNextForm(courseId, currentNext));
+    wrapper.appendChild(nextPanel);
+  }
+
+  if (options.includeQuizzes !== false) {
+    const quizTitle = createTextElement("h4", "h6 mb-2", "Tests");
+    const quizList = document.createElement("div");
+    quizList.className = "course-post-list";
+    wrapper.appendChild(quizTitle);
+    if (options.adminControls) wrapper.appendChild(renderCourseQuizForm(courseId));
+
+    if (!options.adminControls && quizzes.length) {
+      const scoreSummary = document.createElement("div");
+      scoreSummary.className = "course-quiz-score";
+      scoreSummary.append(
+        createTextElement("span", "", "Quiz score"),
+        createTextElement("strong", "", `${formatQuizScore(quizScore.points)}/${quizScore.total} points`)
+      );
+      wrapper.appendChild(scoreSummary);
+    }
+
+    if (!quizzes.length) {
+      quizList.appendChild(createTextElement("p", "text-secondary small mb-0", options.adminControls ? "No tests posted yet." : "No tests for this course yet."));
+    } else {
+      quizzes.forEach((quiz) => quizList.appendChild(renderCourseQuizItem(quiz)));
+    }
+
+    wrapper.appendChild(quizList);
+  }
+
+  if (options.includeGrades) {
+    wrapper.appendChild(renderCourseGradeSummary(courseId));
+  }
+
+  return wrapper;
+}
+
+function renderQuizPage(target, courses, options = {}) {
+  if (!target) return;
+
+  target.replaceChildren();
+
+  if (!courses.length) {
+    const empty = createTextElement("p", "text-secondary mb-0", options.emptyText || "No courses available yet.");
+    empty.className = "course-empty-state text-secondary mb-0";
+    target.appendChild(empty);
+    return;
+  }
+
+  courses.forEach((course, index) => {
+    if (!courseWorkspaces[course.id]) createCustomCourseWorkspace(course, index);
+    target.appendChild(renderCourseQuizStack(course.id, {
+      article: true,
+      course: courseWorkspaces[course.id],
+      includeHeader: true,
+      includeNext: Boolean(options.includeNext),
+      includeGrades: Boolean(options.includeGrades),
+      adminControls: Boolean(options.adminControls)
+    }));
+  });
+
+  observeMotionElements(target);
+}
+
+function renderStudentQuizzes() {
+  if (studentQuizClass) studentQuizClass.textContent = selectedClassroomTitle;
+  renderQuizPage(studentQuizzes, getCustomCourses().filter(isCourseJoined), {
+    includeNext: true,
+    includeGrades: true,
+    emptyText: "Import a subject code to see quizzes and grades."
+  });
+}
+
+function renderAdminQuizzes() {
+  renderQuizPage(adminQuizzes, getCustomCourses(), {
+    adminControls: true,
+    emptyText: "Create a course before adding quizzes."
+  });
+}
+
+function renderQuizPages() {
+  renderStudentQuizzes();
+  renderAdminQuizzes();
+}
+
 function renderCourseWorkspace(courseId, triggerCard) {
   const course = courseWorkspaces[courseId];
   const courseList = triggerCard.closest("#courseList");
@@ -298,8 +506,6 @@ function renderCourseWorkspace(courseId, triggerCard) {
   });
 
   courseList.parentElement.querySelector(".course-workspace")?.remove();
-  const adminResourcesSlot = document.getElementById("courseWorkspaceResources");
-  if (adminResourcesSlot) adminResourcesSlot.replaceChildren();
 
   const workspace = document.createElement("section");
   workspace.className = `course-workspace course-workspace-${course.accent}`;
@@ -363,56 +569,20 @@ function renderCourseWorkspace(courseId, triggerCard) {
 
   const body = document.createElement("div");
   body.className = "course-workspace-grid";
-  if (adminApp) body.classList.add("course-workspace-grid-expanded");
 
   const stream = document.createElement("article");
   stream.className = "course-workspace-panel course-workspace-panel-main";
-  const currentNext = getCourseItems(getCourseNextPosts(), courseId)[0];
-  stream.append(
-    createTextElement("p", "section-label mb-1", "Next up"),
-    createTextElement("h4", "h6 mb-2", currentNext?.title || course.next)
-  );
-
-  if (currentNext?.message) {
-    stream.appendChild(createTextElement("p", "text-secondary small mb-0", currentNext.message));
-  }
-
-  if (adminApp) stream.appendChild(renderCourseNextForm(courseId, currentNext));
-
-  const quizTitle = createTextElement("h4", "h6 mt-4 mb-2", "Tests");
-  const quizList = document.createElement("div");
-  quizList.className = "course-post-list";
-  const quizzes = getCourseItems(getCourseQuizzes(), courseId);
-  const quizScore = getCourseQuizScore(courseId);
-  stream.appendChild(quizTitle);
-  if (adminApp) stream.appendChild(renderCourseQuizForm(courseId));
-
-  if (!adminApp && quizzes.length) {
-    const scoreSummary = document.createElement("div");
-    scoreSummary.className = "course-quiz-score";
-    scoreSummary.append(
-      createTextElement("span", "", "Quiz score"),
-      createTextElement("strong", "", `${formatQuizScore(quizScore.points)}/${quizScore.total} points`)
-    );
-    stream.appendChild(scoreSummary);
-  }
-
-  if (!quizzes.length) {
-    quizList.appendChild(createTextElement("p", "text-secondary small mb-0", adminApp ? "No tests posted yet." : "No tests for this course yet."));
-  } else {
-    quizzes.forEach((quiz) => quizList.appendChild(renderCourseQuizItem(quiz)));
-  }
-
-  stream.appendChild(quizList);
-  stream.appendChild(renderCourseGradeSummary(courseId));
+  stream.appendChild(renderCourseQuizStack(courseId, {
+    course,
+    includeNext: true,
+    includeGrades: !adminApp,
+    includeQuizzes: false,
+    adminControls: Boolean(adminApp)
+  }));
 
   const resourcePanel = renderCourseResourcesPanel(course, courseId);
-  body.appendChild(stream);
-  if (adminResourcesSlot) {
-    adminResourcesSlot.appendChild(resourcePanel);
-  } else {
-    body.appendChild(resourcePanel);
-  }
+  if (adminApp) resourcePanel.appendChild(renderCourseLearnerTracker(course, courseId));
+  body.append(stream, resourcePanel);
   workspace.append(hero, progress, body);
   courseList.insertAdjacentElement("afterend", workspace);
   observeMotionElements(workspace);
@@ -468,7 +638,6 @@ filterButtons.forEach((button) => {
       activeCard.classList.remove("course-card-active");
       activeCard.setAttribute("aria-pressed", "false");
       activeCard.closest("#courseList")?.parentElement.querySelector(".course-workspace")?.remove();
-      document.getElementById("courseWorkspaceResources")?.replaceChildren();
     }
   });
 });
@@ -593,6 +762,20 @@ function getCustomCourses() {
 
 function saveCustomCourses(courses) {
   saveStoredItems("gthCourses", courses);
+}
+
+function syncAssignmentSubjects() {
+  if (!assignmentSubject) return;
+
+  const existingValues = new Set(Array.from(assignmentSubject.options).map((option) => option.value || option.textContent));
+  getCustomCourses().forEach((course) => {
+    if (existingValues.has(course.title)) return;
+    const option = document.createElement("option");
+    option.value = course.title;
+    option.textContent = course.title;
+    assignmentSubject.insertBefore(option, assignmentSubject.firstElementChild);
+    existingValues.add(course.title);
+  });
 }
 
 function normalizeSubjectCode(value = "") {
@@ -2030,11 +2213,10 @@ function createQuizTestSection(index, editingSection = null) {
     new Option("Multiple Choice", "multiple-choice"),
     new Option("True or False", "true-false"),
     new Option("Modified True or False", "modified-true-false"),
-    new Option("Matching Type", "matching"),
     new Option("Enumeration", "enumeration"),
     new Option("Essay", "essay")
   );
-  type.value = editingSection?.type || "multiple-choice";
+  type.value = editingSection?.type === "matching" ? "multiple-choice" : editingSection?.type || "multiple-choice";
   const typeLabel = document.createElement("label");
   typeLabel.className = "form-label small fw-bold mb-0";
   typeLabel.append("Type of this test", type);
@@ -2246,6 +2428,7 @@ function createCourseCard(course, index) {
 function renderCustomCourses() {
   const lists = document.querySelectorAll("#courseList");
   if (!lists.length) return;
+  syncAssignmentSubjects();
 
   Object.keys(courseWorkspaces)
     .filter((courseId) => courseId.startsWith("custom-course-"))
@@ -2268,6 +2451,8 @@ function renderCustomCourses() {
       list.appendChild(createCourseCard(course, index));
     });
   });
+
+  renderQuizPages();
 }
 
 studentImportToggle?.addEventListener("click", () => {
@@ -2356,13 +2541,13 @@ document.addEventListener("click", (event) => {
   saveCourseQuizzes(getCourseQuizzes().filter((item) => item.courseId !== courseId));
   saveCourseQuizSubmissions(getCourseQuizSubmissions().filter((item) => item.courseId !== courseId));
   document.querySelector(".course-workspace")?.remove();
-  document.getElementById("courseWorkspaceResources")?.replaceChildren();
   renderCustomCourses();
 });
 
 function refreshOpenCourseWorkspace(courseId) {
   const activeCourseCard = document.querySelector(`.course-card-active[data-course='${courseId}']`);
   if (activeCourseCard) renderCourseWorkspace(courseId, activeCourseCard);
+  renderQuizPages();
 }
 
 window.addEventListener("resize", () => {
@@ -4004,6 +4189,7 @@ document.addEventListener("submit", (event) => {
   saveStoredItems("gthStudentGrades", grades);
   renderAssignments();
   renderGradebook();
+  renderQuizPages();
 
   const activeCourseCard = document.querySelector(`.course-card-active[data-course='${form.dataset.studentGradeForm}']`);
   if (activeCourseCard) renderCourseWorkspace(form.dataset.studentGradeForm, activeCourseCard);
@@ -4165,12 +4351,271 @@ function getChatMessages() {
   return getStoredItems("gthChatMessages", []);
 }
 
+function getInitials(name) {
+  return String(name || "?")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+}
+
+function getMessageTimeLabel(message) {
+  if (!message?.createdAt) return "Now";
+  return new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function createRecentChatItem({ title, preview, time, initials, active, onClick }) {
+  const button = document.createElement("button");
+  button.className = `recent-chat-item${active ? " active" : ""}`;
+  button.type = "button";
+
+  const avatar = createTextElement("span", "chat-avatar", initials || getInitials(title));
+  const content = document.createElement("span");
+  const name = createTextElement("strong", "", title);
+  const latest = createTextElement("small", "text-secondary", preview || "No messages yet.");
+  const timestamp = createTextElement("span", "recent-chat-time", time || "");
+
+  content.append(name, latest);
+  button.append(avatar, content, timestamp);
+  if (onClick) button.addEventListener("click", onClick);
+
+  return button;
+}
+
+function createChatInfoEmpty(text) {
+  return createTextElement("p", "chat-info-empty mb-0", text);
+}
+
+function createChatInfoPerson(name, detail, initials = getInitials(name)) {
+  const item = document.createElement("div");
+  item.className = "chat-info-person";
+  item.append(
+    createTextElement("span", "chat-avatar", initials),
+    createTextElement("strong", "", name),
+    createTextElement("small", "text-secondary", detail)
+  );
+  return item;
+}
+
+function getSharedCourseResources() {
+  const courses = getCustomCourses().filter((course) => adminApp || isCourseJoined(course));
+  const resources = getCourseResources();
+  return courses.flatMap((course) => {
+    return getCourseItems(resources, course.id)
+      .filter((resource) => resource.file?.name || resource.link)
+      .map((resource) => ({ ...resource, courseTitle: course.title }));
+  });
+}
+
+function createSharedResourceRow(resource) {
+  const row = document.createElement("div");
+  row.className = "chat-info-resource";
+  const meta = document.createElement("div");
+  meta.append(
+    createTextElement("strong", "", resource.title),
+    createTextElement("small", "text-secondary d-block", resource.courseTitle || "Shared resource")
+  );
+
+  const actions = document.createElement("div");
+  actions.className = "chat-info-resource-actions";
+  if (resource.file?.data) {
+    const file = document.createElement("a");
+    file.href = resource.file.data;
+    file.download = resource.file.name;
+    file.textContent = resource.file.name || "Download file";
+    actions.appendChild(file);
+  } else if (resource.file?.name) {
+    actions.appendChild(createTextElement("span", "text-secondary", resource.file.name));
+  }
+
+  if (resource.link) {
+    const link = document.createElement("a");
+    link.href = resource.link;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = "Open link";
+    actions.appendChild(link);
+  }
+
+  row.append(meta, actions);
+  return row;
+}
+
+function getChatAttachmentResources(panel) {
+  const isPrivatePanel = Boolean(panel?.closest(".private-message-panel"));
+  const messages = isPrivatePanel
+    ? getPrivateMessages().filter((message) => message.studentId === getActivePrivateStudentId())
+    : getChatMessages().filter((message) => message.classroom === getActiveChatClassroom());
+
+  return messages.flatMap((message) => {
+    return (message.attachments || []).map((file) => ({
+      id: `${message.id}-${file.name}`,
+      title: file.name,
+      courseTitle: `${message.author} - ${formatDate(message.createdAt)}`,
+      file,
+      createdAt: message.createdAt
+    }));
+  });
+}
+
+function renderChatMembersDetail(detail) {
+  const classroom = getActiveChatClassroom();
+  const students = classroomStudents[classroom] || [];
+  detail.appendChild(createTextElement("h4", "chat-info-detail-title", "Chat members"));
+  detail.appendChild(createChatInfoPerson("Admin", classroomTitles[classroom] || "Class admin", "A"));
+  students.forEach((student) => {
+    detail.appendChild(createChatInfoPerson(student.name, classroomTitles[classroom] || "Classroom"));
+  });
+}
+
+function renderSharedFilesDetail(detail) {
+  const resources = [
+    ...getSharedCourseResources(),
+    ...getChatAttachmentResources(detail.closest(".chat-info-panel"))
+  ];
+  detail.appendChild(createTextElement("h4", "chat-info-detail-title", "Shared files and links"));
+  if (!resources.length) {
+    detail.appendChild(createChatInfoEmpty("No shared files or links yet."));
+    return;
+  }
+
+  resources.forEach((resource) => detail.appendChild(createSharedResourceRow(resource)));
+}
+
+function renderStudentInfoDetail(detail) {
+  const student = getStudentById(getActivePrivateStudentId());
+  const studentCourses = getCustomCourses().filter((course) => adminApp || isCourseJoined(course));
+  detail.appendChild(createTextElement("h4", "chat-info-detail-title", "Student info"));
+  detail.appendChild(createChatInfoPerson(student.name, classroomTitles[student.classroom] || "Classroom"));
+
+  const stats = document.createElement("div");
+  stats.className = "chat-info-stats";
+  stats.append(
+    createTextElement("span", "", "Classroom"),
+    createTextElement("strong", "", classroomTitles[student.classroom] || "Classroom"),
+    createTextElement("span", "", "Student ID"),
+    createTextElement("strong", "", student.id)
+  );
+  detail.appendChild(stats);
+
+  const gradeRows = studentCourses
+    .map((course) => ({ course, grade: calculateFinalGrade(getStudentGrade(course.id, student.id) || {}) }))
+    .filter(({ grade }) => grade !== null);
+
+  if (!gradeRows.length) {
+    detail.appendChild(createChatInfoEmpty("No recorded grades yet."));
+    return;
+  }
+
+  gradeRows.forEach(({ course, grade }) => {
+    const row = document.createElement("div");
+    row.className = "chat-info-grade-row";
+    row.append(
+      createTextElement("span", "", course.title),
+      createTextElement("strong", "", `${grade}%`)
+    );
+    detail.appendChild(row);
+  });
+}
+
+function renderChatInfoDetail(actionButton) {
+  const panel = actionButton.closest(".chat-info-panel");
+  const detail = panel?.querySelector("[data-chat-info-detail]");
+  if (!detail) return;
+
+  panel.querySelectorAll("[data-chat-info-action]").forEach((button) => {
+    button.classList.toggle("active", button === actionButton);
+  });
+  detail.replaceChildren();
+
+  if (actionButton.dataset.chatInfoAction === "members") renderChatMembersDetail(detail);
+  if (actionButton.dataset.chatInfoAction === "shared") renderSharedFilesDetail(detail);
+  if (actionButton.dataset.chatInfoAction === "student") renderStudentInfoDetail(detail);
+}
+
+function refreshOpenChatInfoDetails(root = document) {
+  root.querySelectorAll("[data-chat-info-action].active").forEach(renderChatInfoDetail);
+}
+
+function renderChatAttachment(file) {
+  const item = document.createElement(file.data ? "a" : "span");
+  item.className = "chat-attachment";
+  if (file.data) {
+    item.href = file.data;
+    item.download = file.name;
+  }
+  item.append(
+    createTextElement("strong", "", file.name || "Attachment"),
+    createTextElement("small", "", formatFileSize(file.size || 0))
+  );
+  return item;
+}
+
+function createChatBubble({ author, text, attachments = [], createdAt, own, group }) {
+  const row = document.createElement("div");
+  row.className = `chat-row${own ? " chat-row-own" : ""}`;
+
+  const avatar = createTextElement("span", `chat-avatar${group ? " chat-avatar-group" : ""}`, getInitials(author));
+  const item = document.createElement("div");
+  item.className = "chat-message";
+  if (own) item.classList.add("chat-message-own");
+
+  const meta = document.createElement("small");
+  meta.className = "text-secondary d-block mb-1";
+  meta.textContent = `${author} - ${formatDate(createdAt)}`;
+
+  if (text) item.appendChild(createTextElement("p", "mb-0", text));
+  if (attachments.length) {
+    const attachmentList = document.createElement("div");
+    attachmentList.className = "chat-attachment-list";
+    attachments.forEach((file) => attachmentList.appendChild(renderChatAttachment(file)));
+    item.appendChild(attachmentList);
+  }
+
+  item.prepend(meta);
+  row.append(avatar, item);
+
+  return row;
+}
+
+function renderClassChatRecents() {
+  if (!chatRecentList) return;
+
+  const allMessages = getChatMessages();
+  const activeClassroom = getActiveChatClassroom();
+  chatRecentList.replaceChildren();
+
+  Object.keys(classroomTitles)
+    .filter((classroom) => classroom !== "all")
+    .forEach((classroom) => {
+      const classroomMessages = allMessages.filter((message) => message.classroom === classroom);
+      const latest = classroomMessages[classroomMessages.length - 1];
+      chatRecentList.appendChild(createRecentChatItem({
+        title: classroomTitles[classroom],
+        preview: latest ? `${latest.author}: ${latest.text || `${latest.attachments?.length || 0} attachment(s)`}` : "Start the class conversation.",
+        time: latest ? getMessageTimeLabel(latest) : "",
+        initials: "G",
+        active: classroom === activeClassroom,
+        onClick: () => {
+          if (chatClassroom) chatClassroom.value = classroom;
+          renderChatMessages();
+        }
+      }));
+    });
+}
+
 function renderChatMessages() {
   if (!chatMessages) return;
 
   const activeClassroom = getActiveChatClassroom();
   const messages = getChatMessages().filter((message) => message.classroom === activeClassroom);
   chatMessages.replaceChildren();
+  if (chatThreadTitle) chatThreadTitle.textContent = classroomTitles[activeClassroom] || "Class Chat";
+  if (chatInfoTitle) chatInfoTitle.textContent = classroomTitles[activeClassroom] || "Class Chat";
+  renderClassChatRecents();
+  refreshOpenChatInfoDetails(chatbox || document);
 
   if (!messages.length) {
     const empty = document.createElement("p");
@@ -4183,22 +4628,14 @@ function renderChatMessages() {
   const currentAuthor = chatbox?.dataset.role === "admin" ? "Admin" : "Student";
 
   messages.slice(-20).forEach((message) => {
-    const item = document.createElement("div");
-    item.className = "chat-message";
-    if (message.author === currentAuthor) {
-      item.classList.add("chat-message-own");
-    }
-
-    const meta = document.createElement("small");
-    meta.className = "text-secondary d-block";
-    meta.textContent = `${message.author} - ${formatDate(message.createdAt)}`;
-
-    const text = document.createElement("p");
-    text.className = "mb-0";
-    text.textContent = message.text;
-
-    item.append(meta, text);
-    chatMessages.appendChild(item);
+    chatMessages.appendChild(createChatBubble({
+      author: message.author,
+      text: message.text,
+      attachments: message.attachments || [],
+      createdAt: message.createdAt,
+      own: message.author === currentAuthor,
+      group: true
+    }));
   });
 
   observeMotionElements(chatMessages);
@@ -4207,11 +4644,31 @@ function renderChatMessages() {
 
 chatClassroom?.addEventListener("change", renderChatMessages);
 
-chatForm?.addEventListener("submit", (event) => {
+document.addEventListener("click", (event) => {
+  const actionButton = event.target.closest("[data-chat-info-action]");
+  if (!actionButton) return;
+  renderChatInfoDetail(actionButton);
+});
+
+document.addEventListener("click", (event) => {
+  const trigger = event.target.closest("[data-chat-attachment-trigger]");
+  if (!trigger) return;
+
+  const input = trigger.dataset.chatAttachmentTrigger === "private" ? privateMessageAttachment : chatAttachment;
+  input?.click();
+});
+
+async function readChatAttachments(input) {
+  const files = await Promise.all(Array.from(input?.files || []).map(readStorageFile));
+  return files.filter(Boolean);
+}
+
+chatForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const text = chatMessage.value.trim();
-  if (!text) return;
+  const attachments = await readChatAttachments(chatAttachment);
+  if (!text && !attachments.length) return;
 
   const messages = getChatMessages();
   messages.push({
@@ -4219,11 +4676,13 @@ chatForm?.addEventListener("submit", (event) => {
     classroom: getActiveChatClassroom(),
     author: chatbox?.dataset.role === "admin" ? "Admin" : "Student",
     text,
+    attachments,
     createdAt: new Date().toISOString()
   });
 
   saveStoredItems("gthChatMessages", messages);
   chatMessage.value = "";
+  if (chatAttachment) chatAttachment.value = "";
   renderChatMessages();
 });
 
@@ -4259,6 +4718,32 @@ function setupPrivateMessageStudents() {
   });
 }
 
+function renderPrivateMessageRecents() {
+  if (!privateRecentList) return;
+
+  const messages = getPrivateMessages();
+  const activeStudentId = getActivePrivateStudentId();
+  const isAdmin = privateMessagePanel?.dataset.privateRole === "admin";
+  const students = isAdmin ? getAllStudents() : [currentStudent];
+
+  privateRecentList.replaceChildren();
+  students.forEach((student) => {
+    const studentMessages = messages.filter((message) => message.studentId === student.id);
+    const latest = studentMessages[studentMessages.length - 1];
+    privateRecentList.appendChild(createRecentChatItem({
+      title: isAdmin ? student.name : "Admin Support",
+      preview: latest ? `${latest.author}: ${latest.text || `${latest.attachments?.length || 0} attachment(s)`}` : "No private messages yet.",
+      time: latest ? getMessageTimeLabel(latest) : "",
+      initials: isAdmin ? getInitials(student.name) : "A",
+      active: student.id === activeStudentId,
+      onClick: () => {
+        if (privateMessageStudent) privateMessageStudent.value = student.id;
+        renderPrivateMessages();
+      }
+    }));
+  });
+}
+
 function renderPrivateMessages() {
   if (!privateMessages) return;
 
@@ -4266,8 +4751,13 @@ function renderPrivateMessages() {
   const student = getStudentById(studentId);
   const messages = getPrivateMessages().filter((message) => message.studentId === studentId);
   const currentRole = privateMessagePanel?.dataset.privateRole === "admin" ? "admin" : "student";
+  const isAdmin = currentRole === "admin";
+  const threadName = isAdmin ? student.name : "Admin Support";
 
-  if (privateMessageStudentName) privateMessageStudentName.textContent = student.name;
+  if (privateMessageStudentName) privateMessageStudentName.textContent = threadName;
+  if (privateInfoTitle) privateInfoTitle.textContent = threadName;
+  renderPrivateMessageRecents();
+  refreshOpenChatInfoDetails(privateMessagePanel || document);
   privateMessages.replaceChildren();
 
   if (!messages.length) {
@@ -4277,17 +4767,13 @@ function renderPrivateMessages() {
   }
 
   messages.forEach((message) => {
-    const item = document.createElement("div");
-    item.className = "chat-message";
-    if (message.role === currentRole) item.classList.add("chat-message-own");
-
-    const meta = document.createElement("small");
-    meta.className = "text-secondary d-block mb-1";
-    meta.textContent = `${message.author} - ${formatDate(message.createdAt)}`;
-
-    const text = createTextElement("p", "mb-0", message.text);
-    item.append(meta, text);
-    privateMessages.appendChild(item);
+    privateMessages.appendChild(createChatBubble({
+      author: message.author,
+      text: message.text,
+      attachments: message.attachments || [],
+      createdAt: message.createdAt,
+      own: message.role === currentRole
+    }));
   });
 
   observeMotionElements(privateMessages);
@@ -4296,13 +4782,14 @@ function renderPrivateMessages() {
 
 privateMessageStudent?.addEventListener("change", renderPrivateMessages);
 
-privateMessageForm?.addEventListener("submit", (event) => {
+privateMessageForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const text = privateMessageText?.value.trim() || "";
+  const attachments = await readChatAttachments(privateMessageAttachment);
   const studentId = getActivePrivateStudentId();
   const student = getStudentById(studentId);
-  if (!text) return;
+  if (!text && !attachments.length) return;
 
   const isAdmin = privateMessagePanel?.dataset.privateRole === "admin";
   const messages = getPrivateMessages();
@@ -4313,11 +4800,13 @@ privateMessageForm?.addEventListener("submit", (event) => {
     role: isAdmin ? "admin" : "student",
     author: isAdmin ? "Admin" : student.name,
     text,
+    attachments,
     createdAt: new Date().toISOString()
   });
 
   saveStoredItems("gthPrivateMessages", messages);
   privateMessageText.value = "";
+  if (privateMessageAttachment) privateMessageAttachment.value = "";
   renderPrivateMessages();
 });
 
@@ -4376,6 +4865,7 @@ renderAssignments();
 renderInvitations();
 renderChatMessages();
 renderCustomCourses();
+renderGradebook();
 setupPrivateMessageStudents();
 renderPrivateMessages();
 observeMotionElements();

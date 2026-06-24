@@ -91,6 +91,7 @@
           <a href="#announcements" class="active" data-student-section-link="announcements">Announcements</a>
           <a href="#videos" data-student-section-link="videos">Videos</a>
           <a href="#assignments" data-student-section-link="assignments">Assignments</a>
+          <a href="#quizzes" data-student-section-link="quizzes">Quizzes</a>
           <a href="#grades" data-student-section-link="grades">Student Grades</a>
           <a href="#invitations" data-student-section-link="invitations">Live Sessions</a>
           <a href="#courses" data-student-section-link="courses">Courses</a>
@@ -240,6 +241,19 @@
         </div>
       </section>
 
+      <section class="card student-section-card" id="quizzes" data-student-section="quizzes">
+        <div class="card-body">
+          <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3">
+            <div>
+              <p class="section-label mb-1">Tests and progress</p>
+              <h2 class="h5 mb-0">Quizzes</h2>
+            </div>
+            <span class="badge text-bg-info align-self-start">All courses</span>
+          </div>
+          <div class="student-quiz-board admin-quiz-board" id="adminQuizzes"></div>
+        </div>
+      </section>
+
       <section class="card student-section-card" id="grades" data-student-section="grades">
         <div class="card-body">
           <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3">
@@ -300,7 +314,7 @@
       </section>
 
       <section class="row g-3 student-section-card" id="courses" data-student-section="courses">
-        <div class="col-12 col-xl-8">
+        <div class="col-12">
           <section class="card h-100">
             <div class="card-body">
               <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-3">
@@ -319,83 +333,107 @@
             </div>
           </section>
         </div>
-
-        <div class="col-12 col-xl-4" id="learners">
-          <div id="courseWorkspaceResources" class="mb-3"></div>
-          <section class="card h-100">
-            <div class="card-body">
-              <div class="d-flex justify-content-between align-items-start mb-3">
-                <div>
-                  <p class="section-label mb-1">Track learners</p>
-                  <h2 class="h5 mb-0">Learner Progress</h2>
-                </div>
-                <button class="btn btn-outline-secondary btn-sm" type="button">Export</button>
-              </div>
-              <div class="list-group list-group-flush">
-                <div class="list-group-item d-flex align-items-center gap-3 px-0">
-                  <span class="avatar">AV</span>
-                  <div class="flex-grow-1"><strong class="d-block">Andrea Valdez</strong><small class="text-secondary">Onboarding Essentials</small></div>
-                  <span class="fw-bold">96%</span>
-                </div>
-                <div class="list-group-item d-flex align-items-center gap-3 px-0">
-                  <span class="avatar">JM</span>
-                  <div class="flex-grow-1"><strong class="d-block">Jomar Mercado</strong><small class="text-secondary">Safety and Compliance</small></div>
-                  <span class="fw-bold">81%</span>
-                </div>
-                <div class="list-group-item d-flex align-items-center gap-3 px-0">
-                  <span class="avatar">LC</span>
-                  <div class="flex-grow-1"><strong class="d-block">Lara Cruz</strong><small class="text-secondary">Supervisor Workshop</small></div>
-                  <span class="fw-bold">42%</span>
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
       </section>
 
       <section class="card student-section-card" id="class-chat" data-student-section="class-chat">
         <div class="card-body" id="chatbox" data-role="admin">
-          <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
-            <div>
-              <p class="section-label mb-1">Class chat</p>
-              <h2 class="h5 mb-0">Class Chat</h2>
+          <div class="messenger-shell">
+            <aside class="chat-sidebar" aria-label="Recent class chats">
+              <div class="chat-sidebar-header">
+                <div>
+                  <p class="section-label mb-1">Class chat</p>
+                  <h2 class="h5 mb-0">Chats</h2>
+                </div>
+                <button class="chat-icon-button chat-toggle" type="button" aria-label="Minimize chat">-</button>
+              </div>
+              <label class="chat-search">
+                <span class="visually-hidden">Classroom</span>
+                <select class="form-select form-select-sm" id="chatClassroom">
+                  <option value="ict">ICT OJT Classroom</option>
+                  <option value="css">Computer Systems Servicing</option>
+                </select>
+              </label>
+              <div class="recent-chat-list" id="chatRecentList"></div>
+            </aside>
+            <div class="chat-main">
+              <header class="chat-thread-header">
+                <div class="chat-contact">
+                  <span class="chat-avatar chat-avatar-group">G</span>
+                  <span>
+                    <strong id="chatThreadTitle">ICT OJT Classroom</strong>
+                    <small class="text-secondary d-block">Active now</small>
+                  </span>
+                </div>
+              </header>
+              <div class="chat-messages" id="chatMessages" aria-live="polite"></div>
+              <form class="chat-form d-flex gap-2" id="chatForm">
+                <button class="chat-tool-button" type="button" aria-label="Add attachment" data-chat-attachment-trigger="class">+</button>
+                <input class="visually-hidden" id="chatAttachment" type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.zip">
+                <label class="visually-hidden" for="chatMessage">Message</label>
+                <input class="form-control" id="chatMessage" type="text" placeholder="Aa" required>
+                <button class="btn btn-primary" type="submit">Send</button>
+              </form>
             </div>
-            <button class="btn btn-outline-secondary btn-sm chat-toggle" type="button">Minimize</button>
+            <aside class="chat-info-panel" aria-label="Class chat information">
+              <span class="chat-avatar chat-avatar-xl chat-avatar-group">G</span>
+              <h3 class="h5 mb-1" id="chatInfoTitle">ICT OJT Classroom</h3>
+              <p class="text-secondary mb-3">Active now</p>
+              <div class="chat-info-links">
+                <button type="button" data-chat-info-action="members">Chat members</button>
+                <button type="button" data-chat-info-action="shared">Shared files and links</button>
+              </div>
+              <div class="chat-info-detail" data-chat-info-detail></div>
+            </aside>
           </div>
-          <label class="form-label mb-2">
-            Classroom
-            <select class="form-select form-select-sm mt-1" id="chatClassroom">
-              <option value="ict">ICT OJT Classroom</option>
-              <option value="css">Computer Systems Servicing</option>
-            </select>
-          </label>
-          <div class="chat-messages" id="chatMessages" aria-live="polite"></div>
-          <form class="chat-form d-flex gap-2 mt-2" id="chatForm">
-            <label class="visually-hidden" for="chatMessage">Message</label>
-            <input class="form-control" id="chatMessage" type="text" placeholder="Type a message" required>
-            <button class="btn btn-primary" type="submit">Send</button>
-          </form>
         </div>
       </section>
 
       <section class="card student-section-card" id="private-messages" data-student-section="private-messages">
         <div class="card-body private-message-panel" data-private-role="admin">
-          <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3">
-            <div>
-              <p class="section-label mb-1">Direct support</p>
-              <h2 class="h5 mb-0">Private Messages</h2>
+          <div class="messenger-shell private-messenger-shell">
+            <aside class="chat-sidebar" aria-label="Recent private messages">
+              <div class="chat-sidebar-header">
+                <div>
+                  <p class="section-label mb-1">Direct support</p>
+                  <h2 class="h5 mb-0">Messages</h2>
+                </div>
+              </div>
+              <label class="chat-search private-message-student">
+                <span class="visually-hidden">Student</span>
+                <select class="form-select form-select-sm" id="privateMessageStudent"></select>
+              </label>
+              <div class="recent-chat-list" id="privateRecentList"></div>
+            </aside>
+            <div class="chat-main">
+              <header class="chat-thread-header">
+                <div class="chat-contact">
+                  <span class="chat-avatar">A</span>
+                  <span>
+                    <strong id="privateMessageStudentName">Student</strong>
+                    <small class="text-secondary d-block">Private support thread</small>
+                  </span>
+                </div>
+              </header>
+              <div class="chat-messages private-message-thread" id="privateMessages" aria-live="polite"></div>
+              <form class="chat-form d-flex gap-2" id="privateMessageForm">
+                <button class="chat-tool-button" type="button" aria-label="Add attachment" data-chat-attachment-trigger="private">+</button>
+                <input class="visually-hidden" id="privateMessageAttachment" type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.zip">
+                <label class="visually-hidden" for="privateMessageText">Private message</label>
+                <input class="form-control" id="privateMessageText" type="text" placeholder="Aa" required>
+                <button class="btn btn-primary" type="submit">Send</button>
+              </form>
             </div>
-            <label class="form-label mb-0 private-message-student">
-              Student
-              <select class="form-select form-select-sm mt-1" id="privateMessageStudent"></select>
-            </label>
+            <aside class="chat-info-panel" aria-label="Private message information">
+              <span class="chat-avatar chat-avatar-xl">A</span>
+              <h3 class="h5 mb-1" id="privateInfoTitle">Student</h3>
+              <p class="text-secondary mb-3">Direct support</p>
+              <div class="chat-info-links">
+                <button type="button" data-chat-info-action="student">Student info</button>
+                <button type="button" data-chat-info-action="shared">Shared files and links</button>
+              </div>
+              <div class="chat-info-detail" data-chat-info-detail></div>
+            </aside>
           </div>
-          <div class="chat-messages private-message-thread" id="privateMessages" aria-live="polite"></div>
-          <form class="chat-form d-flex gap-2 mt-2" id="privateMessageForm">
-            <label class="visually-hidden" for="privateMessageText">Private message</label>
-            <input class="form-control" id="privateMessageText" type="text" placeholder="Write a private message" required>
-            <button class="btn btn-primary" type="submit">Send</button>
-          </form>
         </div>
       </section>
 
