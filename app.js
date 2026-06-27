@@ -11,6 +11,7 @@ const courseSearchForms = document.querySelectorAll(".course-search");
 const dashboardBackButtons = document.querySelectorAll(".dashboard-back");
 const dashboardJumps = document.querySelectorAll("[data-open-section]");
 const announcementForm = document.querySelector("#announcementForm");
+const announcementSubject = document.querySelector("#announcementSubject");
 const adminAnnouncements = document.querySelector("#adminAnnouncements");
 const studentAnnouncements = document.querySelector("#studentAnnouncements");
 const studentAnnouncementClass = document.querySelector("#studentAnnouncementClass");
@@ -60,8 +61,6 @@ const videoModalFrame = document.querySelector("#videoModalFrame");
 const videoModalPlayer = document.querySelector("#videoModalPlayer");
 const videoModalLabel = document.querySelector("#videoModalLabel");
 const invitationForm = document.querySelector("#invitationForm");
-const studentInvitations = document.querySelector("#studentInvitations");
-const studentInvitationClass = document.querySelector("#studentInvitationClass");
 const enrollmentRequests = document.querySelector("#enrollmentRequests");
 const studentSectionLinks = document.querySelectorAll("[data-student-section-link]");
 const studentSections = document.querySelectorAll("[data-student-section]");
@@ -164,9 +163,7 @@ window.addEventListener("storage", (event) => {
 });
 
 const classroomTitles = {
-  ict: "ICT OJT Classroom",
-  css: "Computer Systems Servicing",
-  all: "All Classrooms"
+  all: "All Subjects"
 };
 
 const classroomStudents = {
@@ -182,9 +179,56 @@ const classroomStudents = {
   ]
 };
 
-const requestedClassroom = new URLSearchParams(window.location.search).get("classroom") || "ict";
-const selectedClassroom = classroomTitles[requestedClassroom] ? requestedClassroom : "ict";
-const selectedClassroomTitle = classroomTitles[selectedClassroom];
+function getClassroomTitle(classroom = "") {
+  if (classroom === "all") return "All Subjects";
+  return getCustomCourses().find((course) => course.id === classroom)?.title || classroomTitles[classroom] || "Subject";
+}
+
+function getSubjectTargets(options = {}) {
+  const { includeAll = true } = options;
+  const targets = getCustomCourses().map((course) => ({
+    value: course.id,
+    label: course.title
+  }));
+
+  return includeAll ? [{ value: "all", label: "All Subjects" }, ...targets] : targets;
+}
+
+function populateSubjectTargetSelect(select, options = {}) {
+  if (!select) return;
+
+  const { includeAll = true, emptyLabel = "Create a subject first" } = options;
+  const currentValue = select.value;
+  const targets = getSubjectTargets({ includeAll });
+  select.replaceChildren();
+
+  if (!targets.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = emptyLabel;
+    option.disabled = true;
+    option.selected = true;
+    select.appendChild(option);
+    return;
+  }
+
+  targets.forEach((target) => {
+    const option = document.createElement("option");
+    option.value = target.value;
+    option.textContent = target.label;
+    select.appendChild(option);
+  });
+
+  if (targets.some((target) => target.value === currentValue)) {
+    select.value = currentValue;
+  }
+}
+
+const requestedClassroom = new URLSearchParams(window.location.search).get("classroom") || "all";
+const selectedClassroom = getSubjectTargets({ includeAll: false }).some((target) => target.value === requestedClassroom)
+  ? requestedClassroom
+  : "all";
+const selectedClassroomTitle = getClassroomTitle(selectedClassroom);
 const currentStudent = {
   ...((classroomStudents[selectedClassroom] || classroomStudents.ict)[0]),
   classroom: selectedClassroom
@@ -194,62 +238,14 @@ const subjectCourseMap = {
   "General Activity": ""
 };
 
-const demoAnnouncements = [
-  {
-    id: "demo-ict-pinned",
-    classroom: "ict",
-    subject: "OJT Onboarding Essentials",
-    message: "Please complete your onboarding checklist before Friday.",
-    pinned: true,
-    createdAt: "2026-06-11T08:00:00.000Z"
-  },
-  {
-    id: "demo-css-safety",
-    classroom: "css",
-    subject: "Safety and Compliance",
-    message: "Bring your lab tools and review the safety reminders before class.",
-    pinned: false,
-    createdAt: "2026-06-11T09:00:00.000Z"
-  }
-];
-
-const demoVideos = [
-  {
-    id: "demo-video-ict",
-    classroom: "ict",
-    title: "OJT Orientation Walkthrough",
-    provider: "drive",
-    providerLabel: "Google Drive",
-    url: "https://drive.google.com/file/d/demo-ict-ojt/preview",
-    embedUrl: "https://drive.google.com/file/d/demo-ict-ojt/preview",
-    thumbnailUrl: "",
-    createdAt: "2026-06-11T10:00:00.000Z"
-  }
-];
-
-const demoAssignments = [
-  {
-    id: "demo-assignment-ict",
-    classroom: "ict",
-    subject: "OJT Onboarding Essentials",
-    title: "Onboarding Checklist Submission",
-    instructions: "Upload your completed onboarding checklist and supervisor acknowledgment.",
-    dueDate: "2026-06-18T17:00",
-    createdAt: "2026-06-11T12:00:00.000Z"
-  }
-];
+const deprecatedSubjectIds = new Set(["ict", "css"]);
+const demoAnnouncements = [];
+const demoVideos = [];
+const demoAssignments = [];
 
 let expandedAssignmentId;
 
-const demoInvitations = [
-  {
-    id: "demo-invite-ict",
-    classroom: "ict",
-    title: "ICT OJT GMeet Consultation",
-    link: "https://meet.google.com/demo-ict-ojt",
-    createdAt: "2026-06-11T11:00:00.000Z"
-  }
-];
+const demoInvitations = [];
 
 const courseWorkspaces = {};
 
@@ -435,10 +431,9 @@ function renderCourseAssignmentForm(courseId) {
   classroom.required = true;
   const allOption = document.createElement("option");
   allOption.value = "all";
-  allOption.textContent = "All Classrooms";
+  allOption.textContent = "All Subjects";
   classroom.appendChild(allOption);
-  Object.entries(classroomTitles).forEach(([value, label]) => {
-    if (value === "all") return;
+  getSubjectTargets({ includeAll: false }).forEach(({ value, label }) => {
     const option = document.createElement("option");
     option.value = value;
     option.textContent = label;
@@ -580,7 +575,7 @@ function renderCourseQuizStack(courseId, options = {}) {
     const assignmentList = document.createElement("div");
     assignmentList.className = "course-post-list";
     const courseAssignments = getCourseAssignments(course, courseId).filter((assignment) => {
-      return options.adminControls || assignment.classroom === "all" || assignment.classroom === selectedClassroom;
+      return options.adminControls || isVisibleForSelectedClassroom(assignment);
     });
 
     wrapper.appendChild(assignmentTitle);
@@ -662,7 +657,45 @@ function renderCourseWorkspace(courseId, triggerCard) {
   invitePanel.append(inviteText, copyInvite);
 
   if (course.cover) hero.appendChild(heroCover);
-  hero.append(heroText, invitePanel, heroMeta);
+  hero.appendChild(heroText);
+
+  if (!adminApp) {
+    const liveInvitation = getLatestCourseInvitation(courseId);
+    const livePanel = document.createElement("div");
+    livePanel.className = "course-invite-code course-invite-code-hero course-live-link-hero";
+
+    const liveText = document.createElement("div");
+    liveText.append(
+      createTextElement("span", "", "Live session link"),
+      createTextElement("strong", "", liveInvitation ? liveInvitation.title : "No live session")
+    );
+    livePanel.appendChild(liveText);
+
+    if (liveInvitation) {
+      const liveActions = document.createElement("div");
+      liveActions.className = "course-live-link-actions";
+
+      const openLive = document.createElement("a");
+      openLive.className = "btn btn-primary btn-sm";
+      openLive.href = liveInvitation.link;
+      openLive.target = "_blank";
+      openLive.rel = "noopener";
+      openLive.textContent = "Open";
+
+      const copyLive = document.createElement("button");
+      copyLive.className = "btn btn-outline-primary btn-sm";
+      copyLive.type = "button";
+      copyLive.dataset.copyLiveSessionLink = liveInvitation.link;
+      copyLive.textContent = "Copy";
+
+      liveActions.append(openLive, copyLive);
+      livePanel.appendChild(liveActions);
+    }
+
+    hero.appendChild(livePanel);
+  }
+
+  hero.append(invitePanel, heroMeta);
 
   const progress = document.createElement("div");
   progress.className = "course-workspace-progress progress";
@@ -911,6 +944,7 @@ function getCourseTitle(courseId) {
 function getNotificationSectionId(notification) {
   if (!notification?.section) return "announcements";
   if (notification.section === "class-chat" && !adminApp) return "student-chat";
+  if (notification.section === "gmeet" && !adminApp) return "courses";
   return notification.section;
 }
 
@@ -927,7 +961,7 @@ function notificationMatchesAudience(notification) {
 
   if (role === "admin") return true;
   if (audience.studentId && audience.studentId !== currentStudent.id) return false;
-  if (audience.classroom && audience.classroom !== "all" && audience.classroom !== selectedClassroom) return false;
+  if (audience.classroom && !isVisibleForSelectedClassroom({ classroom: audience.classroom })) return false;
   if (notification.courseId) {
     const course = getCourseById(notification.courseId);
     if (course && !isCourseJoined(course)) return false;
@@ -986,9 +1020,9 @@ function getUnreadNotificationCount(sectionId, context = {}) {
 }
 
 function createNotificationMessage(notification) {
-  const classroom = classroomTitles[notification.classroom] || classroomTitles[notification.audience?.classroom] || "";
+  const classroom = getClassroomTitle(notification.classroom || notification.audience?.classroom);
   const pieces = [];
-  if (classroom && classroom !== "All Classrooms") pieces.push(classroom);
+  if (classroom && classroom !== "All Subjects") pieces.push(classroom);
   if (notification.courseId) pieces.push(getCourseTitle(notification.courseId));
   if (notification.studentName) pieces.push(notification.studentName);
   return pieces.length ? pieces.join(" - ") : "Global Techno Hub";
@@ -1090,19 +1124,19 @@ function saveCustomCourses(courses) {
   saveStoredItems("gthCourses", courses);
 }
 
+function getLatestCourseInvitation(courseId) {
+  return getInvitations()
+    .filter((invitation) => invitation.classroom === "all" || invitation.classroom === courseId)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null;
+}
+
+function removeDeprecatedSubjectItems(items = []) {
+  return items.filter((item) => {
+    return !deprecatedSubjectIds.has(item.classroom) && !String(item.id || "").startsWith("demo-");
+  });
+}
+
 function syncAssignmentSubjects() {
-  if (!assignmentSubject && !assignmentClassroom) return;
-
-  if (assignmentClassroom) {
-    assignmentClassroom.replaceChildren();
-
-    const allOption = document.createElement("option");
-    allOption.value = "all";
-    allOption.textContent = "All Classrooms";
-    assignmentClassroom.appendChild(allOption);
-    assignmentClassroom.value = "all";
-  }
-
   if (!assignmentSubject) return;
 
   const currentValue = assignmentSubject.value;
@@ -1127,6 +1161,41 @@ function syncAssignmentSubjects() {
   });
 
   if (courses.some((course) => course.title === currentValue)) assignmentSubject.value = currentValue;
+}
+
+function syncPostTargetSelectors() {
+  [
+    document.querySelector("#announcementClassroom"),
+    document.querySelector("#videoClassroom"),
+    document.querySelector("#invitationClassroom"),
+    assignmentClassroom
+  ].forEach((select) => populateSubjectTargetSelect(select, { includeAll: true }));
+
+  populateSubjectTargetSelect(chatClassroom, { includeAll: false });
+  syncAssignmentSubjects();
+
+  if (!announcementSubject) return;
+
+  const currentValue = announcementSubject.value;
+  announcementSubject.replaceChildren();
+
+  const courses = getCustomCourses();
+  if (!courses.length) {
+    const option = document.createElement("option");
+    option.value = "General Reminder";
+    option.textContent = "General Reminder";
+    announcementSubject.appendChild(option);
+    return;
+  }
+
+  courses.forEach((course) => {
+    const option = document.createElement("option");
+    option.value = course.title;
+    option.textContent = course.title;
+    announcementSubject.appendChild(option);
+  });
+
+  if (courses.some((course) => course.title === currentValue)) announcementSubject.value = currentValue;
 }
 
 function normalizeSubjectCode(value = "") {
@@ -1351,6 +1420,27 @@ function isPdfPath(value = "") {
   return /\.pdf(\?.*)?$/i.test(value);
 }
 
+function isVideoPath(value = "") {
+  return /\.(mp4|m4v|webm|ogg|ogv|mov)(\?.*)?$/i.test(value);
+}
+
+function isTextPath(value = "") {
+  return /\.(txt|csv|md|json|log)(\?.*)?$/i.test(value);
+}
+
+function canPreviewResourceFile(file = {}) {
+  return Boolean(file.data) && (
+    file.type?.startsWith("image/")
+    || file.type?.startsWith("video/")
+    || file.type === "application/pdf"
+    || file.type?.startsWith("text/")
+    || isImagePath(file.name)
+    || isVideoPath(file.name)
+    || isPdfPath(file.name)
+    || isTextPath(file.name)
+  );
+}
+
 function renderCourseResourcePreview(resource) {
   const file = resource.file;
   const link = resource.link || "";
@@ -1362,6 +1452,15 @@ function renderCourseResourcePreview(resource) {
     image.src = file.data;
     image.alt = file.name;
     preview.appendChild(image);
+    return preview;
+  }
+
+  if (file?.data && (file.type?.startsWith("video/") || isVideoPath(file.name))) {
+    const video = document.createElement("video");
+    video.src = file.data;
+    video.controls = true;
+    video.playsInline = true;
+    preview.appendChild(video);
     return preview;
   }
 
@@ -1378,6 +1477,15 @@ function renderCourseResourcePreview(resource) {
     image.src = link;
     image.alt = resource.title;
     preview.appendChild(image);
+    return preview;
+  }
+
+  if (link && isVideoPath(link)) {
+    const video = document.createElement("video");
+    video.src = link;
+    video.controls = true;
+    video.playsInline = true;
+    preview.appendChild(video);
     return preview;
   }
 
@@ -1438,7 +1546,7 @@ function renderCourseResourceForm(courseId) {
   file.className = "form-control form-control-sm";
   file.name = "file";
   file.type = "file";
-  file.accept = ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,image/*";
+  file.accept = ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.csv,.mp4,.webm,.ogg,.mov,image/*,video/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
   const link = document.createElement("input");
   link.className = "form-control form-control-sm";
@@ -2065,7 +2173,7 @@ function renderQuizExtraChancePanel(quiz) {
     const summary = document.createElement("summary");
     summary.className = "course-extra-chance-summary";
     summary.append(
-      createTextElement("strong", "", classroomTitles[classroom] || "Classroom"),
+      createTextElement("strong", "", getClassroomTitle(classroom)),
       createTextElement("span", "badge text-bg-info", `${grantedCount}/${students.length} approved`)
     );
 
@@ -2779,7 +2887,7 @@ function createCourseCard(course, index) {
 function renderCustomCourses() {
   const lists = document.querySelectorAll("#courseList");
   if (!lists.length) return;
-  syncAssignmentSubjects();
+  syncPostTargetSelectors();
 
   Object.keys(courseWorkspaces)
     .filter((courseId) => courseId.startsWith("custom-course-"))
@@ -2897,6 +3005,11 @@ document.addEventListener("click", (event) => {
 function refreshOpenCourseWorkspace(courseId) {
   const activeCourseCard = document.querySelector(`.course-card-active[data-course='${courseId}']`);
   if (activeCourseCard) renderCourseWorkspace(courseId, activeCourseCard);
+}
+
+function refreshActiveCourseWorkspace() {
+  const activeCourseCard = document.querySelector(".course-card-active");
+  if (activeCourseCard?.dataset.course) renderCourseWorkspace(activeCourseCard.dataset.course, activeCourseCard);
 }
 
 window.addEventListener("resize", () => {
@@ -3155,7 +3268,7 @@ document.addEventListener("submit", (event) => {
   });
   if (!hasAllAnswers) return;
 
-  const submissions = getCourseQuizSubmissions().filter((submission) => {
+  const submissions = getCourseQuizSubmissions().filter((submission)=> {
     return !(submission.quizId === quizId && submission.studentId === currentStudent.id);
   });
   submissions.push({
@@ -3262,6 +3375,16 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const copyLiveSession = event.target.closest("[data-copy-live-session-link]");
+  if (copyLiveSession) {
+    navigator.clipboard?.writeText(copyLiveSession.dataset.copyLiveSessionLink || "");
+    copyLiveSession.textContent = "Copied";
+    window.setTimeout(() => {
+      copyLiveSession.textContent = "Copy";
+    }, 1400);
+    return;
+  }
+
   const resourceButton = event.target.closest("[data-course-resource-action='remove']");
   if (resourceButton) {
     const resource = getCourseResources().find((item) => item.id === resourceButton.dataset.resourceId);
@@ -3344,7 +3467,12 @@ function getCurrentAuthor() {
 }
 
 function isVisibleForSelectedClassroom(item) {
-  return item.classroom === selectedClassroom || item.classroom === "all";
+  if (adminApp) return true;
+  if (item.classroom === "all") return true;
+  if (selectedClassroom !== "all") return item.classroom === selectedClassroom;
+
+  const course = getCustomCourses().find((customCourse) => customCourse.id === item.classroom);
+  return course ? isCourseJoined(course) : item.classroom === currentStudent.classroom;
 }
 
 function formatDate(value) {
@@ -3396,7 +3524,7 @@ function renderAnnouncementCard(announcement, options = {}) {
 
   const classroom = document.createElement("span");
   classroom.className = "badge text-bg-info";
-  classroom.textContent = classroomTitles[announcement.classroom] || "Classroom";
+  classroom.textContent = getClassroomTitle(announcement.classroom);
   meta.appendChild(classroom);
 
   const time = document.createElement("small");
@@ -3515,7 +3643,11 @@ function renderAnnouncementCard(announcement, options = {}) {
 
 function getAnnouncements() {
   const stored = getStoredItems("gthAnnouncements", null);
-  if (stored) return stored;
+  if (stored) {
+    const cleaned = removeDeprecatedSubjectItems(stored);
+    if (cleaned.length !== stored.length) saveStoredItems("gthAnnouncements", cleaned);
+    return cleaned;
+  }
 
   saveStoredItems("gthAnnouncements", demoAnnouncements);
   return demoAnnouncements;
@@ -3648,7 +3780,11 @@ document.addEventListener("click", (event) => {
 
 function getVideos() {
   const stored = getStoredItems("gthVideos", null);
-  if (stored) return stored;
+  if (stored) {
+    const cleaned = removeDeprecatedSubjectItems(stored);
+    if (cleaned.length !== stored.length) saveStoredItems("gthVideos", cleaned);
+    return cleaned;
+  }
 
   saveStoredItems("gthVideos", demoVideos);
   return demoVideos;
@@ -3762,6 +3898,7 @@ function showVideoModal() {
 function clearVideoModalMedia() {
   if (videoModalFrame) {
     videoModalFrame.src = "";
+    videoModalFrame.srcdoc = "";
     videoModalFrame.classList.remove("d-none");
   }
   if (videoModalPlayer) {
@@ -3770,6 +3907,140 @@ function clearVideoModalMedia() {
     videoModalPlayer.load();
     videoModalPlayer.classList.add("d-none");
   }
+}
+
+function escapeHtml(value = "") {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function setModalFallback(title, message, action = null) {
+  if (!videoModalFrame) return;
+
+  const actionMarkup = action
+    ? `<a class="btn btn-primary btn-sm" href="${escapeHtml(action.href)}" ${action.download ? `download="${escapeHtml(action.download)}"` : 'target="_blank" rel="noopener"'}>${escapeHtml(action.label)}</a>`
+    : "";
+  videoModalFrame.srcdoc = `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            color: #12333b;
+            background: #f8fbfc;
+          }
+          main {
+            max-width: 34rem;
+            padding: 2rem;
+            text-align: center;
+          }
+          h1 {
+            margin: 0 0 0.75rem;
+            font-size: 1.2rem;
+          }
+          p {
+            margin: 0 0 1.25rem;
+            color: #5f7279;
+            line-height: 1.5;
+          }
+          .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 2.25rem;
+            padding: 0.45rem 0.8rem;
+            border-radius: 0.5rem;
+            color: #fff;
+            background: #087f9b;
+            font-weight: 750;
+            text-decoration: none;
+          }
+        </style>
+      </head>
+      <body>
+        <main>
+          <h1>${escapeHtml(title)}</h1>
+          <p>${escapeHtml(message)}</p>
+          ${actionMarkup}
+        </main>
+      </body>
+    </html>`;
+  videoModalFrame.classList.remove("d-none");
+  videoModalPlayer?.classList.add("d-none");
+}
+
+function openResourceModal(resource) {
+  if (!resource || !videoModal) return false;
+
+  clearVideoModalMedia();
+  if (videoModalLabel) videoModalLabel.textContent = resource.title || resource.file?.name || "Learning Resource";
+
+  const file = resource.file;
+  const link = resource.link || "";
+
+  if (file?.data && (file.type?.startsWith("video/") || isVideoPath(file.name)) && videoModalPlayer) {
+    videoModalPlayer.src = file.data;
+    videoModalPlayer.classList.remove("d-none");
+    videoModalFrame?.classList.add("d-none");
+    showVideoModal();
+    return true;
+  }
+
+  if (link && isVideoPath(link) && videoModalPlayer) {
+    videoModalPlayer.src = link;
+    videoModalPlayer.classList.remove("d-none");
+    videoModalFrame?.classList.add("d-none");
+    showVideoModal();
+    return true;
+  }
+
+  if (file?.data && canPreviewResourceFile(file) && videoModalFrame) {
+    videoModalFrame.src = file.data;
+    videoModalFrame.classList.remove("d-none");
+    videoModalPlayer?.classList.add("d-none");
+    showVideoModal();
+    return true;
+  }
+
+  if (link && (isPdfPath(link) || isImagePath(link) || isTextPath(link)) && videoModalFrame) {
+    videoModalFrame.src = link;
+    videoModalFrame.classList.remove("d-none");
+    videoModalPlayer?.classList.add("d-none");
+    showVideoModal();
+    return true;
+  }
+
+  if (file?.data) {
+    setModalFallback(
+      file.name || "Resource file",
+      "This file type cannot be previewed directly in the browser. You can still download it from here.",
+      { href: file.data, download: file.name || "resource", label: "Download File" }
+    );
+    showVideoModal();
+    return true;
+  }
+
+  if (link) {
+    setModalFallback(
+      resource.title || "Resource link",
+      "This link cannot be embedded in the viewer. Open the original resource in a new tab.",
+      { href: link, label: "Open Original" }
+    );
+    showVideoModal();
+    return true;
+  }
+
+  return false;
 }
 
 function hideVideoModal() {
@@ -3822,7 +4093,7 @@ function renderVideoCard(video, options = {}) {
 
     const classroom = document.createElement("span");
     classroom.className = "badge text-bg-info";
-    classroom.textContent = classroomTitles[video.classroom] || "Classroom";
+    classroom.textContent = getClassroomTitle(video.classroom);
 
     const time = document.createElement("small");
     time.className = "text-secondary";
@@ -3876,7 +4147,7 @@ function renderVideoCard(video, options = {}) {
 
   const classroom = document.createElement("span");
   classroom.className = "badge text-bg-info";
-  classroom.textContent = classroomTitles[video.classroom] || "Classroom";
+  classroom.textContent = getClassroomTitle(video.classroom);
 
   const time = document.createElement("small");
   time.className = "text-secondary";
@@ -4062,7 +4333,11 @@ videoModal?.addEventListener("hidden.bs.modal", () => {
 
 function getAssignments() {
   const stored = getStoredItems("gthAssignments", null);
-  if (stored) return stored;
+  if (stored) {
+    const cleaned = removeDeprecatedSubjectItems(stored);
+    if (cleaned.length !== stored.length) saveStoredItems("gthAssignments", cleaned);
+    return cleaned;
+  }
 
   saveStoredItems("gthAssignments", demoAssignments);
   return demoAssignments;
@@ -4250,7 +4525,7 @@ function renderGradebook() {
       info.append(
         createTextElement("span", "avatar", initials),
         createTextElement("strong", "", student.name),
-        createTextElement("small", "text-secondary", classroomTitles[student.classroom] || "Classroom")
+        createTextElement("small", "text-secondary", getClassroomTitle(student.classroom))
       );
 
       row.append(info, createGradeForm(courseId, student, { compact: true }));
@@ -4299,7 +4574,7 @@ function renderAssignmentReview(assignment) {
 
     const classroom = document.createElement("span");
     classroom.className = "badge text-bg-light";
-    classroom.textContent = classroomTitles[student.classroom] || "Classroom";
+    classroom.textContent = getClassroomTitle(student.classroom);
 
     nameLine.append(name, classroom);
     info.appendChild(nameLine);
@@ -4347,7 +4622,7 @@ function renderAssignmentCard(assignment, options = {}) {
 
   const classroom = document.createElement("span");
   classroom.className = "badge text-bg-info";
-  classroom.textContent = classroomTitles[assignment.classroom] || "Classroom";
+  classroom.textContent = getClassroomTitle(assignment.classroom);
 
   const subject = document.createElement("span");
   subject.className = "badge text-bg-light";
@@ -4718,7 +4993,11 @@ document.addEventListener("submit", (event) => {
 
 function getInvitations() {
   const stored = getStoredItems("gthInvitations", null);
-  if (stored) return stored;
+  if (stored) {
+    const cleaned = removeDeprecatedSubjectItems(stored);
+    if (cleaned.length !== stored.length) saveStoredItems("gthInvitations", cleaned);
+    return cleaned;
+  }
 
   saveStoredItems("gthInvitations", demoInvitations);
   return demoInvitations;
@@ -4733,7 +5012,7 @@ function renderInvitationCard(invitation, options = {}) {
 
   const classroom = document.createElement("span");
   classroom.className = "badge text-bg-info";
-  classroom.textContent = classroomTitles[invitation.classroom] || "Classroom";
+  classroom.textContent = getClassroomTitle(invitation.classroom);
 
   const time = document.createElement("small");
   time.className = "text-secondary";
@@ -4810,26 +5089,6 @@ function renderInvitations() {
     observeMotionElements(enrollmentRequests);
   }
 
-  if (studentInvitations) {
-    const classroomInvitations = invitations.filter(isVisibleForSelectedClassroom);
-
-    studentInvitations.replaceChildren();
-    if (studentInvitationClass) studentInvitationClass.textContent = selectedClassroomTitle;
-
-    if (!classroomInvitations.length) {
-      const empty = document.createElement("p");
-      empty.className = "text-secondary mb-0";
-      empty.textContent = "No GMeet links for this classroom yet.";
-      studentInvitations.appendChild(empty);
-      return;
-    }
-
-    classroomInvitations.forEach((invitation) => {
-      studentInvitations.appendChild(renderInvitationCard(invitation));
-    });
-
-    observeMotionElements(studentInvitations);
-  }
 }
 
 invitationForm?.addEventListener("submit", (event) => {
@@ -4856,11 +5115,12 @@ invitationForm?.addEventListener("submit", (event) => {
     classroom: invitation.classroom,
     audience: { role: "student", classroom: invitation.classroom },
     title: `New live session: ${title}`,
-    message: classroomTitles[invitation.classroom] || "Live session",
+    message: getClassroomTitle(invitation.classroom) || "Live session",
     createdAt: invitation.createdAt
   });
   invitationForm.reset();
   renderInvitations();
+  refreshActiveCourseWorkspace();
 });
 
 document.addEventListener("click", (event) => {
@@ -4870,11 +5130,12 @@ document.addEventListener("click", (event) => {
   if (actionButton.dataset.invitationAction === "remove") {
     saveStoredItems("gthInvitations", getInvitations().filter((item) => item.id !== actionButton.dataset.invitationId));
     renderInvitations();
+    refreshActiveCourseWorkspace();
   }
 });
 
 function getActiveChatClassroom() {
-  if (chatClassroom) return chatClassroom.value;
+  if (chatClassroom) return chatClassroom.value || getSubjectTargets({ includeAll: false })[0]?.value || "";
   return selectedClassroom;
 }
 
@@ -5003,9 +5264,9 @@ function renderChatMembersDetail(detail) {
   const classroom = getActiveChatClassroom();
   const students = classroomStudents[classroom] || [];
   detail.appendChild(createTextElement("h4", "chat-info-detail-title", "Chat members"));
-  detail.appendChild(createChatInfoPerson("Admin", classroomTitles[classroom] || "Class admin", "A"));
+  detail.appendChild(createChatInfoPerson("Admin", getClassroomTitle(classroom), "A"));
   students.forEach((student) => {
-    detail.appendChild(createChatInfoPerson(student.name, classroomTitles[classroom] || "Classroom"));
+    detail.appendChild(createChatInfoPerson(student.name, getClassroomTitle(classroom)));
   });
 }
 
@@ -5027,13 +5288,13 @@ function renderStudentInfoDetail(detail) {
   const student = getStudentById(getActivePrivateStudentId());
   const studentCourses = getCustomCourses().filter((course) => adminApp || isCourseJoined(course));
   detail.appendChild(createTextElement("h4", "chat-info-detail-title", "Student info"));
-  detail.appendChild(createChatInfoPerson(student.name, classroomTitles[student.classroom] || "Classroom"));
+  detail.appendChild(createChatInfoPerson(student.name, getClassroomTitle(student.classroom)));
 
   const stats = document.createElement("div");
   stats.className = "chat-info-stats";
   stats.append(
     createTextElement("span", "", "Classroom"),
-    createTextElement("strong", "", classroomTitles[student.classroom] || "Classroom"),
+    createTextElement("strong", "", getClassroomTitle(student.classroom)),
     createTextElement("span", "", "Student ID"),
     createTextElement("strong", "", student.id)
   );
@@ -5126,13 +5387,12 @@ function renderClassChatRecents() {
   const activeClassroom = getActiveChatClassroom();
   chatRecentList.replaceChildren();
 
-  Object.keys(classroomTitles)
-    .filter((classroom) => classroom !== "all")
-    .forEach((classroom) => {
+  getSubjectTargets({ includeAll: false })
+    .forEach(({ value: classroom, label }) => {
       const classroomMessages = allMessages.filter((message) => message.classroom === classroom);
       const latest = classroomMessages[classroomMessages.length - 1];
       chatRecentList.appendChild(createRecentChatItem({
-        title: classroomTitles[classroom],
+        title: label,
         preview: latest ? `${latest.author}: ${latest.text || `${latest.attachments?.length || 0} attachment(s)`}` : "Start the class conversation.",
         time: latest ? getMessageTimeLabel(latest) : "",
         initials: "G",
@@ -5152,8 +5412,8 @@ function renderChatMessages() {
   const activeClassroom = getActiveChatClassroom();
   const messages = getChatMessages().filter((message) => message.classroom === activeClassroom);
   chatMessages.replaceChildren();
-  if (chatThreadTitle) chatThreadTitle.textContent = classroomTitles[activeClassroom] || "Class Chat";
-  if (chatInfoTitle) chatInfoTitle.textContent = classroomTitles[activeClassroom] || "Class Chat";
+  if (chatThreadTitle) chatThreadTitle.textContent = getClassroomTitle(activeClassroom) || "Class Chat";
+  if (chatInfoTitle) chatInfoTitle.textContent = getClassroomTitle(activeClassroom) || "Class Chat";
   const classChatSectionId = getNotificationSectionId({ section: "class-chat" });
   if (isSectionCurrentlyOpen(classChatSectionId)) {
     markNotificationsRead((notification) => {
@@ -5236,7 +5496,7 @@ chatForm?.addEventListener("submit", async (event) => {
     classroom: message.classroom,
     audience: { role: message.author === "Admin" ? "student" : "admin", classroom: message.classroom },
     title: message.author === "Admin" ? "Admin sent a class message" : `${message.author} sent a class message`,
-    message: `${classroomTitles[message.classroom] || "Class Chat"} - ${message.text || `${message.attachments.length} attachment(s)`}`,
+    message: `${getClassroomTitle(message.classroom) || "Class Chat"} - ${message.text || `${message.attachments.length} attachment(s)`}`,
     createdAt: message.createdAt
   });
   chatMessage.value = "";
@@ -5271,7 +5531,7 @@ function setupPrivateMessageStudents() {
   getAllStudents().forEach((student) => {
     const option = document.createElement("option");
     option.value = student.id;
-    option.textContent = `${student.name} - ${classroomTitles[student.classroom]}`;
+    option.textContent = `${student.name} - ${getClassroomTitle(student.classroom)}`;
     privateMessageStudent.appendChild(option);
   });
 }
@@ -5416,7 +5676,7 @@ portalLoginForm?.addEventListener("submit", (event) => {
 
   if (username.toLowerCase() === "user" && password === "321") {
     sessionStorage.setItem("gthClientLoggedIn", "true");
-    window.location.replace("classrooms.html");
+    window.location.replace("client.html");
     return;
   }
 

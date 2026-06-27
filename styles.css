@@ -348,13 +348,13 @@ body {
 
 .course-workspace-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   gap: 1rem;
   align-items: center;
 }
 
 .course-workspace-hero-with-cover {
-  grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr) auto auto auto;
 }
 
 .course-workspace-hero > div {
@@ -2184,8 +2184,7 @@ body {
 #studentVideos,
 #adminAssignments,
 #studentAssignments,
-#enrollmentRequests,
-#studentInvitations {
+#enrollmentRequests {
   min-height: 4.5rem;
 }
 
@@ -2531,6 +2530,16 @@ body {
   margin-bottom: 0;
   background: #fff;
   box-shadow: 0 14px 30px rgba(8, 127, 155, 0.08);
+}
+
+.course-live-link-hero {
+  min-width: min(100%, 16rem);
+}
+
+.course-live-link-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
 }
 
 .course-invite-code span {

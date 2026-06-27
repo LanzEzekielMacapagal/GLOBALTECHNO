@@ -125,17 +125,12 @@
                 <label class="form-label mb-0">
                   Classroom
                   <select class="form-select mt-1" id="announcementClassroom" required>
-                    <option value="ict">ICT OJT Classroom</option>
-                    <option value="css">Computer Systems Servicing</option>
-                    <option value="all">All Classrooms</option>
+                    <option value="all">All Subjects</option>
                   </select>
                 </label>
                 <label class="form-label mb-0">
                   Subject
                   <select class="form-select mt-1" id="announcementSubject" required>
-                    <option>OJT Onboarding Essentials</option>
-                    <option>Safety and Compliance</option>
-                    <option>Supervisor Skills Workshop</option>
                     <option>General Reminder</option>
                   </select>
                 </label>
@@ -177,9 +172,7 @@
                 <label class="form-label mb-0">
                   Classroom
                   <select class="form-select mt-1" id="videoClassroom" required>
-                    <option value="ict">ICT OJT Classroom</option>
-                    <option value="css">Computer Systems Servicing</option>
-                    <option value="all">All Classrooms</option>
+                    <option value="all">All Subjects</option>
                   </select>
                 </label>
                 <label class="form-label mb-0">Title<input class="form-control mt-1" id="videoTitle" type="text" placeholder="Video title" required></label>
@@ -199,7 +192,7 @@
                   <p class="section-label mb-1">Resource library</p>
                   <h2 class="h5 mb-0">Recorded Lessons</h2>
                 </div>
-                <span class="badge text-bg-info align-self-start">All classrooms</span>
+                <span class="badge text-bg-info align-self-start">All subjects</span>
               </div>
               <div class="row g-3" id="adminVideos"></div>
             </div>
@@ -244,8 +237,7 @@
                 <label class="form-label mb-0">
                   Classroom
                   <select class="form-select mt-1" id="invitationClassroom" required>
-                    <option value="ict">ICT OJT Classroom</option>
-                    <option value="css">Computer Systems Servicing</option>
+                    <option value="all">All Subjects</option>
                   </select>
                 </label>
                 <label class="form-label mb-0">Session title<input class="form-control mt-1" id="invitationTitle" type="text" placeholder="Class consultation" required></label>
@@ -302,8 +294,7 @@
               <label class="chat-search">
                 <span class="visually-hidden">Classroom</span>
                 <select class="form-select form-select-sm" id="chatClassroom">
-                  <option value="ict">ICT OJT Classroom</option>
-                  <option value="css">Computer Systems Servicing</option>
+                  <option value="">Create a subject first</option>
                 </select>
               </label>
               <div class="recent-chat-list" id="chatRecentList"></div>
@@ -313,7 +304,7 @@
                 <div class="chat-contact">
                   <span class="chat-avatar chat-avatar-group">G</span>
                   <span>
-                    <strong id="chatThreadTitle">ICT OJT Classroom</strong>
+                    <strong id="chatThreadTitle">Subject Chat</strong>
                     <small class="text-secondary d-block">Active now</small>
                   </span>
                 </div>
@@ -329,7 +320,7 @@
             </div>
             <aside class="chat-info-panel" aria-label="Class chat information">
               <span class="chat-avatar chat-avatar-xl chat-avatar-group">G</span>
-              <h3 class="h5 mb-1" id="chatInfoTitle">ICT OJT Classroom</h3>
+              <h3 class="h5 mb-1" id="chatInfoTitle">Subject Chat</h3>
               <p class="text-secondary mb-3">Active now</p>
               <div class="chat-info-links">
                 <button type="button" data-chat-info-action="members">Chat members</button>
