@@ -68,6 +68,12 @@ const studentSections = document.querySelectorAll("[data-student-section]");
 const sectionMenuToggle = document.querySelector("#sectionMenuToggle");
 const sectionMenuBackdrop = document.querySelector("#sectionMenuBackdrop");
 const sectionNav = document.querySelector("#sectionNav");
+const notificationCenter = document.querySelector("[data-notification-center]");
+const notificationToggle = document.querySelector("[data-notification-toggle]");
+const notificationPanel = document.querySelector("[data-notification-panel]");
+const notificationList = document.querySelector("[data-notification-list]");
+const notificationCount = document.querySelector("[data-notification-count]");
+const notificationClear = document.querySelector("[data-notification-clear]");
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const mobileSectionQuery = window.matchMedia("(max-width: 991.98px)");
 
@@ -122,6 +128,39 @@ sectionMenuBackdrop?.addEventListener("click", () => {
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") setSectionMenuOpen(false);
+  if (event.key === "Escape") setNotificationPanelOpen(false);
+});
+
+notificationToggle?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const isOpen = notificationToggle.getAttribute("aria-expanded") === "true";
+  setNotificationPanelOpen(!isOpen);
+});
+
+notificationPanel?.addEventListener("click", (event) => {
+  event.stopPropagation();
+});
+
+document.addEventListener("click", (event) => {
+  if (!notificationCenter?.contains(event.target)) setNotificationPanelOpen(false);
+});
+
+notificationClear?.addEventListener("click", () => {
+  markNotificationsRead(() => true);
+});
+
+notificationList?.addEventListener("click", (event) => {
+  const item = event.target.closest("[data-notification-id]");
+  if (!item) return;
+
+  markNotificationsRead((notification) => notification.id === item.dataset.notificationId);
+  showStudentSection(item.dataset.notificationSection, { updateHash: true });
+  setNotificationPanelOpen(false);
+  setSectionMenuOpen(false);
+});
+
+window.addEventListener("storage", (event) => {
+  if (["gthNotifications", getNotificationReadKey()].includes(event.key)) renderNotificationCenter();
 });
 
 const classroomTitles = {
@@ -748,6 +787,14 @@ function showStudentSection(sectionId, options = {}) {
     history.replaceState(null, "", `#${targetId}`);
   }
 
+  if (targetId === getNotificationSectionId({ section: "class-chat" })) {
+    renderChatMessages();
+  } else if (targetId === "private-messages") {
+    renderPrivateMessages();
+  } else {
+    markNotificationsReadBySection(targetId, { render: false });
+  }
+  renderNotificationCenter();
   observeMotionElements(targetSection);
 
   if (options.updateHash && mobileSectionQuery.matches) {
@@ -825,6 +872,214 @@ function saveStoredItems(key, items) {
   } catch {
     // Keep the demo usable if browser storage is unavailable.
   }
+}
+
+function getCurrentNotificationRole() {
+  return adminApp ? "admin" : "student";
+}
+
+function getNotificationReadKey() {
+  return getCurrentNotificationRole() === "admin"
+    ? "gthNotificationReads-admin"
+    : `gthNotificationReads-${currentStudent.id}`;
+}
+
+function getNotifications() {
+  return getStoredItems("gthNotifications", []);
+}
+
+function saveNotifications(notifications) {
+  saveStoredItems("gthNotifications", notifications.slice(0, 120));
+}
+
+function getReadNotificationIds() {
+  return getStoredItems(getNotificationReadKey(), []);
+}
+
+function saveReadNotificationIds(ids) {
+  saveStoredItems(getNotificationReadKey(), Array.from(new Set(ids)));
+}
+
+function getCourseById(courseId) {
+  return getCustomCourses().find((course) => course.id === courseId);
+}
+
+function getCourseTitle(courseId) {
+  return getCourseById(courseId)?.title || "Course";
+}
+
+function getNotificationSectionId(notification) {
+  if (!notification?.section) return "announcements";
+  if (notification.section === "class-chat" && !adminApp) return "student-chat";
+  return notification.section;
+}
+
+function isSectionCurrentlyOpen(sectionId) {
+  return Boolean(document.querySelector(`[data-student-section="${sectionId}"]`)?.classList.contains("active"));
+}
+
+function notificationMatchesAudience(notification) {
+  if (!notification?.audience) return false;
+
+  const role = getCurrentNotificationRole();
+  const audience = notification.audience;
+  if (audience.role !== role) return false;
+
+  if (role === "admin") return true;
+  if (audience.studentId && audience.studentId !== currentStudent.id) return false;
+  if (audience.classroom && audience.classroom !== "all" && audience.classroom !== selectedClassroom) return false;
+  if (notification.courseId) {
+    const course = getCourseById(notification.courseId);
+    if (course && !isCourseJoined(course)) return false;
+  }
+
+  return true;
+}
+
+function getVisibleNotifications() {
+  const readIds = new Set(getReadNotificationIds());
+  return getNotifications()
+    .filter(notificationMatchesAudience)
+    .map((notification) => ({ ...notification, unread: !readIds.has(notification.id) }))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+function addNotification(notification) {
+  const createdAt = notification.createdAt || new Date().toISOString();
+  const notifications = getNotifications();
+  notifications.unshift({
+    id: notification.id || `notification-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    createdAt,
+    ...notification,
+    createdAt
+  });
+  saveNotifications(notifications);
+  renderNotificationCenter();
+}
+
+function markNotificationsRead(filterFn, options = {}) {
+  const visibleNotifications = getVisibleNotifications();
+  const matchingIds = visibleNotifications.filter(filterFn).map((notification) => notification.id);
+  if (!matchingIds.length) return false;
+
+  const currentIds = getReadNotificationIds();
+  const nextIds = Array.from(new Set([...currentIds, ...matchingIds]));
+  if (nextIds.length === currentIds.length) return false;
+
+  saveReadNotificationIds(nextIds);
+  if (options.render !== false) renderNotificationCenter();
+  return true;
+}
+
+function markNotificationsReadBySection(sectionId, options = {}) {
+  return markNotificationsRead((notification) => getNotificationSectionId(notification) === sectionId, options);
+}
+
+function getUnreadNotificationCount(sectionId, context = {}) {
+  return getVisibleNotifications().filter((notification) => {
+    if (!notification.unread) return false;
+    if (sectionId && getNotificationSectionId(notification) !== sectionId) return false;
+    if (context.classroom && notification.classroom !== context.classroom) return false;
+    if (context.studentId && notification.studentId !== context.studentId) return false;
+    return true;
+  }).length;
+}
+
+function createNotificationMessage(notification) {
+  const classroom = classroomTitles[notification.classroom] || classroomTitles[notification.audience?.classroom] || "";
+  const pieces = [];
+  if (classroom && classroom !== "All Classrooms") pieces.push(classroom);
+  if (notification.courseId) pieces.push(getCourseTitle(notification.courseId));
+  if (notification.studentName) pieces.push(notification.studentName);
+  return pieces.length ? pieces.join(" - ") : "Global Techno Hub";
+}
+
+function getNotificationIcon(notification) {
+  const icons = {
+    announcement: "A",
+    video: "V",
+    assignment: "C",
+    resource: "R",
+    quiz: "Q",
+    "course-next": "N",
+    invitation: "L",
+    "class-chat": "G",
+    "private-message": "P"
+  };
+  return icons[notification.type] || "!";
+}
+
+function wrapSectionLinkLabels() {
+  studentSectionLinks.forEach((link) => {
+    if (link.querySelector(".nav-link-text")) return;
+    const text = link.textContent.trim();
+    link.textContent = "";
+    link.appendChild(createTextElement("span", "nav-link-text", text));
+  });
+}
+
+function updateSectionNotificationBadges() {
+  wrapSectionLinkLabels();
+  studentSectionLinks.forEach((link) => {
+    const sectionId = link.dataset.studentSectionLink;
+    const unread = getUnreadNotificationCount(sectionId);
+    link.querySelector(".nav-unread-count")?.remove();
+    if (!unread) return;
+
+    const badge = createTextElement("span", "nav-unread-count", unread > 9 ? "9+" : String(unread));
+    badge.setAttribute("aria-label", `${unread} unread`);
+    link.appendChild(badge);
+  });
+}
+
+function createNotificationItem(notification) {
+  const button = document.createElement("button");
+  button.className = `notification-item${notification.unread ? " unread" : ""}`;
+  button.type = "button";
+  button.dataset.notificationId = notification.id;
+  button.dataset.notificationSection = getNotificationSectionId(notification);
+
+  const icon = createTextElement("span", "notification-icon", getNotificationIcon(notification));
+  const content = document.createElement("span");
+  content.append(
+    createTextElement("strong", "", notification.title || "New activity"),
+    createTextElement("small", "text-secondary", notification.message || createNotificationMessage(notification)),
+    createTextElement("small", "text-secondary", formatDate(notification.createdAt))
+  );
+  button.append(icon, content);
+  return button;
+}
+
+function renderNotificationCenter() {
+  updateSectionNotificationBadges();
+  if (!notificationCenter) return;
+
+  const notifications = getVisibleNotifications();
+  const unread = notifications.filter((notification) => notification.unread).length;
+
+  if (notificationCount) {
+    notificationCount.textContent = unread > 99 ? "99+" : String(unread);
+    notificationCount.classList.toggle("d-none", unread === 0);
+  }
+
+  if (!notificationList) return;
+  notificationList.replaceChildren();
+
+  if (!notifications.length) {
+    notificationList.appendChild(createTextElement("p", "notification-empty mb-0", "No notifications yet."));
+    return;
+  }
+
+  notifications.slice(0, 18).forEach((notification) => {
+    notificationList.appendChild(createNotificationItem(notification));
+  });
+}
+
+function setNotificationPanelOpen(isOpen) {
+  if (!notificationToggle || !notificationPanel) return;
+  notificationToggle.classList.toggle("active", isOpen);
+  notificationToggle.setAttribute("aria-expanded", String(isOpen));
+  notificationPanel.classList.toggle("active", isOpen);
 }
 
 function getCustomCourses() {
@@ -2678,6 +2933,15 @@ document.addEventListener("submit", (event) => {
   });
 
   saveCourseNextPosts(posts);
+  addNotification({
+    type: "course-next",
+    section: "courses",
+    courseId,
+    audience: { role: "student" },
+    title: `New course update: ${title}`,
+    message: getCourseTitle(courseId),
+    createdAt: posts[0].createdAt
+  });
   refreshOpenCourseWorkspace(courseId);
 });
 
@@ -2694,7 +2958,7 @@ document.addEventListener("submit", async (event) => {
   if (!title || !description) return;
 
   const resources = getCourseResources();
-  resources.unshift({
+  const resource = {
     id: `course-resource-${Date.now()}`,
     courseId,
     title,
@@ -2702,9 +2966,19 @@ document.addEventListener("submit", async (event) => {
     link,
     file,
     createdAt: new Date().toISOString()
-  });
+  };
+  resources.unshift(resource);
 
   saveCourseResources(resources);
+  addNotification({
+    type: "resource",
+    section: "courses",
+    courseId,
+    audience: { role: "student" },
+    title: `New resource: ${title}`,
+    message: getCourseTitle(courseId),
+    createdAt: resource.createdAt
+  });
   refreshOpenCourseWorkspace(courseId);
 });
 
@@ -2833,6 +3107,17 @@ document.addEventListener("submit", (event) => {
   const savedQuizzes = existingQuizzes.filter((item) => item.id !== quiz.id);
   saveCourseQuizzes([quiz, ...savedQuizzes]);
   saveCourseQuizSubmissions(getCourseQuizSubmissions().filter((submission) => submission.quizId !== quiz.id));
+  if (!existingQuiz) {
+    addNotification({
+      type: "quiz",
+      section: "courses",
+      courseId,
+      audience: { role: "student" },
+      title: `New test/quiz: ${title}`,
+      message: `${getCourseTitle(courseId)} - due ${formatDate(dueAt)}`,
+      createdAt: quiz.createdAt
+    });
+  }
   refreshOpenCourseWorkspace(courseId);
 });
 
@@ -3290,6 +3575,15 @@ announcementForm?.addEventListener("submit", (event) => {
 
   announcements.unshift(announcement);
   saveStoredItems("gthAnnouncements", announcements);
+  addNotification({
+    type: "announcement",
+    section: "announcements",
+    classroom: announcement.classroom,
+    audience: { role: "student", classroom: announcement.classroom },
+    title: `New announcement: ${announcement.subject}`,
+    message: announcement.message,
+    createdAt: announcement.createdAt
+  });
   announcementForm.reset();
   renderAnnouncements();
 });
@@ -3687,7 +3981,7 @@ videoForm?.addEventListener("submit", async (event) => {
   }
 
   const videos = getVideos();
-  videos.unshift({
+  const video = {
     id: `video-${Date.now()}`,
     classroom: document.querySelector("#videoClassroom").value,
     title: document.querySelector("#videoTitle").value.trim(),
@@ -3695,9 +3989,19 @@ videoForm?.addEventListener("submit", async (event) => {
     file,
     ...source,
     createdAt: new Date().toISOString()
-  });
+  };
+  videos.unshift(video);
 
   saveStoredItems("gthVideos", videos);
+  addNotification({
+    type: "video",
+    section: "videos",
+    classroom: video.classroom,
+    audience: { role: "student", classroom: video.classroom },
+    title: `New video: ${video.title}`,
+    message: source.providerLabel || "Recorded lesson",
+    createdAt: video.createdAt
+  });
   videoError?.classList.add("d-none");
   videoForm.reset();
   renderVideos();
@@ -4286,6 +4590,16 @@ async function saveAssignmentFromForm(form, courseId = "") {
 
   expandedAssignmentId = assignmentId;
   saveStoredItems("gthAssignments", assignments);
+  addNotification({
+    type: "assignment",
+    section: "courses",
+    courseId,
+    classroom,
+    audience: { role: "student", classroom },
+    title: `New classwork: ${title}`,
+    message: `${subject} - due ${formatDate(dueDate)}`,
+    createdAt: assignments[0].createdAt
+  });
   form.reset();
   syncAssignmentSubjects();
   refreshAssignmentSurfaces(assignmentId);
@@ -4526,15 +4840,25 @@ invitationForm?.addEventListener("submit", (event) => {
   if (!title || !link) return;
 
   const invitations = getInvitations();
-  invitations.unshift({
+  const invitation = {
     id: `invitation-${Date.now()}`,
     classroom: document.querySelector("#invitationClassroom").value,
     title,
     link,
     createdAt: new Date().toISOString()
-  });
+  };
+  invitations.unshift(invitation);
 
   saveStoredItems("gthInvitations", invitations);
+  addNotification({
+    type: "invitation",
+    section: "gmeet",
+    classroom: invitation.classroom,
+    audience: { role: "student", classroom: invitation.classroom },
+    title: `New live session: ${title}`,
+    message: classroomTitles[invitation.classroom] || "Live session",
+    createdAt: invitation.createdAt
+  });
   invitationForm.reset();
   renderInvitations();
 });
@@ -4573,7 +4897,7 @@ function getMessageTimeLabel(message) {
   return new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-function createRecentChatItem({ title, preview, time, initials, active, onClick }) {
+function createRecentChatItem({ title, preview, time, initials, active, unreadCount = 0, onClick }) {
   const button = document.createElement("button");
   button.className = `recent-chat-item${active ? " active" : ""}`;
   button.type = "button";
@@ -4583,9 +4907,17 @@ function createRecentChatItem({ title, preview, time, initials, active, onClick 
   const name = createTextElement("strong", "", title);
   const latest = createTextElement("small", "text-secondary", preview || "No messages yet.");
   const timestamp = createTextElement("span", "recent-chat-time", time || "");
+  const meta = document.createElement("span");
+  meta.className = "recent-chat-meta";
+  meta.appendChild(timestamp);
+  if (unreadCount) {
+    const badge = createTextElement("span", "recent-unread-count", unreadCount > 9 ? "9+" : String(unreadCount));
+    badge.setAttribute("aria-label", `${unreadCount} unread`);
+    meta.appendChild(badge);
+  }
 
   content.append(name, latest);
-  button.append(avatar, content, timestamp);
+  button.append(avatar, content, meta);
   if (onClick) button.addEventListener("click", onClick);
 
   return button;
@@ -4805,6 +5137,7 @@ function renderClassChatRecents() {
         time: latest ? getMessageTimeLabel(latest) : "",
         initials: "G",
         active: classroom === activeClassroom,
+        unreadCount: getUnreadNotificationCount(getNotificationSectionId({ section: "class-chat" }), { classroom }),
         onClick: () => {
           if (chatClassroom) chatClassroom.value = classroom;
           renderChatMessages();
@@ -4821,7 +5154,15 @@ function renderChatMessages() {
   chatMessages.replaceChildren();
   if (chatThreadTitle) chatThreadTitle.textContent = classroomTitles[activeClassroom] || "Class Chat";
   if (chatInfoTitle) chatInfoTitle.textContent = classroomTitles[activeClassroom] || "Class Chat";
+  const classChatSectionId = getNotificationSectionId({ section: "class-chat" });
+  if (isSectionCurrentlyOpen(classChatSectionId)) {
+    markNotificationsRead((notification) => {
+      return getNotificationSectionId(notification) === classChatSectionId
+        && notification.classroom === activeClassroom;
+    }, { render: false });
+  }
   renderClassChatRecents();
+  renderNotificationCenter();
   refreshOpenChatInfoDetails(chatbox || document);
 
   if (!messages.length) {
@@ -4878,16 +5219,26 @@ chatForm?.addEventListener("submit", async (event) => {
   if (!text && !attachments.length) return;
 
   const messages = getChatMessages();
-  messages.push({
+  const message = {
     id: `chat-${Date.now()}`,
     classroom: getActiveChatClassroom(),
     author: chatbox?.dataset.role === "admin" ? "Admin" : "Student",
     text,
     attachments,
     createdAt: new Date().toISOString()
-  });
+  };
+  messages.push(message);
 
   saveStoredItems("gthChatMessages", messages);
+  addNotification({
+    type: "class-chat",
+    section: "class-chat",
+    classroom: message.classroom,
+    audience: { role: message.author === "Admin" ? "student" : "admin", classroom: message.classroom },
+    title: message.author === "Admin" ? "Admin sent a class message" : `${message.author} sent a class message`,
+    message: `${classroomTitles[message.classroom] || "Class Chat"} - ${message.text || `${message.attachments.length} attachment(s)`}`,
+    createdAt: message.createdAt
+  });
   chatMessage.value = "";
   if (chatAttachment) chatAttachment.value = "";
   renderChatMessages();
@@ -4943,6 +5294,7 @@ function renderPrivateMessageRecents() {
       time: latest ? getMessageTimeLabel(latest) : "",
       initials: isAdmin ? getInitials(student.name) : "A",
       active: student.id === activeStudentId,
+      unreadCount: getUnreadNotificationCount("private-messages", { studentId: student.id }),
       onClick: () => {
         if (privateMessageStudent) privateMessageStudent.value = student.id;
         renderPrivateMessages();
@@ -4963,7 +5315,14 @@ function renderPrivateMessages() {
 
   if (privateMessageStudentName) privateMessageStudentName.textContent = threadName;
   if (privateInfoTitle) privateInfoTitle.textContent = threadName;
+  if (isSectionCurrentlyOpen("private-messages")) {
+    markNotificationsRead((notification) => {
+      return getNotificationSectionId(notification) === "private-messages"
+        && notification.studentId === studentId;
+    }, { render: false });
+  }
   renderPrivateMessageRecents();
+  renderNotificationCenter();
   refreshOpenChatInfoDetails(privateMessagePanel || document);
   privateMessages.replaceChildren();
 
@@ -5000,7 +5359,7 @@ privateMessageForm?.addEventListener("submit", async (event) => {
 
   const isAdmin = privateMessagePanel?.dataset.privateRole === "admin";
   const messages = getPrivateMessages();
-  messages.push({
+  const message = {
     id: `private-message-${Date.now()}`,
     studentId,
     classroom: student.classroom,
@@ -5009,9 +5368,21 @@ privateMessageForm?.addEventListener("submit", async (event) => {
     text,
     attachments,
     createdAt: new Date().toISOString()
-  });
+  };
+  messages.push(message);
 
   saveStoredItems("gthPrivateMessages", messages);
+  addNotification({
+    type: "private-message",
+    section: "private-messages",
+    studentId,
+    studentName: student.name,
+    classroom: student.classroom,
+    audience: isAdmin ? { role: "student", studentId } : { role: "admin", studentId },
+    title: isAdmin ? "Admin sent you a private message" : `${student.name} sent a private message`,
+    message: message.text || `${message.attachments.length} attachment(s)`,
+    createdAt: message.createdAt
+  });
   privateMessageText.value = "";
   if (privateMessageAttachment) privateMessageAttachment.value = "";
   renderPrivateMessages();
@@ -5075,4 +5446,5 @@ renderCustomCourses();
 renderGradebook();
 setupPrivateMessageStudents();
 renderPrivateMessages();
+renderNotificationCenter();
 observeMotionElements();

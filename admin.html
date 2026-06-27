@@ -19,6 +19,22 @@
           </span>
         </a>
         <div class="d-flex align-items-center gap-2 ms-auto">
+          <div class="notification-center" data-notification-center>
+            <button class="notification-button" type="button" data-notification-toggle aria-label="Open notifications" aria-expanded="false">
+              <span class="notification-bell" aria-hidden="true"></span>
+              <span class="notification-count d-none" data-notification-count>0</span>
+            </button>
+            <section class="notification-panel" data-notification-panel aria-label="Notifications">
+              <div class="notification-panel-header">
+                <div>
+                  <p class="section-label mb-1">Activity</p>
+                  <h2 class="h6 mb-0">Notifications</h2>
+                </div>
+                <button class="notification-clear" type="button" data-notification-clear>Mark all read</button>
+              </div>
+              <div class="notification-list" data-notification-list></div>
+            </section>
+          </div>
           <button class="section-menu-toggle" type="button" id="sectionMenuToggle" aria-controls="sectionNav" aria-expanded="false" aria-label="Open sections menu">
             <span class="section-menu-icon" aria-hidden="true"></span>
             <span>Sections</span>
