@@ -34,6 +34,7 @@
             <div class="notification-list" data-notification-list></div>
           </section>
         </div>
+        <button class="btn btn-outline-secondary" type="button" id="clientLogout">Logout</button>
         <button class="section-menu-toggle" type="button" id="sectionMenuToggle" aria-controls="sectionNav" aria-expanded="false" aria-label="Open sections menu">
           <span class="section-menu-icon" aria-hidden="true"></span>
           <span>Sections</span>
@@ -47,10 +48,6 @@
       <div>
         <p class="section-label mb-1" id="classroomLabel">Learner portal</p>
         <h1 class="display-title mb-0">My Training Dashboard</h1>
-      </div>
-      <div class="d-flex flex-wrap gap-2 align-items-start">
-        <button class="btn btn-outline-secondary dashboard-back" type="button">Return</button>
-        <button class="btn btn-outline-secondary" type="button" id="studentImportToggle">Import</button>
       </div>
     </header>
 
@@ -98,7 +95,6 @@
       <aside class="student-section-nav" id="sectionNav" aria-label="Student sections">
         <a href="#announcements" class="active" data-student-section-link="announcements">Announcements</a>
         <a href="#courses" data-student-section-link="courses">Courses</a>
-        <a href="#videos" data-student-section-link="videos">Videos</a>
         <a href="#student-chat" data-student-section-link="student-chat">Class Chat</a>
         <a href="#private-messages" data-student-section-link="private-messages">Private Messages</a>
       </aside>
@@ -125,12 +121,12 @@
               <button class="btn btn-outline-secondary" type="submit">Search</button>
             </form>
 
-            <form class="course-import-form d-none mb-3" id="studentImportForm">
+            <form class="course-import-form mb-3" id="studentImportForm">
               <label class="form-label mb-0">
-                Subject code
+                Import a subject code to join
                 <input class="form-control mt-1" id="studentImportCode" type="text" placeholder="Enter subject code" autocomplete="off" required>
               </label>
-              <button class="btn btn-primary" type="submit">Join Subject</button>
+              <button class="btn btn-primary" type="submit">Import</button>
               <p class="course-import-message mb-0" id="studentImportMessage" aria-live="polite"></p>
             </form>
 
@@ -147,19 +143,6 @@
             </div>
 
             <div class="student-course-grid" id="courseList"></div>
-          </div>
-        </section>
-
-        <section class="card student-section-card" id="videos" data-student-section="videos">
-          <div class="card-body">
-            <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3">
-              <div>
-                <p class="section-label mb-1">Learning resources</p>
-                <h2 class="h5 mb-0">Recorded Lessons</h2>
-              </div>
-              <span class="badge text-bg-info align-self-start" id="studentVideoClass">Current classroom</span>
-            </div>
-            <div class="row g-3" id="studentVideos"></div>
           </div>
         </section>
 

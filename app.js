@@ -8,7 +8,6 @@ const clientLogout = document.querySelector("#clientLogout");
 const classroomName = document.querySelector("#classroomName");
 const classroomLabel = document.querySelector("#classroomLabel");
 const courseSearchForms = document.querySelectorAll(".course-search");
-const dashboardBackButtons = document.querySelectorAll(".dashboard-back");
 const dashboardJumps = document.querySelectorAll("[data-open-section]");
 const announcementForm = document.querySelector("#announcementForm");
 const announcementSubject = document.querySelector("#announcementSubject");
@@ -29,7 +28,6 @@ const courseForm = document.querySelector("#courseForm");
 const courseTitle = document.querySelector("#courseTitle");
 const courseDescription = document.querySelector("#courseDescription");
 const courseCover = document.querySelector("#courseCover");
-const studentImportToggle = document.querySelector("#studentImportToggle");
 const studentImportForm = document.querySelector("#studentImportForm");
 const studentImportCode = document.querySelector("#studentImportCode");
 const studentImportMessage = document.querySelector("#studentImportMessage");
@@ -45,8 +43,6 @@ const privateMessageAttachment = document.querySelector("#privateMessageAttachme
 const videoForm = document.querySelector("#videoForm");
 const videoError = document.querySelector("#videoError");
 const adminVideos = document.querySelector("#adminVideos");
-const studentVideos = document.querySelector("#studentVideos");
-const studentVideoClass = document.querySelector("#studentVideoClass");
 const assignmentForm = document.querySelector("#assignmentForm");
 const assignmentSubject = document.querySelector("#assignmentSubject");
 const assignmentClassroom = document.querySelector("#assignmentClassroom");
@@ -88,7 +84,7 @@ const motionObserver = !prefersReducedMotion && "IntersectionObserver" in window
   : null;
 
 function observeMotionElements(root = document) {
-  const elements = root.querySelectorAll(".card, .announcement-item, .gradebook-course, .chat-message, .student-section-nav");
+  const elements = root.querySelectorAll(".card, .announcement-item, .gradebook-course, .chat-message, .student-section-nav, .course-resource-item, .course-video-item, .course-workspace-panel");
 
   elements.forEach((element) => {
     if (element.classList.contains("motion-ready")) return;
@@ -250,6 +246,8 @@ const demoInvitations = [];
 const courseWorkspaces = {};
 
 const courseAccentClasses = ["primary", "coral", "sand"];
+const filePreviewStore = new Map();
+const fileObjectUrlStore = new Map();
 
 function createTextElement(tag, className, text) {
   const element = document.createElement(tag);
@@ -317,18 +315,63 @@ function renderCourseResourcesPanel(course, courseId) {
   const panel = document.createElement("aside");
   panel.className = "course-workspace-panel course-workspace-resources-panel";
 
-  const resourceTitle = createTextElement("h4", "h6 mb-2", "Classwork and resources");
+  const guidanceBox = document.createElement("section");
+  guidanceBox.className = "course-resource-box";
+  guidanceBox.append(
+    createTextElement("h4", "h6 mb-1", "Classwork and resources"),
+    createTextElement("small", "text-secondary", "Course notes and classwork guidance")
+  );
+
   const resourceList = document.createElement("div");
-  resourceList.className = "course-post-list";
+  resourceList.className = "course-post-list mt-2";
   course.resources.forEach((resource) => {
     resourceList.appendChild(renderStaticCourseResource(resource, course));
   });
-  getCourseItems(getCourseResources(), courseId).forEach((resource) => {
-    resourceList.appendChild(renderCourseResourceItem(resource));
-  });
-  if (adminApp) resourceList.appendChild(renderCourseResourceForm(courseId));
+  guidanceBox.appendChild(resourceList);
 
-  panel.append(resourceTitle, resourceList);
+  const postedResources = getCourseItems(getCourseResources(), courseId);
+  const postedBox = document.createElement("section");
+  postedBox.className = "course-resource-box course-resource-files-box";
+  postedBox.append(
+    createTextElement("h4", "h6 mb-1", "Reviewers"),
+    createTextElement("small", "text-secondary", "PDF and DOCX files uploaded by the admin")
+  );
+
+  const postedList = document.createElement("div");
+  postedList.className = "course-post-list mt-2";
+  if (!postedResources.length) {
+    postedList.appendChild(createTextElement("p", "text-secondary small mb-0", adminApp ? "No reviewers uploaded for this course yet." : "No reviewers uploaded by the admin yet."));
+  } else {
+    postedResources.forEach((resource) => {
+      postedList.appendChild(renderCourseResourceItem(resource));
+    });
+  }
+
+  postedBox.appendChild(postedList);
+  if (adminApp) postedBox.appendChild(renderCourseResourceForm(courseId));
+
+  panel.append(guidanceBox, postedBox);
+
+  const courseVideos = getCourseVideos(courseId);
+  const videoTitle = document.createElement("div");
+  videoTitle.className = "course-resource-section-title";
+  videoTitle.append(
+    createTextElement("h4", "h6 mb-0", "Recorded lessons"),
+    createTextElement("small", "text-secondary", "Videos posted by the admin for this course")
+  );
+
+  const videoList = document.createElement("div");
+  videoList.className = "course-post-list course-video-list";
+
+  if (!courseVideos.length) {
+    videoList.appendChild(createTextElement("p", "text-secondary small mb-0", adminApp ? "No videos posted for this course yet." : "No recorded lessons for this course yet."));
+  } else {
+    courseVideos.forEach((video) => {
+      videoList.appendChild(renderCourseVideoItem(video));
+    });
+  }
+
+  panel.append(videoTitle, videoList);
   return panel;
 }
 
@@ -785,17 +828,6 @@ filterButtons.forEach((button) => {
   });
 });
 
-dashboardBackButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    if (window.history.length > 1) {
-      window.history.back();
-      return;
-    }
-
-    window.location.href = "index.html";
-  });
-});
-
 function showStudentSection(sectionId, options = {}) {
   if (!studentSections.length) return;
 
@@ -902,9 +934,24 @@ function getStoredItems(key, fallback) {
 function saveStoredItems(key, items) {
   try {
     localStorage.setItem(key, JSON.stringify(items));
+    return true;
   } catch {
-    // Keep the demo usable if browser storage is unavailable.
+    console.warn(`Unable to save ${key}. Browser storage may be full or unavailable.`);
+    return false;
   }
+}
+
+function setFormStatus(form, message = "", type = "danger") {
+  if (!form) return;
+  let status = form.querySelector("[data-form-status]");
+  if (!status) {
+    status = document.createElement("p");
+    status.dataset.formStatus = "true";
+    form.appendChild(status);
+  }
+
+  status.className = message ? `alert alert-${type} small mb-0` : "d-none";
+  status.textContent = message;
 }
 
 function getCurrentNotificationRole() {
@@ -1221,7 +1268,7 @@ function getCourseResources() {
 }
 
 function saveCourseResources(resources) {
-  saveStoredItems("gthCourseResources", resources);
+  return saveStoredItems("gthCourseResources", resources);
 }
 
 function getCourseQuizzes() {
@@ -1283,13 +1330,29 @@ function readStorageFile(file) {
       resolve({
         name: file.name,
         size: file.size,
-        type: file.type,
+        type: file.type || getMimeTypeFromName(file.name),
         data: String(reader.result || "")
       });
     });
     reader.addEventListener("error", () => resolve(null));
     reader.readAsDataURL(file);
   });
+}
+
+function getMimeTypeFromName(name = "") {
+  const extension = String(name).split(".").pop()?.toLowerCase();
+  const types = {
+    pdf: "application/pdf",
+    doc: "application/msword",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ppt: "application/vnd.ms-powerpoint",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    xls: "application/vnd.ms-excel",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    txt: "text/plain",
+    csv: "text/csv"
+  };
+  return types[extension] || "";
 }
 
 function getCourseItems(items, courseId) {
@@ -1344,60 +1407,40 @@ function renderCourseResourceItem(resource) {
 
   const content = document.createElement("div");
   content.className = "course-resource-content";
-  content.appendChild(createTextElement("p", "text-secondary small mb-2", resource.description || "Posted course material"));
-
-  const preview = renderCourseResourcePreview(resource);
-  if (preview) {
-    const previewShell = document.createElement("div");
-    previewShell.className = "course-resource-preview-shell";
-    previewShell.append(
-      createTextElement("strong", "small", "Preview"),
-      preview
-    );
-    content.appendChild(previewShell);
-  }
+  if (resource.description) content.appendChild(createTextElement("p", "text-secondary small mb-2", resource.description));
 
   if (resource.file?.name || resource.link) {
-    const details = document.createElement("button");
-    details.className = "course-resource-file";
-    details.type = "button";
-    details.dataset.courseResourceAction = "view";
-    details.dataset.resourceId = resource.id;
-    details.textContent = resource.file?.name || resource.link;
-    content.appendChild(details);
-  }
+    if (resource.file?.name) {
+      content.appendChild(renderFileTile(resource.file, { className: "course-resource-file file-preview-tile" }));
+    }
 
-  const actions = document.createElement("div");
-  actions.className = "d-flex flex-wrap gap-2";
-
-  const viewButton = document.createElement("button");
-  viewButton.className = "btn btn-outline-primary btn-sm";
-  viewButton.type = "button";
-  viewButton.dataset.courseResourceAction = "view";
-  viewButton.dataset.resourceId = resource.id;
-  viewButton.textContent = preview ? "View Preview" : resource.link ? "Open Link" : "View File";
-  actions.appendChild(viewButton);
-
-  if (resource.file?.data) {
-    const fileLink = document.createElement("a");
-    fileLink.className = "btn btn-outline-secondary btn-sm";
-    fileLink.href = resource.file.data;
-    fileLink.download = resource.file.name;
-    fileLink.textContent = "Download";
-    actions.appendChild(fileLink);
-  }
-
-  if (resource.link) {
-    const link = document.createElement("a");
-    link.className = "btn btn-outline-secondary btn-sm";
-    link.href = resource.link;
-    link.target = "_blank";
-    link.rel = "noopener";
-    link.textContent = "Open Original";
-    actions.appendChild(link);
+    if (resource.link) {
+      const linkTile = document.createElement("div");
+      linkTile.className = "course-resource-file file-preview-tile";
+      const linkMeta = document.createElement("div");
+      linkMeta.className = "file-preview-meta";
+      linkMeta.append(
+        createTextElement("span", "file-pill", isPdfPath(resource.link) ? "PDF" : "LINK"),
+        createTextElement("span", "file-preview-name", resource.link),
+        createTextElement("small", "text-secondary", "Shared resource link")
+      );
+      const linkActions = document.createElement("div");
+      linkActions.className = "file-preview-actions";
+      const openLink = document.createElement("button");
+      openLink.className = "btn btn-outline-primary btn-sm";
+      openLink.type = "button";
+      openLink.dataset.courseResourceAction = "view";
+      openLink.dataset.resourceId = resource.id;
+      openLink.textContent = isPdfPath(resource.link) ? "Preview" : "Open";
+      linkActions.appendChild(openLink);
+      linkTile.append(linkMeta, linkActions);
+      content.appendChild(linkTile);
+    }
   }
 
   if (adminApp) {
+    const actions = document.createElement("div");
+    actions.className = "d-flex flex-wrap gap-2";
     const remove = document.createElement("button");
     remove.className = "btn btn-outline-danger btn-sm";
     remove.type = "button";
@@ -1405,9 +1448,9 @@ function renderCourseResourceItem(resource) {
     remove.dataset.resourceId = resource.id;
     remove.textContent = "Remove";
     actions.appendChild(remove);
+    content.appendChild(actions);
   }
 
-  content.appendChild(actions);
   item.append(summary, content);
   return item;
 }
@@ -1441,6 +1484,42 @@ function canPreviewResourceFile(file = {}) {
   );
 }
 
+function getDataUrlText(dataUrl = "") {
+  const [, metadata = "", payload = ""] = String(dataUrl).match(/^data:([^,]*),(.*)$/) || [];
+  if (!payload) return "";
+
+  try {
+    const text = metadata.includes(";base64") ? atob(payload) : decodeURIComponent(payload);
+    return text.length > 2400 ? `${text.slice(0, 2400)}...` : text;
+  } catch {
+    return "";
+  }
+}
+
+function getFilePreviewUrl(file = {}) {
+  if (!file.data) return "";
+  if (!String(file.data).startsWith("data:")) return file.data;
+
+  const cacheKey = `${file.name || "file"}-${file.size || 0}-${file.data.length}`;
+  if (fileObjectUrlStore.has(cacheKey)) return fileObjectUrlStore.get(cacheKey);
+
+  try {
+    const [meta = "", payload = ""] = file.data.split(",");
+    if (!payload) return file.data;
+    const mimeType = file.type || meta.match(/^data:([^;]+)/)?.[1] || "application/octet-stream";
+    const binary = meta.includes(";base64") ? atob(payload) : decodeURIComponent(payload);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    const objectUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+    fileObjectUrlStore.set(cacheKey, objectUrl);
+    return objectUrl;
+  } catch {
+    return file.data;
+  }
+}
+
 function renderCourseResourcePreview(resource) {
   const file = resource.file;
   const link = resource.link || "";
@@ -1449,7 +1528,7 @@ function renderCourseResourcePreview(resource) {
 
   if (file?.data && (file.type?.startsWith("image/") || isImagePath(file.name))) {
     const image = document.createElement("img");
-    image.src = file.data;
+    image.src = getFilePreviewUrl(file);
     image.alt = file.name;
     preview.appendChild(image);
     return preview;
@@ -1457,7 +1536,7 @@ function renderCourseResourcePreview(resource) {
 
   if (file?.data && (file.type?.startsWith("video/") || isVideoPath(file.name))) {
     const video = document.createElement("video");
-    video.src = file.data;
+    video.src = getFilePreviewUrl(file);
     video.controls = true;
     video.playsInline = true;
     preview.appendChild(video);
@@ -1466,9 +1545,16 @@ function renderCourseResourcePreview(resource) {
 
   if (file?.data && (file.type === "application/pdf" || isPdfPath(file.name))) {
     const frame = document.createElement("iframe");
-    frame.src = file.data;
+    frame.src = getFilePreviewUrl(file);
     frame.title = `${file.name} preview`;
     preview.appendChild(frame);
+    return preview;
+  }
+
+  if (file?.data && (file.type?.startsWith("text/") || isTextPath(file.name))) {
+    const text = document.createElement("pre");
+    text.textContent = getDataUrlText(file.data) || "Text preview is not available for this file.";
+    preview.appendChild(text);
     return preview;
   }
 
@@ -1532,34 +1618,32 @@ function renderCourseResourceForm(courseId) {
   title.className = "form-control form-control-sm";
   title.name = "title";
   title.type = "text";
-  title.placeholder = "Reviewer or resource title";
+  title.placeholder = "Reviewer title";
   title.required = true;
-
-  const description = document.createElement("textarea");
-  description.className = "form-control form-control-sm";
-  description.name = "description";
-  description.rows = 2;
-  description.placeholder = "Preview text students see before opening";
-  description.required = true;
 
   const file = document.createElement("input");
   file.className = "form-control form-control-sm";
   file.name = "file";
   file.type = "file";
-  file.accept = ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.csv,.mp4,.webm,.ogg,.mov,image/*,video/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-
-  const link = document.createElement("input");
-  link.className = "form-control form-control-sm";
-  link.name = "link";
-  link.type = "url";
-  link.placeholder = "Optional resource link";
+  file.accept = ".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  file.required = true;
 
   const button = document.createElement("button");
   button.className = "btn btn-primary btn-sm align-self-start";
   button.type = "submit";
-  button.textContent = "Post Resource";
+  button.textContent = "Upload Reviewer";
 
-  form.append(title, description, file, link, button);
+  const status = document.createElement("p");
+  status.className = "d-none";
+  status.dataset.formStatus = "true";
+
+  form.append(
+    createTextElement("strong", "small", "Upload reviewer"),
+    title,
+    file,
+    button,
+    status
+  );
   return form;
 }
 
@@ -2900,8 +2984,17 @@ function renderCustomCourses() {
     list.querySelectorAll(".course-card-custom, .course-empty-state").forEach((card) => card.remove());
     const visibleCourses = courses.filter(isCourseJoined);
     if (!adminApp && !visibleCourses.length) {
-      const empty = createTextElement("p", "text-secondary mb-0", "Import a subject code to join a course.");
-      empty.className = "course-empty-state text-secondary mb-0";
+      const empty = document.createElement("div");
+      empty.className = "course-empty-state";
+      const importButton = document.createElement("button");
+      importButton.className = "btn btn-primary btn-sm";
+      importButton.type = "button";
+      importButton.dataset.studentImportFocus = "true";
+      importButton.textContent = "Import";
+      empty.append(
+        createTextElement("p", "text-secondary mb-0", "Import a subject code to join a course."),
+        importButton
+      );
       list.appendChild(empty);
       return;
     }
@@ -2913,9 +3006,12 @@ function renderCustomCourses() {
 
 }
 
-studentImportToggle?.addEventListener("click", () => {
-  studentImportForm?.classList.toggle("d-none");
-  if (!studentImportForm?.classList.contains("d-none")) studentImportCode?.focus();
+document.addEventListener("click", (event) => {
+  const importFocus = event.target.closest("[data-student-import-focus]");
+  if (!importFocus) return;
+
+  showStudentSection("courses", { updateHash: true });
+  studentImportCode?.focus();
 });
 
 studentImportForm?.addEventListener("submit", (event) => {
@@ -3063,35 +3159,43 @@ document.addEventListener("submit", async (event) => {
   if (!resourceForm) return;
 
   event.preventDefault();
+  setFormStatus(resourceForm);
   const courseId = resourceForm.dataset.courseResourceForm;
+  const selectedFile = resourceForm.elements.file.files?.[0];
   const title = resourceForm.elements.title.value.trim();
-  const description = resourceForm.elements.description.value.trim();
-  const link = resourceForm.elements.link.value.trim();
-  const file = await readStorageFile(resourceForm.elements.file.files?.[0]);
-  if (!title || !description) return;
+  const file = await readStorageFile(selectedFile);
+  if (!title || !file) {
+    setFormStatus(resourceForm, "Add a reviewer title and choose a PDF or DOCX file.");
+    return;
+  }
 
   const resources = getCourseResources();
   const resource = {
     id: `course-resource-${Date.now()}`,
     courseId,
     title,
-    description,
-    link,
+    description: "",
+    link: "",
     file,
     createdAt: new Date().toISOString()
   };
   resources.unshift(resource);
 
-  saveCourseResources(resources);
+  if (!saveCourseResources(resources)) {
+    setFormStatus(resourceForm, "This reviewer file could not be saved. Try a smaller PDF/DOCX or remove older uploaded files first.");
+    return;
+  }
   addNotification({
     type: "resource",
     section: "courses",
     courseId,
     audience: { role: "student" },
-    title: `New resource: ${title}`,
+    title: `New reviewer: ${title}`,
     message: getCourseTitle(courseId),
     createdAt: resource.createdAt
   });
+  resourceForm.reset();
+  setFormStatus(resourceForm, "Reviewer uploaded for students.", "success");
   refreshOpenCourseWorkspace(courseId);
 });
 
@@ -3313,6 +3417,17 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const filePreviewButton = event.target.closest("[data-file-preview-id]");
+  if (filePreviewButton) {
+    const file = filePreviewStore.get(filePreviewButton.dataset.filePreviewId);
+    if (!file?.data) return;
+
+    event.preventDefault();
+    if (openResourceModal({ title: file.name || "Attachment", file })) return;
+    window.open(file.data, "_blank", "noopener");
+    return;
+  }
+
   const questionAction = event.target.closest("[data-quiz-question-action]");
   if (questionAction) {
     const section = questionAction.closest("[data-quiz-test-section]");
@@ -3398,6 +3513,9 @@ document.addEventListener("click", (event) => {
     const resource = getCourseResources().find((item) => item.id === resourceViewButton.dataset.resourceId);
     const resourceItem = resourceViewButton.closest(".course-resource-item");
     resourceItem?.setAttribute("open", "");
+
+    if (openResourceModal(resource)) return;
+
     const preview = resourceItem?.querySelector(".course-resource-preview-shell");
     if (preview) {
       preview.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "nearest" });
@@ -3862,6 +3980,12 @@ function getSavedVideoSource(video) {
   return video;
 }
 
+function getCourseVideos(courseId) {
+  return getVideos()
+    .filter((video) => video.classroom === "all" || video.classroom === courseId)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
 function createVideoPlaceholder(providerLabel = "Video") {
   const placeholder = document.createElement("div");
   placeholder.className = "video-thumb video-thumb-placeholder";
@@ -3989,7 +4113,7 @@ function openResourceModal(resource) {
   const link = resource.link || "";
 
   if (file?.data && (file.type?.startsWith("video/") || isVideoPath(file.name)) && videoModalPlayer) {
-    videoModalPlayer.src = file.data;
+    videoModalPlayer.src = getFilePreviewUrl(file);
     videoModalPlayer.classList.remove("d-none");
     videoModalFrame?.classList.add("d-none");
     showVideoModal();
@@ -4005,7 +4129,7 @@ function openResourceModal(resource) {
   }
 
   if (file?.data && canPreviewResourceFile(file) && videoModalFrame) {
-    videoModalFrame.src = file.data;
+    videoModalFrame.src = getFilePreviewUrl(file);
     videoModalFrame.classList.remove("d-none");
     videoModalPlayer?.classList.add("d-none");
     showVideoModal();
@@ -4041,6 +4165,72 @@ function openResourceModal(resource) {
   }
 
   return false;
+}
+
+function renderCourseVideoItem(video) {
+  const source = getSavedVideoSource(video);
+  const item = document.createElement("article");
+  item.className = "course-resource-item course-video-item";
+  item.dataset.videoId = video.id;
+
+  const thumbnailWrap = document.createElement("button");
+  thumbnailWrap.className = "course-video-thumb-button";
+  thumbnailWrap.type = "button";
+  thumbnailWrap.dataset.videoAction = "watch";
+  thumbnailWrap.dataset.videoId = video.id;
+  thumbnailWrap.setAttribute("aria-label", `Watch ${video.title}`);
+
+  let thumbnail;
+  if (source.thumbnailUrl) {
+    thumbnail = document.createElement("img");
+    thumbnail.className = "course-video-thumb";
+    thumbnail.src = source.thumbnailUrl;
+    thumbnail.alt = "";
+  } else {
+    thumbnail = createVideoPlaceholder(source.providerLabel);
+    thumbnail.classList.add("course-video-thumb");
+  }
+
+  const play = document.createElement("span");
+  play.className = "course-video-play";
+  play.textContent = "Play";
+  thumbnailWrap.append(thumbnail, play);
+
+  const content = document.createElement("div");
+  content.className = "course-video-content";
+  const meta = document.createElement("div");
+  meta.className = "d-flex flex-wrap gap-2 align-items-center";
+  meta.append(
+    createTextElement("span", "badge text-bg-info", getClassroomTitle(video.classroom)),
+    createTextElement("span", "badge text-bg-light", source.providerLabel || "Video"),
+    createTextElement("small", "text-secondary", formatDate(video.createdAt))
+  );
+
+  const title = createTextElement("strong", "", video.title);
+  const actions = document.createElement("div");
+  actions.className = "d-flex flex-wrap gap-2";
+
+  const watchButton = document.createElement("button");
+  watchButton.className = "btn btn-primary btn-sm";
+  watchButton.type = "button";
+  watchButton.dataset.videoAction = "watch";
+  watchButton.dataset.videoId = video.id;
+  watchButton.textContent = "Watch";
+  actions.appendChild(watchButton);
+
+  if (adminApp) {
+    const removeButton = document.createElement("button");
+    removeButton.className = "btn btn-outline-danger btn-sm";
+    removeButton.type = "button";
+    removeButton.dataset.videoAction = "remove";
+    removeButton.dataset.videoId = video.id;
+    removeButton.textContent = "Remove";
+    actions.appendChild(removeButton);
+  }
+
+  content.append(meta, title, actions);
+  item.append(thumbnailWrap, content);
+  return item;
 }
 
 function hideVideoModal() {
@@ -4210,27 +4400,6 @@ function renderVideos() {
 
     observeMotionElements(adminVideos);
   }
-
-  if (studentVideos) {
-    const classroomVideos = videos.filter(isVisibleForSelectedClassroom);
-
-    studentVideos.replaceChildren();
-    if (studentVideoClass) studentVideoClass.textContent = selectedClassroomTitle;
-
-    if (!classroomVideos.length) {
-      const empty = document.createElement("p");
-      empty.className = "text-secondary mb-0";
-      empty.textContent = "No videos for this classroom yet.";
-      studentVideos.appendChild(empty);
-      return;
-    }
-
-    classroomVideos.forEach((video) => {
-      studentVideos.appendChild(renderVideoCard(video));
-    });
-
-    observeMotionElements(studentVideos);
-  }
 }
 
 videoForm?.addEventListener("submit", async (event) => {
@@ -4266,7 +4435,8 @@ videoForm?.addEventListener("submit", async (event) => {
   saveStoredItems("gthVideos", videos);
   addNotification({
     type: "video",
-    section: "videos",
+    section: "courses",
+    courseId: video.classroom,
     classroom: video.classroom,
     audience: { role: "student", classroom: video.classroom },
     title: `New video: ${video.title}`,
@@ -4276,6 +4446,11 @@ videoForm?.addEventListener("submit", async (event) => {
   videoError?.classList.add("d-none");
   videoForm.reset();
   renderVideos();
+  if (video.classroom === "all") {
+    refreshActiveCourseWorkspace();
+  } else {
+    refreshOpenCourseWorkspace(video.classroom);
+  }
 });
 
 document.addEventListener("click", (event) => {
@@ -4289,6 +4464,11 @@ document.addEventListener("click", (event) => {
   if (actionButton.dataset.videoAction === "remove") {
     saveStoredItems("gthVideos", videos.filter((item) => item.id !== video.id));
     renderVideos();
+    if (video.classroom === "all") {
+      refreshActiveCourseWorkspace();
+    } else {
+      refreshOpenCourseWorkspace(video.classroom);
+    }
     return;
   }
 
@@ -4361,27 +4541,89 @@ function formatFileSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function renderAssignmentFile(file) {
-  const item = document.createElement(file.data ? "a" : "span");
-  item.className = "assignment-file-link";
+function getFileExtension(name = "") {
+  const extension = String(name).split(".").pop();
+  return extension && extension !== name ? extension.toLowerCase() : "";
+}
+
+function getFileTypeLabel(file = {}) {
+  const extension = getFileExtension(file.name);
+  if (extension) return extension.slice(0, 4).toUpperCase();
+  if (file.type?.startsWith("image/")) return "IMG";
+  if (file.type?.startsWith("video/")) return "VID";
+  if (file.type === "application/pdf") return "PDF";
+  if (file.type?.startsWith("text/")) return "TXT";
+  return "FILE";
+}
+
+function getFileKindLabel(file = {}) {
+  const extension = getFileExtension(file.name);
+  if (file.type?.startsWith("image/") || isImagePath(file.name)) return "Image file";
+  if (file.type?.startsWith("video/") || isVideoPath(file.name)) return "Video file";
+  if (file.type === "application/pdf" || isPdfPath(file.name)) return "PDF document";
+  if (file.type?.startsWith("text/") || isTextPath(file.name)) return "Text document";
+  if (["doc", "docx"].includes(extension)) return "Word document";
+  if (["ppt", "pptx"].includes(extension)) return "Presentation";
+  if (["xls", "xlsx", "csv"].includes(extension)) return "Spreadsheet";
+  if (extension === "zip") return "Archive";
+  return "Uploaded file";
+}
+
+function registerFilePreview(file) {
+  if (!file?.data) return "";
+  const id = `file-preview-${file.name || "file"}-${file.size || 0}-${file.data.length}`;
+  filePreviewStore.set(id, file);
+  return id;
+}
+
+function renderFileTile(file = {}, options = {}) {
+  const item = document.createElement("div");
+  item.className = `${options.className || "file-preview-tile"}${canPreviewResourceFile(file) ? " file-preview-tile-previewable" : ""}`;
+
+  const meta = document.createElement("div");
+  meta.className = "file-preview-meta";
+  meta.append(
+    createTextElement("span", "file-pill", getFileTypeLabel(file)),
+    createTextElement("span", "file-preview-name", file.name || options.title || "Attachment"),
+    createTextElement("small", "text-secondary", `${getFileKindLabel(file)}${file.size ? ` - ${formatFileSize(file.size)}` : ""}`)
+  );
+
+  const actions = document.createElement("div");
+  actions.className = "file-preview-actions";
+
   if (file.data) {
-    item.href = file.data;
-    item.download = file.name;
+    const previewId = registerFilePreview(file);
+    const previewButton = document.createElement("button");
+    previewButton.className = "btn btn-outline-primary btn-sm";
+    previewButton.type = "button";
+    previewButton.dataset.filePreviewId = previewId;
+    previewButton.textContent = "Open";
+    actions.appendChild(previewButton);
+
+    const download = document.createElement("a");
+    download.className = "btn btn-outline-secondary btn-sm";
+    download.href = file.data;
+    download.download = file.name || "attachment";
+    download.textContent = "Download";
+    actions.appendChild(download);
+  } else if (options.link) {
+    const link = document.createElement("a");
+    link.className = "btn btn-outline-primary btn-sm";
+    link.href = options.link;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = "Open";
+    actions.appendChild(link);
   }
 
-  const type = String(file.name || "FILE").split(".").pop().slice(0, 4).toUpperCase();
-  item.append(
-    createTextElement("span", "file-pill", type || "FILE"),
-    createTextElement("strong", "", file.name || "Attachment"),
-    createTextElement("small", "text-secondary", formatFileSize(file.size || 0))
-  );
+  item.append(meta, actions);
   return item;
 }
 
 function renderAssignmentFiles(files = []) {
   const list = document.createElement("div");
   list.className = "assignment-file-list";
-  files.forEach((file) => list.appendChild(renderAssignmentFile(file)));
+  files.forEach((file) => list.appendChild(renderFileTile(file, { className: "assignment-file-link file-preview-tile" })));
   return list;
 }
 
@@ -4836,6 +5078,7 @@ function renderAssignments() {
 }
 
 async function saveAssignmentFromForm(form, courseId = "") {
+  setFormStatus(form);
   const course = courseWorkspaces[courseId];
   const title = (form.elements.title?.value || form.querySelector("#assignmentTitle")?.value || "").trim();
   const subject = course?.title || assignmentSubject?.value || "";
@@ -4845,7 +5088,10 @@ async function saveAssignmentFromForm(form, courseId = "") {
   const classroom = form.elements.classroom?.value || assignmentClassroom?.value || "all";
   const attachmentInput = form.elements.attachments || assignmentAttachment;
 
-  if (!title || !subject || !instructions || !dueDate) return;
+  if (!title || !subject || !instructions || !dueDate) {
+    setFormStatus(form, "Complete the classwork title, instructions, subject, and due date before posting.");
+    return;
+  }
 
   const attachments = (await Promise.all(Array.from(attachmentInput?.files || []).map(readStorageFile))).filter(Boolean);
   const assignments = getAssignments();
@@ -4864,7 +5110,10 @@ async function saveAssignmentFromForm(form, courseId = "") {
   });
 
   expandedAssignmentId = assignmentId;
-  saveStoredItems("gthAssignments", assignments);
+  if (!saveStoredItems("gthAssignments", assignments)) {
+    setFormStatus(form, "This classwork file could not be saved. Try a smaller PDF/DOCX or remove older uploaded files first.");
+    return;
+  }
   addNotification({
     type: "assignment",
     section: "courses",
@@ -5659,7 +5908,7 @@ window.addEventListener("pageshow", redirectAdminIfLoggedOut);
 
 adminLogout?.addEventListener("click", () => {
   sessionStorage.removeItem("gthAdminLoggedIn");
-  window.location.replace("login.html");
+  window.location.replace("index.html");
 });
 
 portalLoginForm?.addEventListener("submit", (event) => {
@@ -5685,7 +5934,7 @@ portalLoginForm?.addEventListener("submit", (event) => {
 
 clientLogout?.addEventListener("click", () => {
   sessionStorage.removeItem("gthClientLoggedIn");
-  window.location.replace("login.html");
+  window.location.replace("index.html");
 });
 
 if ((document.body.contains(clientLogout) || classroomName) && sessionStorage.getItem("gthClientLoggedIn") !== "true") {
