@@ -2047,7 +2047,50 @@ body {
 .notification-list {
   display: grid;
   gap: 0.5rem;
+  min-height: 0;
+  padding-right: 0.35rem;
   overflow-y: auto;
+  scrollbar-color: var(--gth-teal) #e8f6fa;
+  scrollbar-width: thin;
+}
+
+.notification-list::-webkit-scrollbar {
+  width: 0.55rem;
+}
+
+.notification-list::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: #e8f6fa;
+}
+
+.notification-list::-webkit-scrollbar-thumb {
+  border: 2px solid #e8f6fa;
+  border-radius: 999px;
+  background: var(--gth-teal);
+}
+
+.notification-more {
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--gth-line);
+}
+
+.notification-more-button {
+  width: 100%;
+  min-height: 2.25rem;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid #c8dde3;
+  border-radius: 0.55rem;
+  background: #fff;
+  color: var(--gth-ink);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.notification-more-button:hover,
+.notification-more-button:focus-visible {
+  border-color: var(--gth-cyan);
+  background: #e8f6fa;
+  outline: 0;
 }
 
 .notification-item {
@@ -3994,6 +4037,16 @@ body {
 @media (max-width: 575.98px) {
   .navbar .container-fluid {
     flex-wrap: nowrap;
+  }
+
+  .notification-panel {
+    position: fixed;
+    top: 4.25rem;
+    right: 0.75rem;
+    left: 0.75rem;
+    width: auto;
+    max-height: min(24rem, calc(100dvh - 5.25rem));
+    transform-origin: top center;
   }
 
   .navbar-brand {

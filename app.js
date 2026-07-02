@@ -133,6 +133,12 @@ notificationToggle?.addEventListener("click", (event) => {
 });
 
 notificationPanel?.addEventListener("click", (event) => {
+  const seeMoreButton = event.target.closest("[data-notification-see-more]");
+  if (seeMoreButton) {
+    notificationVisibleCount = Number.MAX_SAFE_INTEGER;
+    renderNotificationCenter();
+  }
+
   event.stopPropagation();
 });
 
@@ -248,6 +254,8 @@ const courseWorkspaces = {};
 const courseAccentClasses = ["primary", "coral", "sand"];
 const filePreviewStore = new Map();
 const fileObjectUrlStore = new Map();
+const notificationsPerPage = 18;
+let notificationVisibleCount = notificationsPerPage;
 
 function createTextElement(tag, className, text) {
   const element = document.createElement(tag);
@@ -1131,12 +1139,27 @@ function createNotificationItem(notification) {
   return button;
 }
 
+function createNotificationSeeMore(remainingCount) {
+  const footer = document.createElement("div");
+  footer.className = "notification-more";
+
+  const button = document.createElement("button");
+  button.className = "notification-more-button";
+  button.type = "button";
+  button.dataset.notificationSeeMore = "true";
+  button.textContent = `See more (${remainingCount} past notifications)`;
+
+  footer.appendChild(button);
+  return footer;
+}
+
 function renderNotificationCenter() {
   updateSectionNotificationBadges();
   if (!notificationCenter) return;
 
   const notifications = getVisibleNotifications();
   const unread = notifications.filter((notification) => notification.unread).length;
+  notificationVisibleCount = Math.min(Math.max(notificationVisibleCount, notificationsPerPage), Math.max(notifications.length, notificationsPerPage));
 
   if (notificationCount) {
     notificationCount.textContent = unread > 99 ? "99+" : String(unread);
@@ -1144,6 +1167,7 @@ function renderNotificationCenter() {
   }
 
   if (!notificationList) return;
+  notificationPanel?.querySelector(".notification-more")?.remove();
   notificationList.replaceChildren();
 
   if (!notifications.length) {
@@ -1151,13 +1175,21 @@ function renderNotificationCenter() {
     return;
   }
 
-  notifications.slice(0, 18).forEach((notification) => {
+  notifications.slice(0, notificationVisibleCount).forEach((notification) => {
     notificationList.appendChild(createNotificationItem(notification));
   });
+
+  if (notifications.length > notificationVisibleCount) {
+    notificationPanel?.appendChild(createNotificationSeeMore(notifications.length - notificationVisibleCount));
+  }
 }
 
 function setNotificationPanelOpen(isOpen) {
   if (!notificationToggle || !notificationPanel) return;
+  if (isOpen) {
+    notificationVisibleCount = notificationsPerPage;
+    renderNotificationCenter();
+  }
   notificationToggle.classList.toggle("active", isOpen);
   notificationToggle.setAttribute("aria-expanded", String(isOpen));
   notificationPanel.classList.toggle("active", isOpen);
