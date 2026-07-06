@@ -996,6 +996,10 @@ function getCourseTitle(courseId) {
   return getCourseById(courseId)?.title || "Course";
 }
 
+function getAssignmentTitle(assignment) {
+  return assignment?.title || "assignment";
+}
+
 function getNotificationSectionId(notification) {
   if (!notification?.section) return "announcements";
   if (notification.section === "class-chat" && !adminApp) return "student-chat";
@@ -5231,6 +5235,17 @@ document.addEventListener("submit", async (event) => {
   });
 
   saveStoredItems("gthAssignmentSubmissions", submissions);
+  addNotification({
+    type: "assignment",
+    section: "courses",
+    classroom: selectedClassroom,
+    studentId: currentStudent.id,
+    studentName: currentStudent.name,
+    audience: { role: "admin" },
+    title: `Assignment submitted by ${currentStudent.name}`,
+    message: `Submitted ${getAssignmentTitle(assignment)} in ${getClassroomTitle(selectedClassroom)}`,
+    createdAt: new Date().toISOString()
+  });
   refreshAssignmentSurfaces(assignmentId);
 });
 

@@ -1997,9 +1997,10 @@ body {
   right: 0;
   z-index: 1050;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 0.65rem;
   width: min(22rem, calc(100vw - 1.5rem));
-  max-height: min(32rem, calc(100dvh - 5.5rem));
+  max-height: min(34rem, calc(100dvh - 5.5rem));
   padding: 0.8rem;
   border: 1px solid #d8e7ec;
   border-radius: 0.75rem;
@@ -2047,11 +2048,13 @@ body {
 .notification-list {
   display: grid;
   gap: 0.5rem;
-  min-height: 0;
+  min-height: 7rem;
+  max-height: min(22rem, calc(100dvh - 10rem));
   padding-right: 0.35rem;
   overflow-y: auto;
   scrollbar-color: var(--gth-teal) #e8f6fa;
   scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
 }
 
 .notification-list::-webkit-scrollbar {
@@ -2072,6 +2075,7 @@ body {
 .notification-more {
   padding-top: 0.65rem;
   border-top: 1px solid var(--gth-line);
+  flex-shrink: 0;
 }
 
 .notification-more-button {
