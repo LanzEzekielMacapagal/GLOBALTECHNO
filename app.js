@@ -226,10 +226,11 @@ function populateSubjectTargetSelect(select, options = {}) {
   }
 }
 
-const requestedClassroom = new URLSearchParams(window.location.search).get("classroom") || "all";
-const selectedClassroom = getSubjectTargets({ includeAll: false }).some((target) => target.value === requestedClassroom)
+const requestedClassroom = new URLSearchParams(window.location.search).get("classroom") || "";
+const availableClassrooms = getSubjectTargets({ includeAll: false });
+const selectedClassroom = availableClassrooms.some((target) => target.value === requestedClassroom)
   ? requestedClassroom
-  : "all";
+  : availableClassrooms[0]?.value || "";
 const selectedClassroomTitle = getClassroomTitle(selectedClassroom);
 const currentStudent = {
   ...((classroomStudents[selectedClassroom] || classroomStudents.ict)[0]),
