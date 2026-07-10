@@ -74,13 +74,13 @@ const mobileSectionQuery = window.matchMedia("(max-width: 991.98px)");
 
 const motionObserver = !prefersReducedMotion && "IntersectionObserver" in window
   ? new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (!entry.isIntersecting) return;
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
 
-        entry.target.classList.add("motion-visible");
-        motionObserver.unobserve(entry.target);
-      });
-    }, { threshold: 0.14 })
+      entry.target.classList.add("motion-visible");
+      motionObserver.unobserve(entry.target);
+    });
+  }, { threshold: 0.14 })
   : null;
 
 function observeMotionElements(root = document) {
@@ -3409,7 +3409,7 @@ document.addEventListener("submit", (event) => {
   });
   if (!hasAllAnswers) return;
 
-  const submissions = getCourseQuizSubmissions().filter((submission)=> {
+  const submissions = getCourseQuizSubmissions().filter((submission) => {
     return !(submission.quizId === quizId && submission.studentId === currentStudent.id);
   });
   submissions.push({

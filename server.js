@@ -1,0 +1,1296 @@
+//import the installed module of express
+const express = require("express");
+// import mongoose module
+const mongoose = require("mongoose");
+// import path module for static files
+const path = require("path");
+// provide name for the server
+const server = express();
+// Declare server port
+const port = 3000;
+
+// Trigger connection to mongoDB thru mongoose
+// mongoose.connect("mongodb://localhost:27017/");
+mongoose.connect("mongodb://GlobalTechnoLMS:qwerty12345@ac-yppcca4-shard-00-00.n40fbrp.mongodb.net:27017,ac-yppcca4-shard-00-01.n40fbrp.mongodb.net:27017,ac-yppcca4-shard-00-02.n40fbrp.mongodb.net:27017/?ssl=true&replicaSet=atlas-lwiuiu-shard-0&authSource=admin&appName=LMS")
+  .catch((err) => {
+    console.error("Cannot connect to MongoDB.", err.message);
+  });
+
+let db = mongoose.connection;
+
+// Check if connection has error
+db.on("error", console.error.bind(console, "Cannot connect to MongoDB."));
+
+// Check if connection is okay
+db.once("open", () => console.log("MongoDB Atlas Connection Success!"));
+
+// =============================================
+// SCHEMAS
+// =============================================
+
+// Task Schema
+const taskSchema = new mongoose.Schema({
+  name: String,
+  description: String,
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+  dateAdded: {
+    type: Date,
+    default: Date.now,
+  },
+  dateCompleted: Date,
+  status: {
+    type: String,
+    default: "pending",
+  },
+});
+
+// User Schema
+const userSchema = new mongoose.Schema({
+  fullName: {
+    type: String,
+    required: true,
+  },
+  email: {
+    type: String,
+    required: true,
+  },
+  username: {
+    type: String,
+    required: true,
+    unique: true,
+  },
+  password: {
+    type: String,
+    required: true,
+  },
+  role: {
+    type: String,
+    default: "user",
+    enum: ["admin", "user"],
+  },
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+  dateRegistered: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+// Course Schema
+const courseSchema = new mongoose.Schema({
+  title: {
+    type: String,
+    required: true,
+  },
+  description: {
+    type: String,
+    required: true,
+  },
+  invitationCode: String,
+  cover: String,
+  status: {
+    type: String,
+    default: "live",
+    enum: ["live", "draft"],
+  },
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+  dateCreated: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+// Announcement Schema
+const announcementSchema = new mongoose.Schema({
+  classroom: {
+    type: String,
+    default: "all",
+  },
+  subject: {
+    type: String,
+    required: true,
+  },
+  message: {
+    type: String,
+    required: true,
+  },
+  pinned: {
+    type: Boolean,
+    default: false,
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+// Video Schema
+const videoSchema = new mongoose.Schema({
+  classroom: {
+    type: String,
+    default: "all",
+  },
+  title: {
+    type: String,
+    required: true,
+  },
+  videoUrl: String,
+  videoFile: String,
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+// Chat Message Schema
+const chatMessageSchema = new mongoose.Schema({
+  classroom: {
+    type: String,
+    required: true,
+  },
+  sender: {
+    type: String,
+    required: true,
+  },
+  role: {
+    type: String,
+    default: "student",
+    enum: ["admin", "student"],
+  },
+  text: String,
+  attachments: {
+    type: Array,
+    default: [],
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+// Private Message Schema
+const privateMessageSchema = new mongoose.Schema({
+  sender: {
+    type: String,
+    required: true,
+  },
+  receiver: {
+    type: String,
+    required: true,
+  },
+  senderRole: {
+    type: String,
+    default: "student",
+    enum: ["admin", "student"],
+  },
+  text: String,
+  attachments: {
+    type: Array,
+    default: [],
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+// Invitation / Live Session Schema
+const invitationSchema = new mongoose.Schema({
+  classroom: {
+    type: String,
+    default: "all",
+  },
+  title: {
+    type: String,
+    required: true,
+  },
+  meetingLink: {
+    type: String,
+    required: true,
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+// Grade Schema
+const gradeSchema = new mongoose.Schema({
+  studentName: {
+    type: String,
+    required: true,
+  },
+  classroom: String,
+  prelim: {
+    type: Number,
+    default: 0,
+  },
+  midterm: {
+    type: Number,
+    default: 0,
+  },
+  finals: {
+    type: Number,
+    default: 0,
+  },
+  finalGrade: {
+    type: Number,
+    default: 0,
+  },
+  dateUpdated: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+// =============================================
+// MODELS
+// =============================================
+
+const Task = mongoose.model("Task", taskSchema);
+const User = mongoose.model("User", userSchema);
+const Course = mongoose.model("Course", courseSchema);
+const Announcement = mongoose.model("Announcement", announcementSchema);
+const Video = mongoose.model("Video", videoSchema);
+const ChatMessage = mongoose.model("ChatMessage", chatMessageSchema);
+const PrivateMessage = mongoose.model("PrivateMessage", privateMessageSchema);
+const Invitation = mongoose.model("Invitation", invitationSchema);
+const Grade = mongoose.model("Grade", gradeSchema);
+
+// =============================================
+// MIDDLEWARES
+// =============================================
+
+server.use(express.json());
+server.use(express.urlencoded({ extended: true }));
+
+// Serve static files (HTML, CSS, JS, assets)
+server.use(express.static(path.join(__dirname)));
+
+// =============================================
+// PAGE ROUTES — Serve all HTML files
+// =============================================
+
+// Root route — serve the landing page
+server.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "index.html"));
+});
+
+// Login page
+server.get("/login", (req, res) => {
+  res.sendFile(path.join(__dirname, "login.html"));
+});
+
+// Register page
+server.get("/register", (req, res) => {
+  res.sendFile(path.join(__dirname, "register.html"));
+});
+
+// Admin dashboard page
+server.get("/admin", (req, res) => {
+  res.sendFile(path.join(__dirname, "admin.html"));
+});
+
+// Client / Student portal page
+server.get("/client", (req, res) => {
+  res.sendFile(path.join(__dirname, "client.html"));
+});
+
+// Classrooms page
+server.get("/classrooms", (req, res) => {
+  res.sendFile(path.join(__dirname, "classrooms.html"));
+});
+
+server.get("/home", (req, res) => {
+  res.send("Hello from the home endpoint!");
+});
+
+server.get("/error", (req, res) => {
+  res.status(404).send({
+    code: 404,
+    message: "Sorry the page cannot be found.",
+  });
+});
+
+// =============================================
+// USER ROUTES — Register & Login
+// =============================================
+
+// Register a new user
+server.post("/users/register", (req, res) => {
+  User.findOne({ username: req.body.username })
+    .then((existingUser) => {
+      if (existingUser != null) {
+        return res.status(409).send({
+          code: 409,
+          message: "Username already exists. Please choose another.",
+        });
+      }
+
+      let newUser = new User({
+        fullName: req.body.fullName,
+        email: req.body.email,
+        username: req.body.username,
+        password: req.body.password,
+        role: req.body.role || "user",
+      });
+
+      newUser
+        .save()
+        .then((savedUser) => {
+          res.status(201).send({
+            code: 201,
+            message: "Registration successful!",
+            data: savedUser,
+          });
+        })
+        .catch((saveErr) => {
+          res.status(500).send({
+            code: 500,
+            message: "There is an error saving the user.",
+          });
+        });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error checking for existing user.",
+      });
+    });
+});
+
+// Login user
+server.post("/users/login", (req, res) => {
+  User.findOne({ username: req.body.username })
+    .then((user) => {
+      if (user == null) {
+        return res.status(404).send({
+          code: 404,
+          message: "User not found.",
+        });
+      }
+
+      if (user.password !== req.body.password) {
+        return res.status(401).send({
+          code: 401,
+          message: "Invalid username or password.",
+        });
+      }
+
+      res.status(200).send({
+        code: 200,
+        message: "Login successful!",
+        data: {
+          _id: user._id,
+          fullName: user.fullName,
+          email: user.email,
+          username: user.username,
+          role: user.role,
+        },
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error during login.",
+      });
+    });
+});
+
+// Get all users
+server.get("/users/all", (req, res) => {
+  User.find({})
+    .then((result) => {
+      res.status(200).send({
+        code: 200,
+        message: "Here are all users.",
+        count: result.length,
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error fetching all users.",
+      });
+    });
+});
+
+// =============================================
+// TASK ROUTES — CRUD
+// =============================================
+
+// Add a new task
+server.post("/tasks/add", (req, res) => {
+  Task.findOne({ name: req.body.name })
+    .then((result) => {
+      if (result != null && result.name == req.body.name) {
+        res.send("Duplicate found. This task cannot be added!");
+      } else {
+        let newTask = new Task({
+          name: req.body.name,
+          description: req.body.description,
+        });
+
+        newTask
+          .save()
+          .then((savedTask) => {
+            res.status(201).send({
+              code: 201,
+              message: "Task is now added!",
+              data: savedTask,
+            });
+          })
+          .catch((saveErr) => {
+            res.status(500).send("There is an error saving the task.");
+          });
+      }
+    })
+    .catch((err) => {
+      res.status(500).send("There is an error finding the task.");
+    });
+});
+
+// Edit a task
+server.put("/tasks/edit/:taskId", (req, res) => {
+  Task.findOne({ _id: req.params.taskId })
+    .then((result) => {
+      if (result == null) {
+        res.status(404).send("Task not found. Cannot edit!");
+      } else {
+        result.name = req.body.name;
+        result.description = req.body.description;
+
+        result
+          .save()
+          .then((updatedTask) => {
+            res.status(200).send({
+              code: 200,
+              message: "Task is now updated!",
+              data: updatedTask,
+            });
+          })
+          .catch((updateErr) => {
+            res.status(500).send("There is an error updating the task.");
+          });
+      }
+    })
+    .catch((err) => {
+      res.status(500).send("There is an error finding the task.");
+    });
+});
+
+// Get all tasks
+server.get("/tasks/all", (req, res) => {
+  Task.find({})
+    .then((result) => {
+      res.status(200).send({
+        code: 200,
+        message: "Here are all tasks.",
+        count: result.length,
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send("There is an error fetching all tasks.");
+    });
+});
+
+// Get all completed tasks
+server.get("/tasks/all/completed", (req, res) => {
+  Task.find({ status: "complete" })
+    .then((result) => {
+      res.status(200).send({
+        code: 200,
+        message: "Here are all completed tasks.",
+        count: result.length,
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send("There is an error fetching completed tasks.");
+    });
+});
+
+// Get all pending tasks
+server.get("/tasks/all/pending", (req, res) => {
+  Task.find({ status: "pending" })
+    .then((result) => {
+      res.status(200).send({
+        code: 200,
+        message: "Here are all pending tasks.",
+        count: result.length,
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send("There is an error fetching pending tasks.");
+    });
+});
+
+// Toggle task active status
+server.patch("/tasks/active/:taskId", (req, res) => {
+  Task.findOne({ _id: req.params.taskId })
+    .then((result) => {
+      if (result == null) {
+        res.status(404).send("Task not found. Cannot update active status!");
+      } else {
+        if (result.isActive == false) {
+          result.isActive = true;
+        } else {
+          result.isActive = false;
+        }
+
+        result
+          .save()
+          .then((updatedTask) => {
+            res.status(200).send({
+              code: 200,
+              message: "Task active status is now updated!",
+              data: updatedTask,
+            });
+          })
+          .catch((updateErr) => {
+            res
+              .status(500)
+              .send("There is an error updating task active status.");
+          });
+      }
+    })
+    .catch((err) => {
+      res.status(500).send("There is an error finding the task.");
+    });
+});
+
+// Delete a task
+server.delete("/tasks/delete/:taskId", (req, res) => {
+  Task.deleteOne({ _id: req.params.taskId })
+    .then((result) => {
+      if (result.deletedCount === 0) {
+        res.status(404).send("Task not found. Cannot delete!");
+      } else {
+        res.status(200).send({
+          code: 200,
+          message: "Task is now permanently deleted!",
+          data: result,
+        });
+      }
+    })
+    .catch((err) => {
+      res.status(500).send("There is an error deleting the task.");
+    });
+});
+
+// Mark task as complete
+server.post("/tasks/:taskId/mark-complete", (req, res) => {
+  Task.findOne({ _id: req.params.taskId })
+    .then((result) => {
+      if (result == null) {
+        res.status(404).send("Task not found. Cannot mark as complete!");
+      } else {
+        result.status = "complete";
+        result.dateCompleted = new Date();
+
+        result
+          .save()
+          .then((updatedTask) => {
+            res.status(200).send({
+              code: 200,
+              message: "Task is now marked as complete!",
+              data: updatedTask,
+            });
+          })
+          .catch((updateErr) => {
+            res.status(500).send("There is an error completing the task.");
+          });
+      }
+    })
+    .catch((err) => {
+      res.status(500).send("There is an error finding the task.");
+    });
+});
+
+// =============================================
+// COURSE ROUTES — CRUD
+// =============================================
+
+// Add a new course
+server.post("/courses/add", (req, res) => {
+  Course.findOne({ title: req.body.title })
+    .then((existingCourse) => {
+      if (existingCourse != null) {
+        return res.status(409).send({
+          code: 409,
+          message: "A course with this title already exists!",
+        });
+      }
+
+      let newCourse = new Course({
+        title: req.body.title,
+        description: req.body.description,
+        invitationCode: req.body.invitationCode,
+        cover: req.body.cover,
+        status: req.body.status || "live",
+      });
+
+      newCourse
+        .save()
+        .then((savedCourse) => {
+          res.status(201).send({
+            code: 201,
+            message: "Course created successfully!",
+            data: savedCourse,
+          });
+        })
+        .catch((saveErr) => {
+          res.status(500).send({
+            code: 500,
+            message: "There is an error creating the course.",
+          });
+        });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error checking for existing course.",
+      });
+    });
+});
+
+// Get all courses
+server.get("/courses/all", (req, res) => {
+  Course.find({})
+    .then((result) => {
+      res.status(200).send({
+        code: 200,
+        message: "Here are all courses.",
+        count: result.length,
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error fetching all courses.",
+      });
+    });
+});
+
+// Edit a course
+server.put("/courses/edit/:courseId", (req, res) => {
+  Course.findOne({ _id: req.params.courseId })
+    .then((result) => {
+      if (result == null) {
+        return res.status(404).send({
+          code: 404,
+          message: "Course not found. Cannot edit!",
+        });
+      }
+
+      result.title = req.body.title || result.title;
+      result.description = req.body.description || result.description;
+      result.status = req.body.status || result.status;
+      result.cover = req.body.cover || result.cover;
+
+      result
+        .save()
+        .then((updatedCourse) => {
+          res.status(200).send({
+            code: 200,
+            message: "Course updated successfully!",
+            data: updatedCourse,
+          });
+        })
+        .catch((updateErr) => {
+          res.status(500).send({
+            code: 500,
+            message: "There is an error updating the course.",
+          });
+        });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error finding the course.",
+      });
+    });
+});
+
+// Delete a course
+server.delete("/courses/delete/:courseId", (req, res) => {
+  Course.deleteOne({ _id: req.params.courseId })
+    .then((result) => {
+      if (result.deletedCount === 0) {
+        return res.status(404).send({
+          code: 404,
+          message: "Course not found. Cannot delete!",
+        });
+      }
+
+      res.status(200).send({
+        code: 200,
+        message: "Course is now permanently deleted!",
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error deleting the course.",
+      });
+    });
+});
+
+// =============================================
+// ANNOUNCEMENT ROUTES — CRUD
+// =============================================
+
+// Post an announcement
+server.post("/announcements/add", (req, res) => {
+  let newAnnouncement = new Announcement({
+    classroom: req.body.classroom || "all",
+    subject: req.body.subject,
+    message: req.body.message,
+    pinned: req.body.pinned || false,
+  });
+
+  newAnnouncement
+    .save()
+    .then((savedAnnouncement) => {
+      res.status(201).send({
+        code: 201,
+        message: "Announcement posted successfully!",
+        data: savedAnnouncement,
+      });
+    })
+    .catch((saveErr) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error posting the announcement.",
+      });
+    });
+});
+
+// Get all announcements
+server.get("/announcements/all", (req, res) => {
+  Announcement.find({}).sort({ pinned: -1, createdAt: -1 })
+    .then((result) => {
+      res.status(200).send({
+        code: 200,
+        message: "Here are all announcements.",
+        count: result.length,
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error fetching announcements.",
+      });
+    });
+});
+
+// Delete an announcement
+server.delete("/announcements/delete/:announcementId", (req, res) => {
+  Announcement.deleteOne({ _id: req.params.announcementId })
+    .then((result) => {
+      if (result.deletedCount === 0) {
+        return res.status(404).send({
+          code: 404,
+          message: "Announcement not found. Cannot delete!",
+        });
+      }
+
+      res.status(200).send({
+        code: 200,
+        message: "Announcement is now deleted!",
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error deleting the announcement.",
+      });
+    });
+});
+
+// Toggle announcement pin status
+server.patch("/announcements/pin/:announcementId", (req, res) => {
+  Announcement.findOne({ _id: req.params.announcementId })
+    .then((result) => {
+      if (result == null) {
+        return res.status(404).send({
+          code: 404,
+          message: "Announcement not found!",
+        });
+      }
+
+      result.pinned = !result.pinned;
+
+      result
+        .save()
+        .then((updated) => {
+          res.status(200).send({
+            code: 200,
+            message: "Announcement pin status updated!",
+            data: updated,
+          });
+        })
+        .catch((updateErr) => {
+          res.status(500).send({
+            code: 500,
+            message: "There is an error updating the announcement.",
+          });
+        });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error finding the announcement.",
+      });
+    });
+});
+
+// =============================================
+// VIDEO ROUTES — CRUD
+// =============================================
+
+// Post a video
+server.post("/videos/add", (req, res) => {
+  let newVideo = new Video({
+    classroom: req.body.classroom || "all",
+    title: req.body.title,
+    videoUrl: req.body.videoUrl,
+    videoFile: req.body.videoFile,
+  });
+
+  newVideo
+    .save()
+    .then((savedVideo) => {
+      res.status(201).send({
+        code: 201,
+        message: "Video posted successfully!",
+        data: savedVideo,
+      });
+    })
+    .catch((saveErr) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error posting the video.",
+      });
+    });
+});
+
+// Get all videos
+server.get("/videos/all", (req, res) => {
+  Video.find({}).sort({ createdAt: -1 })
+    .then((result) => {
+      res.status(200).send({
+        code: 200,
+        message: "Here are all videos.",
+        count: result.length,
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error fetching videos.",
+      });
+    });
+});
+
+// Delete a video
+server.delete("/videos/delete/:videoId", (req, res) => {
+  Video.deleteOne({ _id: req.params.videoId })
+    .then((result) => {
+      if (result.deletedCount === 0) {
+        return res.status(404).send({
+          code: 404,
+          message: "Video not found. Cannot delete!",
+        });
+      }
+
+      res.status(200).send({
+        code: 200,
+        message: "Video is now deleted!",
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error deleting the video.",
+      });
+    });
+});
+
+// =============================================
+// CHAT MESSAGE ROUTES — CRUD
+// =============================================
+
+// Send a chat message
+server.post("/chat/send", (req, res) => {
+  let newMessage = new ChatMessage({
+    classroom: req.body.classroom,
+    sender: req.body.sender,
+    role: req.body.role || "student",
+    text: req.body.text,
+    attachments: req.body.attachments || [],
+  });
+
+  newMessage
+    .save()
+    .then((savedMessage) => {
+      res.status(201).send({
+        code: 201,
+        message: "Chat message sent!",
+        data: savedMessage,
+      });
+    })
+    .catch((saveErr) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error sending the chat message.",
+      });
+    });
+});
+
+// Get all chat messages (optionally filter by classroom)
+server.get("/chat/all", (req, res) => {
+  let filter = {};
+  if (req.query.classroom) {
+    filter.classroom = req.query.classroom;
+  }
+
+  ChatMessage.find(filter).sort({ createdAt: 1 })
+    .then((result) => {
+      res.status(200).send({
+        code: 200,
+        message: "Here are all chat messages.",
+        count: result.length,
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error fetching chat messages.",
+      });
+    });
+});
+
+// Delete a chat message
+server.delete("/chat/delete/:messageId", (req, res) => {
+  ChatMessage.deleteOne({ _id: req.params.messageId })
+    .then((result) => {
+      if (result.deletedCount === 0) {
+        return res.status(404).send({
+          code: 404,
+          message: "Chat message not found. Cannot delete!",
+        });
+      }
+
+      res.status(200).send({
+        code: 200,
+        message: "Chat message deleted!",
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error deleting the chat message.",
+      });
+    });
+});
+
+// =============================================
+// PRIVATE MESSAGE ROUTES — CRUD
+// =============================================
+
+// Send a private message
+server.post("/private-messages/send", (req, res) => {
+  let newMessage = new PrivateMessage({
+    sender: req.body.sender,
+    receiver: req.body.receiver,
+    senderRole: req.body.senderRole || "student",
+    text: req.body.text,
+    attachments: req.body.attachments || [],
+  });
+
+  newMessage
+    .save()
+    .then((savedMessage) => {
+      res.status(201).send({
+        code: 201,
+        message: "Private message sent!",
+        data: savedMessage,
+      });
+    })
+    .catch((saveErr) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error sending the private message.",
+      });
+    });
+});
+
+// Get all private messages (optionally filter by sender or receiver)
+server.get("/private-messages/all", (req, res) => {
+  let filter = {};
+  if (req.query.sender) {
+    filter.sender = req.query.sender;
+  }
+  if (req.query.receiver) {
+    filter.receiver = req.query.receiver;
+  }
+
+  PrivateMessage.find(filter).sort({ createdAt: 1 })
+    .then((result) => {
+      res.status(200).send({
+        code: 200,
+        message: "Here are all private messages.",
+        count: result.length,
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error fetching private messages.",
+      });
+    });
+});
+
+// Delete a private message
+server.delete("/private-messages/delete/:messageId", (req, res) => {
+  PrivateMessage.deleteOne({ _id: req.params.messageId })
+    .then((result) => {
+      if (result.deletedCount === 0) {
+        return res.status(404).send({
+          code: 404,
+          message: "Private message not found. Cannot delete!",
+        });
+      }
+
+      res.status(200).send({
+        code: 200,
+        message: "Private message deleted!",
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error deleting the private message.",
+      });
+    });
+});
+
+// =============================================
+// INVITATION / LIVE SESSION ROUTES — CRUD
+// =============================================
+
+// Schedule a live session
+server.post("/invitations/add", (req, res) => {
+  let newInvitation = new Invitation({
+    classroom: req.body.classroom || "all",
+    title: req.body.title,
+    meetingLink: req.body.meetingLink,
+  });
+
+  newInvitation
+    .save()
+    .then((savedInvitation) => {
+      res.status(201).send({
+        code: 201,
+        message: "Live session scheduled successfully!",
+        data: savedInvitation,
+      });
+    })
+    .catch((saveErr) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error scheduling the live session.",
+      });
+    });
+});
+
+// Get all invitations / live sessions
+server.get("/invitations/all", (req, res) => {
+  Invitation.find({}).sort({ createdAt: -1 })
+    .then((result) => {
+      res.status(200).send({
+        code: 200,
+        message: "Here are all live sessions.",
+        count: result.length,
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error fetching live sessions.",
+      });
+    });
+});
+
+// Delete an invitation / live session
+server.delete("/invitations/delete/:invitationId", (req, res) => {
+  Invitation.deleteOne({ _id: req.params.invitationId })
+    .then((result) => {
+      if (result.deletedCount === 0) {
+        return res.status(404).send({
+          code: 404,
+          message: "Live session not found. Cannot delete!",
+        });
+      }
+
+      res.status(200).send({
+        code: 200,
+        message: "Live session is now deleted!",
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error deleting the live session.",
+      });
+    });
+});
+
+// =============================================
+// GRADE ROUTES — CRUD
+// =============================================
+
+// Add or update a grade
+server.post("/grades/add", (req, res) => {
+  let newGrade = new Grade({
+    studentName: req.body.studentName,
+    classroom: req.body.classroom,
+    prelim: req.body.prelim || 0,
+    midterm: req.body.midterm || 0,
+    finals: req.body.finals || 0,
+    finalGrade: req.body.finalGrade || 0,
+  });
+
+  newGrade
+    .save()
+    .then((savedGrade) => {
+      res.status(201).send({
+        code: 201,
+        message: "Grade added successfully!",
+        data: savedGrade,
+      });
+    })
+    .catch((saveErr) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error adding the grade.",
+      });
+    });
+});
+
+// Get all grades
+server.get("/grades/all", (req, res) => {
+  Grade.find({})
+    .then((result) => {
+      res.status(200).send({
+        code: 200,
+        message: "Here are all grades.",
+        count: result.length,
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error fetching grades.",
+      });
+    });
+});
+
+// Edit a grade
+server.put("/grades/edit/:gradeId", (req, res) => {
+  Grade.findOne({ _id: req.params.gradeId })
+    .then((result) => {
+      if (result == null) {
+        return res.status(404).send({
+          code: 404,
+          message: "Grade not found. Cannot edit!",
+        });
+      }
+
+      result.prelim = req.body.prelim ?? result.prelim;
+      result.midterm = req.body.midterm ?? result.midterm;
+      result.finals = req.body.finals ?? result.finals;
+      result.finalGrade = req.body.finalGrade ?? result.finalGrade;
+      result.dateUpdated = new Date();
+
+      result
+        .save()
+        .then((updatedGrade) => {
+          res.status(200).send({
+            code: 200,
+            message: "Grade updated successfully!",
+            data: updatedGrade,
+          });
+        })
+        .catch((updateErr) => {
+          res.status(500).send({
+            code: 500,
+            message: "There is an error updating the grade.",
+          });
+        });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error finding the grade.",
+      });
+    });
+});
+
+// Delete a grade
+server.delete("/grades/delete/:gradeId", (req, res) => {
+  Grade.deleteOne({ _id: req.params.gradeId })
+    .then((result) => {
+      if (result.deletedCount === 0) {
+        return res.status(404).send({
+          code: 404,
+          message: "Grade not found. Cannot delete!",
+        });
+      }
+
+      res.status(200).send({
+        code: 200,
+        message: "Grade is now deleted!",
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error deleting the grade.",
+      });
+    });
+});
+
+// =============================================
+// START THE SERVER
+// =============================================
+
+server.listen(port, () =>
+  console.log(`Server is now running at port ${port}.`),
+);
