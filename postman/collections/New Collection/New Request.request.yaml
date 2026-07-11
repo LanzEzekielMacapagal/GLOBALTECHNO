@@ -1,0 +1,14 @@
+$kind: http-request
+name: New Request
+url: http://localhost:3000/users/login
+method: GET
+body:
+  type: json
+  content: "{\r
+
+    \  \"username\": \"Administrator\",\r
+
+    \  \"password\": \"Gl0b@l4dmin!123\"\r
+
+    }"
+order: 1783781596010

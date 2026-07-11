@@ -24,11 +24,13 @@
           </label>
           <label class="form-label mb-0">
             Password
-            <input class="form-control mt-1" id="portalPassword" type="password" autocomplete="current-password" required>
+            <div class="position-relative mt-1">
+              <input class="form-control pe-5" id="portalPassword" type="password" autocomplete="current-password" required>
+              <button class="btn btn-link position-absolute end-0 top-50 translate-middle-y me-2 p-0 text-secondary" type="button" id="togglePassword" aria-label="Toggle password visibility">
+                <i class="bi bi-eye"></i>
+              </button>
+            </div>
           </label>
-          <p class="alert alert-info mb-0">
-            Demo accounts: <strong>Admin / 123</strong> or <strong>user / 321</strong>
-          </p>
           <p class="alert alert-danger d-none mb-0" id="portalLoginError">Invalid username or password.</p>
           <button class="btn btn-primary w-100" type="submit">Login</button>
           <a class="btn btn-outline-secondary w-100" href="register.html">Create Account</a>
@@ -37,7 +39,19 @@
     </div>
   </section>
 
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="app.js"></script>
+  <script>
+    const passwordInput = document.querySelector("#portalPassword");
+    const togglePasswordButton = document.querySelector("#togglePassword");
+
+    togglePasswordButton?.addEventListener("click", () => {
+      const isPassword = passwordInput.type === "password";
+      passwordInput.type = isPassword ? "text" : "password";
+      togglePasswordButton.querySelector("i")?.classList.toggle("bi-eye", !isPassword);
+      togglePasswordButton.querySelector("i")?.classList.toggle("bi-eye-slash", isPassword);
+    });
+  </script>
 </body>
 </html>

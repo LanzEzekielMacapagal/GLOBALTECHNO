@@ -71,6 +71,14 @@ const notificationCount = document.querySelector("[data-notification-count]");
 const notificationClear = document.querySelector("[data-notification-clear]");
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const mobileSectionQuery = window.matchMedia("(max-width: 991.98px)");
+const apiBaseUrl = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") && window.location.port !== "3000"
+  ? "http://localhost:3000"
+  : "";
+let serverCourses = [];
+
+function getApiUrl(path) {
+  return `${apiBaseUrl}${path}`;
+}
 
 const motionObserver = !prefersReducedMotion && "IntersectionObserver" in window
   ? new IntersectionObserver((entries) => {
@@ -1200,12 +1208,25 @@ function setNotificationPanelOpen(isOpen) {
   notificationPanel.classList.toggle("active", isOpen);
 }
 
+async function loadServerCourses() {
+  try {
+    const response = await fetch(getApiUrl("/courses/all"));
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to load courses.");
+    serverCourses = Array.isArray(result.data) ? result.data : [];
+    return serverCourses;
+  } catch (error) {
+    serverCourses = [];
+    return serverCourses;
+  }
+}
+
 function getCustomCourses() {
-  return getStoredItems("gthCourses", []);
+  return Array.isArray(serverCourses) ? serverCourses : [];
 }
 
 function saveCustomCourses(courses) {
-  saveStoredItems("gthCourses", courses);
+  serverCourses = Array.isArray(courses) ? courses : [];
 }
 
 function getLatestCourseInvitation(courseId) {
@@ -1287,17 +1308,16 @@ function normalizeSubjectCode(value = "") {
 }
 
 function getJoinedCourseCodes() {
-  return getStoredItems(`gthJoinedCourseCodes-${currentStudent.id}`, []);
+  return [];
 }
 
 function saveJoinedCourseCodes(codes) {
-  saveStoredItems(`gthJoinedCourseCodes-${currentStudent.id}`, codes.map(normalizeSubjectCode).filter(Boolean));
+  return codes;
 }
 
 function isCourseJoined(course) {
   if (adminApp) return true;
-  const invitationCode = normalizeSubjectCode(course.invitationCode || createInvitationCode(course.title, course.id));
-  return getJoinedCourseCodes().includes(invitationCode);
+  return Boolean(course?.isJoined);
 }
 
 function getCourseResources() {
@@ -2892,8 +2912,9 @@ function renderCourseQuizForm(courseId, editingQuiz = null) {
 
 function createCustomCourseWorkspace(course, index) {
   const accent = courseAccentClasses[index % courseAccentClasses.length];
+  const courseId = String(course._id || course.id || `custom-course-${index}`);
 
-  courseWorkspaces[course.id] = {
+  courseWorkspaces[courseId] = {
     code: String(index + 4).padStart(2, "0"),
     title: course.title,
     status: adminApp ? "Live" : "In Progress",
@@ -2926,7 +2947,7 @@ function createCourseCard(course, index) {
   const statusText = adminApp ? "Live" : "In Progress";
   const article = document.createElement("article");
   article.className = "card course-card course-card-custom";
-  article.dataset.course = course.id;
+  article.dataset.course = String(course._id || course.id);
   article.dataset.status = "live";
 
   const row = document.createElement("div");
@@ -2981,6 +3002,7 @@ function createCourseCard(course, index) {
   body.append(
     header,
     createTextElement("p", "text-secondary mb-3", course.description),
+    createTextElement("p", "small text-secondary mb-3", `Subject code: ${course.invitationCode || createInvitationCode(course.title, course.id)}`),
     progressMeta,
     progress
   );
@@ -2992,7 +3014,7 @@ function createCourseCard(course, index) {
     remove.className = "btn btn-outline-danger btn-sm";
     remove.type = "button";
     remove.dataset.courseAction = "remove";
-    remove.dataset.courseId = course.id;
+    remove.dataset.courseId = String(course._id || course.id);
     remove.textContent = "Remove";
     actions.appendChild(remove);
     body.appendChild(actions);
@@ -3010,11 +3032,19 @@ function renderCustomCourses() {
   if (!lists.length) return;
   syncPostTargetSelectors();
 
+  const currentUser = JSON.parse(sessionStorage.getItem("gthCurrentUser") || "null");
+  const enrolledCourseIds = new Set((currentUser?.enrolledCourses || []).map((course) => String(course._id || course)));
+  const courses = getCustomCourses().map((course) => ({
+    ...course,
+    id: String(course._id || course.id),
+    _id: String(course._id || course.id),
+    isJoined: adminApp || enrolledCourseIds.has(String(course._id || course.id))
+  }));
+
   Object.keys(courseWorkspaces)
     .filter((courseId) => courseId.startsWith("custom-course-"))
     .forEach((courseId) => delete courseWorkspaces[courseId]);
 
-  const courses = getCustomCourses();
   courses.forEach(createCustomCourseWorkspace);
 
   lists.forEach((list) => {
@@ -3051,33 +3081,42 @@ document.addEventListener("click", (event) => {
   studentImportCode?.focus();
 });
 
-studentImportForm?.addEventListener("submit", (event) => {
+studentImportForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const code = normalizeSubjectCode(studentImportCode?.value || "");
-  const course = getCustomCourses().find((item) => {
-    return normalizeSubjectCode(item.invitationCode || createInvitationCode(item.title, item.id)) === code;
-  });
+  const currentUser = JSON.parse(sessionStorage.getItem("gthCurrentUser") || "null");
 
-  if (!course) {
-    if (studentImportMessage) {
-      studentImportMessage.className = "course-import-message text-danger mb-0";
-      studentImportMessage.textContent = "Subject code not found.";
-    }
+  if (!currentUser?._id) {
+    studentImportMessage.className = "course-import-message text-danger mb-0";
+    studentImportMessage.textContent = "Please log in first.";
     return;
   }
 
-  const joinedCodes = new Set(getJoinedCourseCodes());
-  joinedCodes.add(code);
-  saveJoinedCourseCodes([...joinedCodes]);
+  try {
+    const response = await fetch(getApiUrl("/courses/join"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: currentUser._id, invitationCode: code })
+    });
+    const result = await response.json().catch(() => ({}));
 
-  if (studentImportMessage) {
+    if (!response.ok) throw new Error(result.message || "Unable to join course.");
+
     studentImportMessage.className = "course-import-message text-success mb-0";
-    studentImportMessage.textContent = `Joined ${course.title}.`;
-  }
+    studentImportMessage.textContent = `Joined ${result.data?.course?.title || "the course"}.`;
 
-  studentImportForm.reset();
-  renderCustomCourses();
+    if (result.data?.user) {
+      sessionStorage.setItem("gthCurrentUser", JSON.stringify(result.data.user));
+    }
+
+    studentImportForm.reset();
+    await loadServerCourses();
+    renderCustomCourses();
+  } catch (error) {
+    studentImportMessage.className = "course-import-message text-danger mb-0";
+    studentImportMessage.textContent = error.message || "Unable to join course.";
+  }
 });
 
 function readCourseCover(file) {
@@ -3101,24 +3140,31 @@ courseForm?.addEventListener("submit", async (event) => {
   const description = courseDescription?.value.trim() || "";
   if (!title || !description) return;
 
-  const courses = getCustomCourses();
-  const course = {
-    id: `custom-course-${Date.now()}`,
-    title,
-    description,
-    invitationCode: createInvitationCode(title, String(Date.now())),
-    cover: await readCourseCover(courseCover?.files?.[0]),
-    createdAt: new Date().toISOString()
-  };
+  try {
+    const response = await fetch(getApiUrl("/courses/add"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title,
+        description,
+        cover: await readCourseCover(courseCover?.files?.[0]),
+        status: "live"
+      })
+    });
+    const result = await response.json().catch(() => ({}));
 
-  courses.unshift(course);
-  saveCustomCourses(courses);
-  courseForm.reset();
-  renderCustomCourses();
-  showStudentSection("courses", { updateHash: true });
+    if (!response.ok) throw new Error(result.message || "Unable to create course.");
 
-  const modal = window.bootstrap?.Modal.getInstance(document.querySelector("#courseModal"));
-  modal?.hide();
+    courseForm.reset();
+    await loadServerCourses();
+    renderCustomCourses();
+    showStudentSection("courses", { updateHash: true });
+
+    const modal = window.bootstrap?.Modal.getInstance(document.querySelector("#courseModal"));
+    modal?.hide();
+  } catch (error) {
+    window.alert(error.message || "Unable to create course.");
+  }
 });
 
 document.addEventListener("click", (event) => {
@@ -3126,7 +3172,7 @@ document.addEventListener("click", (event) => {
   if (!button) return;
 
   const courseId = button.dataset.courseId;
-  saveCustomCourses(getCustomCourses().filter((course) => course.id !== courseId));
+  saveCustomCourses(getCustomCourses().filter((course) => String(course._id || course.id) !== String(courseId)));
   saveCourseNextPosts(getCourseNextPosts().filter((item) => item.courseId !== courseId));
   saveCourseResources(getCourseResources().filter((item) => item.courseId !== courseId));
   saveCourseQuizzes(getCourseQuizzes().filter((item) => item.courseId !== courseId));
@@ -5956,32 +6002,56 @@ window.addEventListener("pageshow", redirectAdminIfLoggedOut);
 
 adminLogout?.addEventListener("click", () => {
   sessionStorage.removeItem("gthAdminLoggedIn");
+  sessionStorage.removeItem("gthCurrentUser");
   window.location.replace("index.html");
 });
 
-portalLoginForm?.addEventListener("submit", (event) => {
+portalLoginForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const username = document.querySelector("#portalUsername").value.trim();
   const password = document.querySelector("#portalPassword").value;
 
-  if (username.toLowerCase() === "admin" && password === "123") {
-    sessionStorage.setItem("gthAdminLoggedIn", "true");
-    window.location.replace("admin.html");
-    return;
-  }
+  portalLoginError?.classList.add("d-none");
 
-  if (username.toLowerCase() === "user" && password === "321") {
+  try {
+    const response = await fetch(getApiUrl("/users/login"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ username, password })
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(result.message || "Login failed.");
+    }
+
+    if (result.data?.role === "admin") {
+      sessionStorage.setItem("gthCurrentUser", JSON.stringify(result.data));
+      sessionStorage.setItem("gthAdminLoggedIn", "true");
+      sessionStorage.removeItem("gthClientLoggedIn");
+      window.location.replace("admin.html");
+      return;
+    }
+
+    sessionStorage.setItem("gthCurrentUser", JSON.stringify(result.data));
     sessionStorage.setItem("gthClientLoggedIn", "true");
+    sessionStorage.removeItem("gthAdminLoggedIn");
     window.location.replace("client.html");
-    return;
+  } catch (error) {
+    portalLoginError.textContent = error.message === "Failed to fetch"
+      ? "Unable to connect to the server. Please open the app at http://localhost:3000/login or start the Node server."
+      : error.message || "Invalid username or password.";
+    portalLoginError?.classList.remove("d-none");
   }
-
-  portalLoginError?.classList.remove("d-none");
 });
 
 clientLogout?.addEventListener("click", () => {
   sessionStorage.removeItem("gthClientLoggedIn");
+  sessionStorage.removeItem("gthCurrentUser");
   window.location.replace("index.html");
 });
 
@@ -5999,9 +6069,11 @@ renderVideos();
 renderAssignments();
 renderInvitations();
 renderChatMessages();
-renderCustomCourses();
-renderGradebook();
-setupPrivateMessageStudents();
-renderPrivateMessages();
-renderNotificationCenter();
-observeMotionElements();
+loadServerCourses().then(() => {
+  renderCustomCourses();
+  renderGradebook();
+  setupPrivateMessageStudents();
+  renderPrivateMessages();
+  renderNotificationCenter();
+  observeMotionElements();
+});

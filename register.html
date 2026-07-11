@@ -15,20 +15,80 @@
           <img src="assets/global-techno-hub-logo.jpg" alt="Global Techno Hub Learning Center logo" class="login-logo mb-3">
           <p class="section-label mb-1">Create account</p>
           <h1 class="h4 mb-1">Register</h1>
-          <p class="text-secondary mb-0">Demo registration form for trainees.</p>
+          <p class="text-secondary mb-0">Create your portal account to continue.</p>
         </div>
-        <form class="vstack gap-3">
-          <label class="form-label mb-0">Full name<input class="form-control mt-1" type="text" required></label>
-          <label class="form-label mb-0">Email<input class="form-control mt-1" type="email" required></label>
-          <label class="form-label mb-0">Username<input class="form-control mt-1" type="text" required></label>
-          <label class="form-label mb-0">Password<input class="form-control mt-1" type="password" required></label>
-          <button class="btn btn-primary w-100" type="button">Register</button>
+        <form id="registerForm" class="vstack gap-3">
+          <label class="form-label mb-0">Full name<input id="registerFullName" class="form-control mt-1" type="text" required></label>
+          <label class="form-label mb-0">Email<input id="registerEmail" class="form-control mt-1" type="email" required></label>
+          <label class="form-label mb-0">Username<input id="registerUsername" class="form-control mt-1" type="text" required></label>
+          <label class="form-label mb-0">
+            Password
+            <div class="position-relative mt-1">
+              <input id="registerPassword" class="form-control pe-5" type="password" required>
+              <button class="btn btn-link position-absolute end-0 top-50 translate-middle-y me-2 p-0 text-secondary" type="button" id="toggleRegisterPassword" aria-label="Toggle password visibility">
+                <i class="bi bi-eye"></i>
+              </button>
+            </div>
+          </label>
+          <p class="alert alert-danger d-none mb-0" id="registerError">Unable to create your account.</p>
+          <p class="alert alert-success d-none mb-0" id="registerSuccess">Account created successfully.</p>
+          <button class="btn btn-primary w-100" type="submit">Register</button>
           <a class="btn btn-outline-secondary w-100" href="login.html">Back to Login</a>
         </form>
       </div>
     </div>
   </section>
 
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    const registerForm = document.querySelector("#registerForm");
+    const registerError = document.querySelector("#registerError");
+    const registerSuccess = document.querySelector("#registerSuccess");
+    const registerPasswordInput = document.querySelector("#registerPassword");
+    const toggleRegisterPasswordButton = document.querySelector("#toggleRegisterPassword");
+
+    toggleRegisterPasswordButton?.addEventListener("click", () => {
+      const isPassword = registerPasswordInput.type === "password";
+      registerPasswordInput.type = isPassword ? "text" : "password";
+      toggleRegisterPasswordButton.querySelector("i")?.classList.toggle("bi-eye", !isPassword);
+      toggleRegisterPasswordButton.querySelector("i")?.classList.toggle("bi-eye-slash", isPassword);
+    });
+
+    registerForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      registerError.classList.add("d-none");
+      registerSuccess.classList.add("d-none");
+
+      const payload = {
+        fullName: document.querySelector("#registerFullName").value.trim(),
+        email: document.querySelector("#registerEmail").value.trim(),
+        username: document.querySelector("#registerUsername").value.trim(),
+        password: document.querySelector("#registerPassword").value,
+        role: "user"
+      };
+
+      try {
+        const response = await fetch("/users/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(result.message || "Registration failed.");
+        }
+
+        registerSuccess.textContent = result.message || "Account created successfully.";
+        registerSuccess.classList.remove("d-none");
+        registerForm.reset();
+      } catch (error) {
+        registerError.textContent = error.message || "Unable to create your account.";
+        registerError.classList.remove("d-none");
+      }
+    });
+  </script>
 </body>
 </html>

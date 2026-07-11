@@ -7,11 +7,11 @@ const path = require("path");
 // provide name for the server
 const server = express();
 // Declare server port
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 // Trigger connection to mongoDB thru mongoose
 // mongoose.connect("mongodb://localhost:27017/");
-mongoose.connect("mongodb://GlobalTechnoLMS:qwerty12345@ac-yppcca4-shard-00-00.n40fbrp.mongodb.net:27017,ac-yppcca4-shard-00-01.n40fbrp.mongodb.net:27017,ac-yppcca4-shard-00-02.n40fbrp.mongodb.net:27017/?ssl=true&replicaSet=atlas-lwiuiu-shard-0&authSource=admin&appName=LMS")
+mongoose.connect(process.env.MONGODB_URI || "mongodb://GlobalTechnoLMS:qwerty12345@ac-yppcca4-shard-00-00.n40fbrp.mongodb.net:27017,ac-yppcca4-shard-00-01.n40fbrp.mongodb.net:27017,ac-yppcca4-shard-00-02.n40fbrp.mongodb.net:27017/?ssl=true&replicaSet=atlas-lwiuiu-shard-0&authSource=admin&appName=LMS")
   .catch((err) => {
     console.error("Cannot connect to MongoDB.", err.message);
   });
@@ -70,6 +70,13 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: "user",
     enum: ["admin", "user"],
+  },
+  enrolledCourses: {
+    type: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Course",
+    }],
+    default: [],
   },
   isActive: {
     type: Boolean,
@@ -265,6 +272,56 @@ const PrivateMessage = mongoose.model("PrivateMessage", privateMessageSchema);
 const Invitation = mongoose.model("Invitation", invitationSchema);
 const Grade = mongoose.model("Grade", gradeSchema);
 
+const escapeRegExp = (value = "") => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const generateInvitationCode = (title = "") => {
+  const base = String(title || "COURSE")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "")
+    .slice(0, 6);
+  const suffix = String(Math.floor(1000 + Math.random() * 9000));
+  return `${base || "COURSE"}${suffix}`;
+};
+
+const ensureDefaultAdmin = async () => {
+  try {
+    const existingAdmin = await User.findOne({ username: "Administrator" });
+
+    if (existingAdmin != null) {
+      existingAdmin.fullName = "Administrator";
+      existingAdmin.email = "globaltechnoadmin@gmail.com";
+      existingAdmin.password = "Gl0b@l4dmin!123";
+      existingAdmin.role = "admin";
+      existingAdmin.isActive = true;
+      await existingAdmin.save();
+      console.log("Default admin account updated successfully.");
+      return;
+    }
+
+    const adminUser = new User({
+      fullName: "Administrator",
+      email: "globaltechnoadmin@gmail.com",
+      username: "Administrator",
+      password: "Gl0b@l4dmin!123",
+      role: "admin",
+    });
+
+    await adminUser.save();
+    console.log("Default admin account created successfully.");
+  } catch (error) {
+    console.error("Cannot create default admin account.", error.message);
+  }
+};
+
+if (db.readyState === 1) {
+  ensureDefaultAdmin();
+} else {
+  db.once("open", async () => {
+    await ensureDefaultAdmin();
+  });
+}
+
 // =============================================
 // MIDDLEWARES
 // =============================================
@@ -349,7 +406,10 @@ server.post("/users/register", (req, res) => {
           res.status(201).send({
             code: 201,
             message: "Registration successful!",
-            data: savedUser,
+            data: {
+              ...savedUser.toObject(),
+              enrolledCourses: savedUser.enrolledCourses || [],
+            },
           });
         })
         .catch((saveErr) => {
@@ -369,7 +429,17 @@ server.post("/users/register", (req, res) => {
 
 // Login user
 server.post("/users/login", (req, res) => {
-  User.findOne({ username: req.body.username })
+  const username = String(req.body.username || "").trim();
+  const password = String(req.body.password || "");
+
+  if (!username || !password) {
+    return res.status(400).send({
+      code: 400,
+      message: "Username and password are required.",
+    });
+  }
+
+  User.findOne({ username: { $regex: new RegExp(`^${username.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") } })
     .then((user) => {
       if (user == null) {
         return res.status(404).send({
@@ -378,7 +448,7 @@ server.post("/users/login", (req, res) => {
         });
       }
 
-      if (user.password !== req.body.password) {
+      if (user.password !== password) {
         return res.status(401).send({
           code: 401,
           message: "Invalid username or password.",
@@ -394,6 +464,7 @@ server.post("/users/login", (req, res) => {
           email: user.email,
           username: user.username,
           role: user.role,
+          enrolledCourses: user.enrolledCourses || [],
         },
       });
     })
@@ -623,46 +694,91 @@ server.post("/tasks/:taskId/mark-complete", (req, res) => {
 // =============================================
 
 // Add a new course
-server.post("/courses/add", (req, res) => {
-  Course.findOne({ title: req.body.title })
-    .then((existingCourse) => {
-      if (existingCourse != null) {
-        return res.status(409).send({
-          code: 409,
-          message: "A course with this title already exists!",
-        });
-      }
+server.post("/courses/add", async (req, res) => {
+  try {
+    const existingCourse = await Course.findOne({ title: req.body.title });
 
-      let newCourse = new Course({
-        title: req.body.title,
-        description: req.body.description,
-        invitationCode: req.body.invitationCode,
-        cover: req.body.cover,
-        status: req.body.status || "live",
+    if (existingCourse != null) {
+      return res.status(409).send({
+        code: 409,
+        message: "A course with this title already exists!",
       });
+    }
 
-      newCourse
-        .save()
-        .then((savedCourse) => {
-          res.status(201).send({
-            code: 201,
-            message: "Course created successfully!",
-            data: savedCourse,
-          });
-        })
-        .catch((saveErr) => {
-          res.status(500).send({
-            code: 500,
-            message: "There is an error creating the course.",
-          });
-        });
-    })
-    .catch((err) => {
-      res.status(500).send({
-        code: 500,
-        message: "There is an error checking for existing course.",
-      });
+    const newCourse = new Course({
+      title: req.body.title,
+      description: req.body.description,
+      invitationCode: req.body.invitationCode || generateInvitationCode(req.body.title),
+      cover: req.body.cover,
+      status: req.body.status || "live",
     });
+
+    const savedCourse = await newCourse.save();
+    res.status(201).send({
+      code: 201,
+      message: "Course created successfully!",
+      data: savedCourse,
+    });
+  } catch (error) {
+    res.status(500).send({
+      code: 500,
+      message: "There is an error creating the course.",
+    });
+  }
+});
+
+// Join a course via subject code
+server.post("/courses/join", async (req, res) => {
+  try {
+    const userId = req.body.userId;
+    const invitationCode = String(req.body.invitationCode || "").trim().toUpperCase();
+
+    if (!userId || !invitationCode) {
+      return res.status(400).send({
+        code: 400,
+        message: "User id and subject code are required.",
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).send({
+        code: 404,
+        message: "User not found.",
+      });
+    }
+
+    const course = await Course.findOne({ invitationCode: { $regex: new RegExp(`^${escapeRegExp(invitationCode)}$`, "i") } });
+    if (!course) {
+      return res.status(404).send({
+        code: 404,
+        message: "Subject code not found.",
+      });
+    }
+
+    const alreadyJoined = user.enrolledCourses.some((item) => String(item) === String(course._id));
+    if (!alreadyJoined) {
+      user.enrolledCourses.push(course._id);
+      await user.save();
+    }
+
+    res.status(200).send({
+      code: 200,
+      message: "Course joined successfully!",
+      data: {
+        course,
+        user: {
+          ...user.toObject(),
+          enrolledCourses: user.enrolledCourses || [],
+        },
+      },
+    });
+  } catch (error) {
+    res.status(500).send({
+      code: 500,
+      message: "There is an error joining the course.",
+    });
+  }
 });
 
 // Get all courses
