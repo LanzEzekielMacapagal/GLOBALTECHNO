@@ -1320,20 +1320,53 @@ function saveCourseResources(resources) {
   return saveStoredItems("gthCourseResources", resources);
 }
 
+let serverQuizzes = [];
+let serverQuizSubmissions = [];
+
+async function loadServerQuizzes(courseId = "") {
+  if (!courseId) return [];
+  try {
+    const response = await fetch(getApiUrl(`/courses/${courseId}/quizzes`));
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to load quizzes.");
+    serverQuizzes = Array.isArray(result.data) ? result.data : [];
+    return serverQuizzes;
+  } catch {
+    serverQuizzes = [];
+    return serverQuizzes;
+  }
+}
+
+async function loadServerQuizSubmissions(courseId = "") {
+  if (!courseId) return [];
+  try {
+    const response = await fetch(getApiUrl(`/courses/${courseId}/quiz-submissions`));
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to load quiz submissions.");
+    serverQuizSubmissions = Array.isArray(result.data) ? result.data : [];
+    return serverQuizSubmissions;
+  } catch {
+    serverQuizSubmissions = [];
+    return serverQuizSubmissions;
+  }
+}
+
 function getCourseQuizzes() {
-  return getStoredItems("gthCourseQuizzes", []);
+  return Array.isArray(serverQuizzes) ? serverQuizzes : [];
 }
 
 function saveCourseQuizzes(quizzes) {
-  saveStoredItems("gthCourseQuizzes", quizzes);
+  serverQuizzes = Array.isArray(quizzes) ? quizzes : [];
+  return true;
 }
 
 function getCourseQuizSubmissions() {
-  return getStoredItems("gthCourseQuizSubmissions", []);
+  return Array.isArray(serverQuizSubmissions) ? serverQuizSubmissions : [];
 }
 
 function saveCourseQuizSubmissions(submissions) {
-  saveStoredItems("gthCourseQuizSubmissions", submissions);
+  serverQuizSubmissions = Array.isArray(submissions) ? submissions : [];
+  return true;
 }
 
 function getQuizExtraChances() {
@@ -3374,7 +3407,7 @@ document.addEventListener("submit", async (event) => {
   refreshOpenCourseWorkspace(courseId);
 });
 
-document.addEventListener("submit", (event) => {
+document.addEventListener("submit", async (event) => {
   const gradeForm = event.target.closest("[data-quiz-grade-form]");
   if (!gradeForm) return;
 
@@ -3406,11 +3439,28 @@ document.addEventListener("submit", (event) => {
     };
   });
 
+  const updatedSubmission = submissions.find((submission) => submission.id === gradeForm.dataset.submissionId);
+  if (updatedSubmission) {
+    try {
+      const response = await fetch(getApiUrl(`/courses/${quiz.courseId}/quiz-submissions/${updatedSubmission.id}`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedSubmission)
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "Unable to grade submission.");
+    } catch (error) {
+      window.alert(error.message || "Unable to grade submission.");
+      return;
+    }
+  }
+
   saveCourseQuizSubmissions(submissions);
+  await loadServerQuizSubmissions(quiz.courseId);
   refreshOpenCourseWorkspace(quiz.courseId);
 });
 
-document.addEventListener("submit", (event) => {
+document.addEventListener("submit", async (event) => {
   const quizForm = event.target.closest("[data-course-quiz-form]");
   if (!quizForm) return;
 
@@ -3498,22 +3548,40 @@ document.addEventListener("submit", (event) => {
 
   const savedQuizzes = existingQuizzes.filter((item) => item.id !== quiz.id);
   saveCourseQuizzes([quiz, ...savedQuizzes]);
-  saveCourseQuizSubmissions(getCourseQuizSubmissions().filter((submission) => submission.quizId !== quiz.id));
-  if (!existingQuiz) {
-    addNotification({
-      type: "quiz",
-      section: "courses",
-      courseId,
-      audience: { role: "student" },
-      title: `New test/quiz: ${title}`,
-      message: `${getCourseTitle(courseId)} - due ${formatDate(dueAt)}`,
-      createdAt: quiz.createdAt
-    });
+  try {
+    const response = existingQuiz
+      ? await fetch(getApiUrl(`/courses/${courseId}/quizzes/${quiz.id}`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(quiz)
+      })
+      : await fetch(getApiUrl(`/courses/${courseId}/quizzes`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(quiz)
+      });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to save quiz.");
+    await loadServerQuizzes(courseId);
+    saveCourseQuizSubmissions(getCourseQuizSubmissions().filter((submission) => submission.quizId !== quiz.id));
+    if (!existingQuiz) {
+      addNotification({
+        type: "quiz",
+        section: "courses",
+        courseId,
+        audience: { role: "student" },
+        title: `New test/quiz: ${title}`,
+        message: `${getCourseTitle(courseId)} - due ${formatDate(dueAt)}`,
+        createdAt: quiz.createdAt
+      });
+    }
+    refreshOpenCourseWorkspace(courseId);
+  } catch (error) {
+    window.alert(error.message || "Unable to save quiz.");
   }
-  refreshOpenCourseWorkspace(courseId);
 });
 
-document.addEventListener("submit", (event) => {
+document.addEventListener("submit", async (event) => {
   const answerForm = event.target.closest("[data-course-quiz-answer]");
   if (!answerForm) return;
 
@@ -3550,7 +3618,7 @@ document.addEventListener("submit", (event) => {
   const submissions = getCourseQuizSubmissions().filter((submission) => {
     return !(submission.quizId === quizId && submission.studentId === currentStudent.id);
   });
-  submissions.push({
+  const submission = {
     id: `course-quiz-submission-${Date.now()}`,
     courseId: quiz.courseId,
     quizId,
@@ -3561,7 +3629,22 @@ document.addEventListener("submit", (event) => {
     correction: corrections[questions[0].id],
     corrections,
     submittedAt: new Date().toISOString()
-  });
+  };
+  submissions.push(submission);
+
+  try {
+    const response = await fetch(getApiUrl(`/courses/${quiz.courseId}/quiz-submissions`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(submission)
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to submit quiz.");
+    await loadServerQuizSubmissions(quiz.courseId);
+  } catch (error) {
+    window.alert(error.message || "Unable to submit quiz.");
+    return;
+  }
 
   saveCourseQuizSubmissions(submissions);
   if (extraChance) consumeQuizExtraChance(quizId);
@@ -6162,7 +6245,12 @@ renderAssignments();
 renderInvitations();
 renderChatMessages();
 const currentUserForCourses = JSON.parse(sessionStorage.getItem("gthCurrentUser") || "null");
-loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "").then(() => {
+loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "").then(async () => {
+  const courseId = getCustomCourses()[0]?._id || getCustomCourses()[0]?.id || "";
+  if (courseId) {
+    await loadServerQuizzes(courseId);
+    await loadServerQuizSubmissions(courseId);
+  }
   renderCustomCourses();
   renderGradebook();
   setupPrivateMessageStudents();

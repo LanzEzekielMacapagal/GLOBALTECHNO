@@ -126,6 +126,89 @@ const courseSchema = new mongoose.Schema({
   },
 });
 
+// Quiz Schema
+const quizSchema = new mongoose.Schema({
+  id: {
+    type: String,
+    required: true,
+    unique: true,
+  },
+  courseId: {
+    type: String,
+    required: true,
+  },
+  title: {
+    type: String,
+    required: true,
+  },
+  dueAt: String,
+  type: String,
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now,
+  },
+  sections: {
+    type: Array,
+    default: [],
+  },
+  questions: {
+    type: Array,
+    default: [],
+  },
+  question: String,
+  options: {
+    type: Array,
+    default: [],
+  },
+  correctAnswer: String,
+  correction: String,
+});
+
+// Quiz Submission Schema
+const quizSubmissionSchema = new mongoose.Schema({
+  id: {
+    type: String,
+    required: true,
+    unique: true,
+  },
+  courseId: {
+    type: String,
+    required: true,
+  },
+  quizId: {
+    type: String,
+    required: true,
+  },
+  studentId: {
+    type: String,
+    required: true,
+  },
+  studentName: String,
+  answer: mongoose.Schema.Types.Mixed,
+  answers: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {},
+  },
+  correction: String,
+  corrections: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {},
+  },
+  submittedAt: {
+    type: Date,
+    default: Date.now,
+  },
+  manualScores: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {},
+  },
+  gradedAt: Date,
+});
+
 // Announcement Schema
 const announcementSchema = new mongoose.Schema({
   classroom: {
@@ -276,6 +359,8 @@ const gradeSchema = new mongoose.Schema({
 const Task = mongoose.model("Task", taskSchema);
 const User = mongoose.model("User", userSchema);
 const Course = mongoose.model("Course", courseSchema);
+const Quiz = mongoose.model("Quiz", quizSchema);
+const QuizSubmission = mongoose.model("QuizSubmission", quizSubmissionSchema);
 const Announcement = mongoose.model("Announcement", announcementSchema);
 const Video = mongoose.model("Video", videoSchema);
 const ChatMessage = mongoose.model("ChatMessage", chatMessageSchema);
@@ -934,6 +1019,112 @@ server.post("/courses/:courseId/next-up", async (req, res) => {
   }
 });
 
+server.get("/courses/:courseId/quizzes", async (req, res) => {
+  try {
+    const quizzes = await Quiz.find({ courseId: req.params.courseId }).sort({ createdAt: -1 });
+    res.status(200).send({
+      code: 200,
+      data: quizzes,
+    });
+  } catch (error) {
+    res.status(500).send({
+      code: 500,
+      message: "There is an error fetching quizzes.",
+    });
+  }
+});
+
+server.post("/courses/:courseId/quizzes", async (req, res) => {
+  try {
+    const quizData = req.body;
+    const quiz = new Quiz({
+      ...quizData,
+      courseId: req.params.courseId,
+      id: quizData.id || `course-quiz-${Date.now()}`,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await quiz.save();
+    res.status(201).send({
+      code: 201,
+      message: "Quiz saved successfully.",
+      data: quiz,
+    });
+  } catch (error) {
+    res.status(500).send({
+      code: 500,
+      message: "There is an error saving the quiz.",
+    });
+  }
+});
+
+server.put("/courses/:courseId/quizzes/:quizId", async (req, res) => {
+  try {
+    const quiz = await Quiz.findOne({ id: req.params.quizId, courseId: req.params.courseId });
+    if (!quiz) {
+      return res.status(404).send({ code: 404, message: "Quiz not found." });
+    }
+
+    Object.assign(quiz, { ...req.body, updatedAt: new Date() });
+    await quiz.save();
+    res.status(200).send({ code: 200, message: "Quiz updated successfully.", data: quiz });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "There is an error updating the quiz." });
+  }
+});
+
+server.delete("/courses/:courseId/quizzes/:quizId", async (req, res) => {
+  try {
+    await Quiz.deleteOne({ id: req.params.quizId, courseId: req.params.courseId });
+    await QuizSubmission.deleteMany({ quizId: req.params.quizId });
+    res.status(200).send({ code: 200, message: "Quiz deleted successfully." });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "There is an error deleting the quiz." });
+  }
+});
+
+server.get("/courses/:courseId/quiz-submissions", async (req, res) => {
+  try {
+    const submissions = await QuizSubmission.find({ courseId: req.params.courseId }).sort({ submittedAt: -1 });
+    res.status(200).send({ code: 200, data: submissions });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "There is an error fetching quiz submissions." });
+  }
+});
+
+server.post("/courses/:courseId/quiz-submissions", async (req, res) => {
+  try {
+    const submissionData = req.body;
+    const submission = new QuizSubmission({
+      ...submissionData,
+      courseId: req.params.courseId,
+      id: submissionData.id || `course-quiz-submission-${Date.now()}`,
+      submittedAt: new Date(),
+    });
+
+    await submission.save();
+    res.status(201).send({ code: 201, message: "Submission saved successfully.", data: submission });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "There is an error saving the submission." });
+  }
+});
+
+server.put("/courses/:courseId/quiz-submissions/:submissionId", async (req, res) => {
+  try {
+    const submission = await QuizSubmission.findOne({ id: req.params.submissionId, courseId: req.params.courseId });
+    if (!submission) {
+      return res.status(404).send({ code: 404, message: "Submission not found." });
+    }
+
+    Object.assign(submission, { ...req.body, submittedAt: submission.submittedAt });
+    await submission.save();
+    res.status(200).send({ code: 200, message: "Submission updated successfully.", data: submission });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "There is an error updating the submission." });
+  }
+});
+
 server.delete("/courses/delete/:courseId", async (req, res) => {
   try {
     const course = await Course.findOne({ _id: req.params.courseId });
@@ -950,6 +1141,8 @@ server.delete("/courses/delete/:courseId", async (req, res) => {
       { enrolledCourses: course._id },
       { $pull: { enrolledCourses: course._id } }
     );
+    await Quiz.deleteMany({ courseId: req.params.courseId });
+    await QuizSubmission.deleteMany({ courseId: req.params.courseId });
 
     res.status(200).send({
       code: 200,
