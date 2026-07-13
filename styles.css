@@ -298,7 +298,7 @@ body {
 
 .course-card-custom .course-card-layout {
   display: grid;
-  grid-template-columns: 11rem minmax(0, 1fr);
+  grid-template-columns: clamp(8rem, 20vw, 14rem) minmax(0, 1fr);
   min-height: 9rem;
   align-items: stretch;
 }
@@ -2641,8 +2641,7 @@ body {
 .course-strip {
   position: relative;
   display: grid;
-  height: 8rem;
-  min-height: 8rem;
+  min-height: 9rem;
   place-items: center;
   color: #fff;
   isolation: isolate;
@@ -2675,8 +2674,11 @@ body {
 }
 
 .course-strip span {
-  font-size: 2rem;
+  font-size: 4rem;
   font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.1em;
+  z-index: 1;
 }
 
 .course-strip-primary {
@@ -3890,8 +3892,8 @@ body {
   }
 
   .course-strip {
-    height: 5.5rem;
-    min-height: 5.5rem;
+    height: 9rem;
+    min-height: 9rem;
   }
 
   .course-cover-panel {
@@ -4141,7 +4143,12 @@ body {
 
   .course-card-custom .course-card-layout {
     grid-template-columns: 7rem minmax(0, 1fr);
-    min-height: 6.5rem;
+    min-height: 9rem;
+  }
+
+  .course-strip {
+    min-height: 9rem;
+    height: auto;
   }
 
   .course-video-item {

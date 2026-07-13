@@ -27,7 +27,6 @@ const chatToggles = document.querySelectorAll(".chat-toggle");
 const courseForm = document.querySelector("#courseForm");
 const courseTitle = document.querySelector("#courseTitle");
 const courseDescription = document.querySelector("#courseDescription");
-const courseCover = document.querySelector("#courseCover");
 const studentImportForm = document.querySelector("#studentImportForm");
 const studentImportCode = document.querySelector("#studentImportCode");
 const studentImportMessage = document.querySelector("#studentImportMessage");
@@ -574,7 +573,8 @@ function renderCourseQuizStack(courseId, options = {}) {
   const course = options.course || courseWorkspaces[courseId];
   const wrapper = document.createElement(options.article ? "article" : "div");
   wrapper.className = options.article ? "student-course-quiz-panel" : "course-quiz-stack";
-  const currentNext = getCourseItems(getCourseNextPosts(), courseId)[0];
+  const nextTitle = course?.nextUpTitle || course?.next || "";
+  const nextMessage = course?.nextUpMessage || "";
   const quizzes = getCourseItems(getCourseQuizzes(), courseId);
   const quizScore = getCourseQuizScore(courseId);
 
@@ -593,14 +593,14 @@ function renderCourseQuizStack(courseId, options = {}) {
     nextPanel.className = "course-next-panel";
     nextPanel.append(
       createTextElement("p", "section-label mb-1", "Next up"),
-      createTextElement("h4", "h6 mb-2", currentNext?.title || course.next)
+      createTextElement("h4", "h6 mb-2", nextTitle || "No upcoming task yet")
     );
 
-    if (currentNext?.message) {
-      nextPanel.appendChild(createTextElement("p", "text-secondary small mb-0", currentNext.message));
+    if (nextMessage) {
+      nextPanel.appendChild(createTextElement("p", "text-secondary small mb-0", nextMessage));
     }
 
-    if (options.adminControls) nextPanel.appendChild(renderCourseNextForm(courseId, currentNext));
+    if (options.adminControls) nextPanel.appendChild(renderCourseNextForm(courseId, { title: nextTitle, message: nextMessage }));
     wrapper.appendChild(nextPanel);
   }
 
@@ -678,14 +678,6 @@ function renderCourseWorkspace(courseId, triggerCard) {
 
   const hero = document.createElement("div");
   hero.className = "course-workspace-hero";
-  if (course.cover) hero.classList.add("course-workspace-hero-with-cover");
-
-  const heroCover = document.createElement("img");
-  if (course.cover) {
-    heroCover.className = "course-workspace-cover";
-    heroCover.src = course.cover;
-    heroCover.alt = `${course.title} cover photo`;
-  }
 
   const heroText = document.createElement("div");
   heroText.append(
@@ -716,7 +708,6 @@ function renderCourseWorkspace(courseId, triggerCard) {
   copyInvite.textContent = "Copy";
   invitePanel.append(inviteText, copyInvite);
 
-  if (course.cover) hero.appendChild(heroCover);
   hero.appendChild(heroText);
 
   if (!adminApp) {
@@ -1208,9 +1199,10 @@ function setNotificationPanelOpen(isOpen) {
   notificationPanel.classList.toggle("active", isOpen);
 }
 
-async function loadServerCourses() {
+async function loadServerCourses(userId = "") {
   try {
-    const response = await fetch(getApiUrl("/courses/all"));
+    const query = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+    const response = await fetch(getApiUrl(`/courses/all${query}`));
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.message || "Unable to load courses.");
     serverCourses = Array.isArray(result.data) ? result.data : [];
@@ -2920,10 +2912,11 @@ function createCustomCourseWorkspace(course, index) {
     status: adminApp ? "Live" : "In Progress",
     progress: adminApp ? 0 : 1,
     accent,
-    cover: course.cover || "",
     invitationCode: course.invitationCode || createInvitationCode(course.title, course.id),
     description: course.description,
-    next: "Start reviewing the course materials and wait for new activities from the admin.",
+    nextUpTitle: course.nextUpTitle || "",
+    nextUpMessage: course.nextUpMessage || "",
+    next: course.nextUpTitle || "Start reviewing the course materials and wait for new activities from the admin.",
     modules: [
       ["Course overview", "Open"],
       ["Learning materials", "Pending"],
@@ -2943,7 +2936,6 @@ function createInvitationCode(title = "", fallback = "") {
 
 function createCourseCard(course, index) {
   const accent = courseAccentClasses[index % courseAccentClasses.length];
-  const code = String(index + 4).padStart(2, "0");
   const statusText = adminApp ? "Live" : "In Progress";
   const article = document.createElement("article");
   article.className = "card course-card course-card-custom";
@@ -2954,17 +2946,7 @@ function createCourseCard(course, index) {
   row.className = "row g-0 course-card-layout";
 
   const media = document.createElement("div");
-  media.className = course.cover ? "col-md-3 course-card-media course-cover-panel" : `col-md-3 course-card-media course-strip course-strip-${accent}`;
-  if (course.cover) {
-    const cover = document.createElement("img");
-    cover.src = course.cover;
-    cover.alt = `${course.title} cover photo`;
-    media.appendChild(cover);
-  } else {
-    const stripNumber = document.createElement("span");
-    stripNumber.textContent = code;
-    media.appendChild(stripNumber);
-  }
+  media.className = `col-md-3 course-card-media course-strip course-strip-${accent}`;
 
   const contentColumn = document.createElement("div");
   contentColumn.className = "col-md-9";
@@ -2974,13 +2956,45 @@ function createCourseCard(course, index) {
 
   const header = document.createElement("div");
   header.className = "d-flex justify-content-between gap-2 mb-2";
-  header.append(
-    createTextElement("h3", "h6 mb-0", course.title),
-    createTextElement("span", "badge text-bg-success", statusText)
-  );
+  
+  const titleEl = createTextElement("h3", "mb-0", course.title);
+  titleEl.style.fontSize = "1.1rem";
+  titleEl.style.fontWeight = "750";
+  titleEl.style.color = "var(--gth-ink)";
+  titleEl.style.lineHeight = "1.3";
+  
+  const badgeEl = createTextElement("span", "badge text-bg-success", statusText);
+  badgeEl.style.whiteSpace = "nowrap";
+  
+  header.append(titleEl, badgeEl);
+
+  const descEl = createTextElement("p", "mb-3", course.description);
+  descEl.style.fontSize = "0.95rem";
+  descEl.style.color = "var(--gth-muted)";
+  descEl.style.lineHeight = "1.4";
+  descEl.style.margin = "0";
+
+  const codeLabel = document.createElement("p");
+  codeLabel.style.fontSize = "0.75rem";
+  codeLabel.style.fontWeight = "700";
+  codeLabel.style.color = "var(--gth-muted)";
+  codeLabel.style.letterSpacing = "0.03em";
+  codeLabel.style.margin = "0.5rem 0 0.25rem 0";
+  codeLabel.style.textTransform = "uppercase";
+  codeLabel.textContent = "Subject Code";
+  
+  const codeEl = createTextElement("p", "mb-3", course.invitationCode || createInvitationCode(course.title, course.id));
+  codeEl.style.fontSize = "0.95rem";
+  codeEl.style.fontWeight = "700";
+  codeEl.style.color = accent === "coral" ? "var(--gth-coral)" : accent === "sand" ? "#81510b" : "var(--gth-teal)";
+  codeEl.style.fontFamily = "monospace";
+  codeEl.style.margin = "0 0 0.75rem 0";
+  codeEl.style.letterSpacing = "0.02em";
 
   const progressMeta = document.createElement("div");
   progressMeta.className = "d-flex justify-content-between small mb-1";
+  progressMeta.style.fontSize = "0.85rem";
+  progressMeta.style.fontWeight = "600";
   progressMeta.append(
     createTextElement("span", "", "Progress"),
     createTextElement("strong", "", adminApp ? "0%" : "1%")
@@ -3001,8 +3015,9 @@ function createCourseCard(course, index) {
 
   body.append(
     header,
-    createTextElement("p", "text-secondary mb-3", course.description),
-    createTextElement("p", "small text-secondary mb-3", `Subject code: ${course.invitationCode || createInvitationCode(course.title, course.id)}`),
+    descEl,
+    codeLabel,
+    codeEl,
     progressMeta,
     progress
   );
@@ -3032,13 +3047,11 @@ function renderCustomCourses() {
   if (!lists.length) return;
   syncPostTargetSelectors();
 
-  const currentUser = JSON.parse(sessionStorage.getItem("gthCurrentUser") || "null");
-  const enrolledCourseIds = new Set((currentUser?.enrolledCourses || []).map((course) => String(course._id || course)));
   const courses = getCustomCourses().map((course) => ({
     ...course,
     id: String(course._id || course.id),
     _id: String(course._id || course.id),
-    isJoined: adminApp || enrolledCourseIds.has(String(course._id || course.id))
+    isJoined: true
   }));
 
   Object.keys(courseWorkspaces)
@@ -3111,27 +3124,13 @@ studentImportForm?.addEventListener("submit", async (event) => {
     }
 
     studentImportForm.reset();
-    await loadServerCourses();
+    await loadServerCourses(currentUser?._id || "");
     renderCustomCourses();
   } catch (error) {
     studentImportMessage.className = "course-import-message text-danger mb-0";
     studentImportMessage.textContent = error.message || "Unable to join course.";
   }
 });
-
-function readCourseCover(file) {
-  return new Promise((resolve) => {
-    if (!file) {
-      resolve("");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.addEventListener("load", () => resolve(String(reader.result || "")));
-    reader.addEventListener("error", () => resolve(""));
-    reader.readAsDataURL(file);
-  });
-}
 
 courseForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -3147,7 +3146,6 @@ courseForm?.addEventListener("submit", async (event) => {
       body: JSON.stringify({
         title,
         description,
-        cover: await readCourseCover(courseCover?.files?.[0]),
         status: "live"
       })
     });
@@ -3156,6 +3154,7 @@ courseForm?.addEventListener("submit", async (event) => {
     if (!response.ok) throw new Error(result.message || "Unable to create course.");
 
     courseForm.reset();
+    setFormStatus(courseForm, result.data?.invitationCode ? `Course created! Share code ${result.data.invitationCode} with students.` : "Course created successfully.", "success");
     await loadServerCourses();
     renderCustomCourses();
     showStudentSection("courses", { updateHash: true });
@@ -3167,18 +3166,99 @@ courseForm?.addEventListener("submit", async (event) => {
   }
 });
 
-document.addEventListener("click", (event) => {
+document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-course-action='remove']");
   if (!button) return;
 
   const courseId = button.dataset.courseId;
-  saveCustomCourses(getCustomCourses().filter((course) => String(course._id || course.id) !== String(courseId)));
-  saveCourseNextPosts(getCourseNextPosts().filter((item) => item.courseId !== courseId));
-  saveCourseResources(getCourseResources().filter((item) => item.courseId !== courseId));
-  saveCourseQuizzes(getCourseQuizzes().filter((item) => item.courseId !== courseId));
-  saveCourseQuizSubmissions(getCourseQuizSubmissions().filter((item) => item.courseId !== courseId));
-  document.querySelector(".course-workspace")?.remove();
-  renderCustomCourses();
+  const courseName = button.closest(".course-card")?.querySelector("h3")?.textContent || "this course";
+  
+  // Show styled confirmation modal
+  const modalHTML = `
+    <div class="modal fade" id="deleteCourseModal" tabindex="-1" role="dialog" aria-labelledby="deleteCourseLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content" style="border: 1px solid #d8e7ec; border-radius: 0.75rem; box-shadow: 0 20px 60px rgba(12, 42, 51, 0.2);">
+          <div class="modal-header" style="border-bottom: 1px solid #e4eef2; padding: 1.5rem; background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 252, 0.92));">
+            <div style="display: grid; gap: 0.25rem;">
+              <h5 class="modal-title" id="deleteCourseLabel" style="color: var(--gth-ink); font-weight: 850; margin: 0;">Remove Course</h5>
+              <small style="color: var(--gth-muted);">This action cannot be undone</small>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body" style="padding: 1.5rem;">
+            <div style="display: grid; gap: 0.75rem;">
+              <div style="display: grid; gap: 0.4rem;">
+                <p style="margin: 0; color: var(--gth-muted); font-size: 0.95rem;">Are you sure you want to remove</p>
+                <p style="margin: 0; color: var(--gth-ink); font-weight: 750; font-size: 1.05rem; word-break: break-word;">${courseName}</p>
+              </div>
+              <div style="padding: 0.75rem; border-left: 3px solid var(--gth-coral); border-radius: 0.35rem; background: #fff4f6;">
+                <small style="color: #7a4a51; display: block; line-height: 1.4;">All enrolled students will lose access. Course data will be permanently removed.</small>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer" style="border-top: 1px solid #e4eef2; padding: 1rem; background: rgba(248, 251, 252, 0.5);">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" style="border-color: #c8dde3;">Cancel</button>
+            <button type="button" class="btn btn-danger" id="confirmDeleteBtn" style="background: var(--gth-coral); border-color: var(--gth-coral);">Remove Course</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Remove old modal and backdrop if exists
+  const oldModal = document.getElementById("deleteCourseModal");
+  if (oldModal) {
+    const backdrop = document.querySelector(".modal-backdrop");
+    if (backdrop) backdrop.remove();
+    oldModal.remove();
+  }
+
+  // Add modal to page
+  document.body.insertAdjacentHTML("beforeend", modalHTML);
+
+  // Show modal and handle confirmation
+  const modal = new window.bootstrap.Modal(document.getElementById("deleteCourseModal"), { 
+    backdrop: true,
+    keyboard: false
+  });
+  modal.show();
+
+  document.getElementById("confirmDeleteBtn").addEventListener("click", async () => {
+    modal.hide();
+    
+    try {
+      const response = await fetch(getApiUrl(`/courses/delete/${courseId}`), { method: "DELETE" });
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) throw new Error(result.message || "Unable to remove course.");
+
+      saveCustomCourses(getCustomCourses().filter((course) => String(course._id || course.id) !== String(courseId)));
+      saveCourseNextPosts(getCourseNextPosts().filter((item) => item.courseId !== courseId));
+      saveCourseResources(getCourseResources().filter((item) => item.courseId !== courseId));
+      saveCourseQuizzes(getCourseQuizzes().filter((item) => item.courseId !== courseId));
+      saveCourseQuizSubmissions(getCourseQuizSubmissions().filter((item) => item.courseId !== courseId));
+      document.querySelector(".course-workspace")?.remove();
+
+      await loadServerCourses();
+      renderCustomCourses();
+    } catch (error) {
+      window.alert(error.message || "Unable to remove course.");
+    }
+
+    // Clean up modal and backdrop
+    const backdrop = document.querySelector(".modal-backdrop");
+    if (backdrop) backdrop.remove();
+    document.getElementById("deleteCourseModal")?.remove();
+    document.body.classList.remove("modal-open");
+  }, { once: true });
+
+  // Clean up modal on hide
+  document.getElementById("deleteCourseModal").addEventListener("hidden.bs.modal", () => {
+    const backdrop = document.querySelector(".modal-backdrop");
+    if (backdrop) backdrop.remove();
+    document.getElementById("deleteCourseModal")?.remove();
+    document.body.classList.remove("modal-open");
+  }, { once: true });
 });
 
 function refreshOpenCourseWorkspace(courseId) {
@@ -3205,7 +3285,7 @@ document.addEventListener("change", (event) => {
   section.querySelectorAll("[data-quiz-question-row]").forEach((row) => updateQuizQuestionRowType(row, select.value));
 });
 
-document.addEventListener("submit", (event) => {
+document.addEventListener("submit", async (event) => {
   const nextForm = event.target.closest("[data-course-next-form]");
   if (!nextForm) return;
 
@@ -3215,26 +3295,38 @@ document.addEventListener("submit", (event) => {
   const message = nextForm.elements.message.value.trim();
   if (!title || !message) return;
 
-  const posts = getCourseNextPosts().filter((post) => post.courseId !== courseId);
-  posts.unshift({
-    id: `course-next-${Date.now()}`,
-    courseId,
-    title,
-    message,
-    createdAt: new Date().toISOString()
-  });
+  try {
+    const response = await fetch(getApiUrl(`/courses/${courseId}/next-up`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, message })
+    });
+    const result = await response.json().catch(() => ({}));
 
-  saveCourseNextPosts(posts);
-  addNotification({
-    type: "course-next",
-    section: "courses",
-    courseId,
-    audience: { role: "student" },
-    title: `New course update: ${title}`,
-    message: getCourseTitle(courseId),
-    createdAt: posts[0].createdAt
-  });
-  refreshOpenCourseWorkspace(courseId);
+    if (!response.ok) throw new Error(result.message || "Unable to save course update.");
+
+    await loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "");
+    if (courseWorkspaces[courseId]) {
+      courseWorkspaces[courseId] = {
+        ...courseWorkspaces[courseId],
+        nextUpTitle: title,
+        nextUpMessage: message,
+        next: title
+      };
+    }
+    addNotification({
+      type: "course-next",
+      section: "courses",
+      courseId,
+      audience: { role: "student" },
+      title: `New course update: ${title}`,
+      message: getCourseTitle(courseId),
+      createdAt: new Date().toISOString()
+    });
+    refreshOpenCourseWorkspace(courseId);
+  } catch (error) {
+    window.alert(error.message || "Unable to save course update.");
+  }
 });
 
 document.addEventListener("submit", async (event) => {
@@ -6069,7 +6161,8 @@ renderVideos();
 renderAssignments();
 renderInvitations();
 renderChatMessages();
-loadServerCourses().then(() => {
+const currentUserForCourses = JSON.parse(sessionStorage.getItem("gthCurrentUser") || "null");
+loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "").then(() => {
   renderCustomCourses();
   renderGradebook();
   setupPrivateMessageStudents();

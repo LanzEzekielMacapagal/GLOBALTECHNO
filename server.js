@@ -99,11 +99,22 @@ const courseSchema = new mongoose.Schema({
     required: true,
   },
   invitationCode: String,
-  cover: String,
   status: {
     type: String,
     default: "live",
     enum: ["live", "draft"],
+  },
+  nextUpTitle: {
+    type: String,
+    default: "",
+  },
+  nextUpMessage: {
+    type: String,
+    default: "",
+  },
+  nextUpUpdatedAt: {
+    type: Date,
+    default: Date.now,
   },
   isActive: {
     type: Boolean,
@@ -282,6 +293,18 @@ const generateInvitationCode = (title = "") => {
     .slice(0, 6);
   const suffix = String(Math.floor(1000 + Math.random() * 9000));
   return `${base || "COURSE"}${suffix}`;
+};
+
+const generateUniqueInvitationCode = async (title = "") => {
+  let invitationCode = generateInvitationCode(title);
+  let existingCourse = await Course.findOne({ invitationCode });
+
+  while (existingCourse != null) {
+    invitationCode = generateInvitationCode(title);
+    existingCourse = await Course.findOne({ invitationCode });
+  }
+
+  return invitationCode;
 };
 
 const ensureDefaultAdmin = async () => {
@@ -705,12 +728,15 @@ server.post("/courses/add", async (req, res) => {
       });
     }
 
+    const invitationCode = req.body.invitationCode || await generateUniqueInvitationCode(req.body.title);
+
     const newCourse = new Course({
       title: req.body.title,
       description: req.body.description,
-      invitationCode: req.body.invitationCode || generateInvitationCode(req.body.title),
-      cover: req.body.cover,
+      invitationCode,
       status: req.body.status || "live",
+      nextUpTitle: req.body.nextUpTitle || "",
+      nextUpMessage: req.body.nextUpMessage || "",
     });
 
     const savedCourse = await newCourse.save();
@@ -748,7 +774,10 @@ server.post("/courses/join", async (req, res) => {
       });
     }
 
-    const course = await Course.findOne({ invitationCode: { $regex: new RegExp(`^${escapeRegExp(invitationCode)}$`, "i") } });
+    const course = await Course.findOne({
+      invitationCode: { $regex: new RegExp(`^${escapeRegExp(invitationCode)}$`, "i") },
+      isActive: { $ne: false },
+    });
     if (!course) {
       return res.status(404).send({
         code: 404,
@@ -782,22 +811,47 @@ server.post("/courses/join", async (req, res) => {
 });
 
 // Get all courses
-server.get("/courses/all", (req, res) => {
-  Course.find({})
-    .then((result) => {
-      res.status(200).send({
+server.get("/courses/all", async (req, res) => {
+  try {
+    const userId = req.query.userId;
+    const activeCoursesQuery = { isActive: { $ne: false } };
+
+    if (userId) {
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).send({
+          code: 404,
+          message: "User not found.",
+        });
+      }
+
+      const enrolledCourseIds = (user.enrolledCourses || []).filter(Boolean);
+      const result = await Course.find({
+        _id: { $in: enrolledCourseIds },
+        ...activeCoursesQuery,
+      }).sort({ dateCreated: -1 });
+
+      return res.status(200).send({
         code: 200,
-        message: "Here are all courses.",
+        message: "Here are the student's active courses.",
         count: result.length,
         data: result,
       });
-    })
-    .catch((err) => {
-      res.status(500).send({
-        code: 500,
-        message: "There is an error fetching all courses.",
-      });
+    }
+
+    const result = await Course.find(activeCoursesQuery).sort({ dateCreated: -1 });
+    res.status(200).send({
+      code: 200,
+      message: "Here are all active courses.",
+      count: result.length,
+      data: result,
     });
+  } catch (error) {
+    res.status(500).send({
+      code: 500,
+      message: "There is an error fetching all courses.",
+    });
+  }
 });
 
 // Edit a course
@@ -841,28 +895,75 @@ server.put("/courses/edit/:courseId", (req, res) => {
 });
 
 // Delete a course
-server.delete("/courses/delete/:courseId", (req, res) => {
-  Course.deleteOne({ _id: req.params.courseId })
-    .then((result) => {
-      if (result.deletedCount === 0) {
-        return res.status(404).send({
-          code: 404,
-          message: "Course not found. Cannot delete!",
-        });
-      }
+server.post("/courses/:courseId/next-up", async (req, res) => {
+  try {
+    const course = await Course.findById(req.params.courseId);
 
-      res.status(200).send({
-        code: 200,
-        message: "Course is now permanently deleted!",
-        data: result,
+    if (!course) {
+      return res.status(404).send({
+        code: 404,
+        message: "Course not found.",
       });
-    })
-    .catch((err) => {
-      res.status(500).send({
-        code: 500,
-        message: "There is an error deleting the course.",
+    }
+
+    const title = String(req.body?.title || "").trim();
+    const message = String(req.body?.message || "").trim();
+
+    if (!title || !message) {
+      return res.status(400).send({
+        code: 400,
+        message: "Title and message are required.",
       });
+    }
+
+    course.nextUpTitle = title;
+    course.nextUpMessage = message;
+    course.nextUpUpdatedAt = new Date();
+    await course.save();
+
+    res.status(200).send({
+      code: 200,
+      message: "Course update saved successfully.",
+      data: course,
     });
+  } catch (error) {
+    res.status(500).send({
+      code: 500,
+      message: "There is an error saving the course update.",
+    });
+  }
+});
+
+server.delete("/courses/delete/:courseId", async (req, res) => {
+  try {
+    const course = await Course.findOne({ _id: req.params.courseId });
+
+    if (course == null) {
+      return res.status(404).send({
+        code: 404,
+        message: "Course not found. Cannot delete!",
+      });
+    }
+
+    await Course.updateOne({ _id: req.params.courseId }, { $set: { isActive: false } });
+    await User.updateMany(
+      { enrolledCourses: course._id },
+      { $pull: { enrolledCourses: course._id } }
+    );
+
+    res.status(200).send({
+      code: 200,
+      message: "Course is now permanently deleted!",
+      data: {
+        deletedCourseId: String(course._id),
+      },
+    });
+  } catch (error) {
+    res.status(500).send({
+      code: 500,
+      message: "There is an error deleting the course.",
+    });
+  }
 });
 
 // =============================================
