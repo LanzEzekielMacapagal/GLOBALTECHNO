@@ -239,8 +239,19 @@ const selectedClassroom = availableClassrooms.some((target) => target.value === 
   ? requestedClassroom
   : availableClassrooms[0]?.value || "";
 const selectedClassroomTitle = getClassroomTitle(selectedClassroom);
+const currentUserFromSession = (() => {
+  try {
+    return JSON.parse(sessionStorage.getItem("gthCurrentUser") || "null");
+  } catch {
+    return null;
+  }
+})();
 const currentStudent = {
   ...((classroomStudents[selectedClassroom] || classroomStudents.ict)[0]),
+  id: currentUserFromSession?._id || currentUserFromSession?.id || "",
+  name: currentUserFromSession?.username || currentUserFromSession?.fullName || "Student",
+  username: currentUserFromSession?.username || "",
+  fullName: currentUserFromSession?.fullName || "",
   classroom: selectedClassroom
 };
 
@@ -294,15 +305,47 @@ function calculateFinalGrade(grade = {}) {
   return Math.round(parts.reduce((total, part) => total + part, 0) / parts.length);
 }
 
+async function syncCurrentStudentFromServer() {
+  const currentUser = (() => {
+    try {
+      return JSON.parse(sessionStorage.getItem("gthCurrentUser") || "null");
+    } catch {
+      return null;
+    }
+  })();
+
+  if (!currentUser?._id) return currentStudent;
+
+  try {
+    const response = await fetch(getApiUrl(`/users/${encodeURIComponent(currentUser._id)}/profile`));
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to load student profile.");
+
+    const profile = result.data || {};
+    const nextName = profile.username || profile.fullName || currentUser.username || currentUser.fullName || "Student";
+    currentStudent.id = profile._id || currentUser._id || currentStudent.id;
+    currentStudent.name = nextName;
+    currentStudent.username = profile.username || currentUser.username || currentStudent.username || "";
+    currentStudent.fullName = profile.fullName || currentUser.fullName || currentStudent.fullName || "";
+    currentStudent.classroom = currentStudent.classroom || selectedClassroom;
+    sessionStorage.setItem("gthCurrentUser", JSON.stringify({ ...currentUser, ...profile }));
+  } catch {
+    currentStudent.name = currentUser.username || currentUser.fullName || currentStudent.name || "Student";
+    currentStudent.username = currentUser.username || currentStudent.username || "";
+    currentStudent.fullName = currentUser.fullName || currentStudent.fullName || "";
+  }
+}
+
 function renderCourseGradeSummary(courseId, student = currentStudent) {
   const grade = getStudentGrade(courseId, student.id) || {};
   const finalGrade = calculateFinalGrade(grade);
   const summary = document.createElement("div");
   summary.className = "course-grade-summary mt-3";
 
+  const trackerName = student.username || student.fullName || student.name || "Student";
   summary.append(
     createTextElement("p", "section-label mb-1", "Learning tracker"),
-    createTextElement("h4", "h6 mb-3", student.name)
+    createTextElement("h4", "h6 mb-3", trackerName)
   );
 
   const grid = document.createElement("div");
@@ -431,47 +474,65 @@ function renderCourseLearnerTracker(course, courseId) {
   const header = document.createElement("div");
   header.className = "course-learner-tracker-header";
   header.append(
-    createTextElement("p", "section-label mb-1", "Guideline tracker"),
-    createTextElement("h4", "h6 mb-0", "Learner progress")
+    createTextElement("p", "section-label mb-1", "Classroom roster"),
+    createTextElement("h4", "h6 mb-0", "Enrolled learners")
   );
 
-  const students = getAllStudents();
-  const progressRows = students.map((student) => ({
-    student,
-    stats: calculateLearnerCourseProgress(courseId, course, student)
-  }));
-  const average = progressRows.length
-    ? Math.round(progressRows.reduce((total, row) => total + row.stats.progress, 0) / progressRows.length)
-    : 0;
-  header.appendChild(createTextElement("span", "badge text-bg-info", `${average}% avg`));
+  const countBadge = createTextElement("span", "badge text-bg-info", "Loading...");
+  header.appendChild(countBadge);
 
   const list = document.createElement("div");
   list.className = "course-learner-list";
-
-  progressRows.forEach(({ student, stats }) => {
-    const row = document.createElement("div");
-    row.className = "course-learner-row";
-
-    const info = document.createElement("div");
-    info.className = "course-learner-info";
-    info.append(
-      createTextElement("span", "avatar", getInitials(student.name)),
-      createTextElement("strong", "", student.name),
-      createTextElement("small", "text-secondary", `${stats.completedItems}/${stats.requiredItems || 0} activities done`)
-    );
-
-    const status = document.createElement("div");
-    status.className = "course-learner-status";
-    status.append(
-      createTextElement("strong", "", `${stats.progress}%`),
-      createTextElement("small", "text-secondary", stats.requiredItems ? `${stats.quizSubmissions}/${stats.quizTotal} tests, ${stats.assignmentSubmissions}/${stats.assignmentTotal} classwork` : "No activities yet")
-    );
-
-    row.append(info, status);
-    list.appendChild(row);
-  });
+  list.appendChild(createTextElement("p", "text-secondary small mb-0", "Loading enrolled learners..."));
 
   panel.append(header, list);
+
+  fetch(getApiUrl(`/courses/${encodeURIComponent(courseId)}/enrolled-students`))
+    .then((response) => response.json().catch(() => ({})))
+    .then((result) => {
+      const learners = Array.isArray(result.data) ? result.data : [];
+      countBadge.textContent = learners.length ? `${learners.length} learners` : "No learners";
+      list.replaceChildren();
+
+      if (!learners.length) {
+        list.appendChild(createTextElement("p", "text-secondary small mb-0", "No students have joined this class yet."));
+        return;
+      }
+
+      learners.forEach((learner) => {
+        const row = document.createElement("div");
+        row.className = "course-learner-row";
+
+        const info = document.createElement("div");
+        info.className = "course-learner-info";
+        const displayName = learner.username || learner.fullName || "Student";
+        const secondaryText = learner.fullName && learner.fullName !== displayName
+          ? learner.fullName
+          : "Enrolled learner";
+
+        info.append(
+          createTextElement("span", "avatar", getInitials(displayName)),
+          createTextElement("strong", "", displayName),
+          createTextElement("small", "text-secondary", secondaryText)
+        );
+
+        const status = document.createElement("div");
+        status.className = "course-learner-status";
+        status.append(
+          createTextElement("strong", "", "Joined"),
+          createTextElement("small", "text-secondary", learner.username ? `@${learner.username}` : "Student")
+        );
+
+        row.append(info, status);
+        list.appendChild(row);
+      });
+    })
+    .catch(() => {
+      countBadge.textContent = "Unavailable";
+      list.replaceChildren();
+      list.appendChild(createTextElement("p", "text-secondary small mb-0", "Unable to load learners right now."));
+    });
+
   return panel;
 }
 
@@ -659,10 +720,15 @@ function renderCourseQuizStack(courseId, options = {}) {
   return wrapper;
 }
 
-function renderCourseWorkspace(courseId, triggerCard) {
+async function renderCourseWorkspace(courseId, triggerCard) {
   const course = courseWorkspaces[courseId];
   const courseList = triggerCard.closest("#courseList");
   if (!course || !courseList) return;
+
+  await loadServerQuizzes(courseId);
+  await loadServerQuizSubmissions(courseId);
+  await loadServerEnrolledStudents(courseId);
+  await loadServerQuizExtraChances(courseId);
 
   document.querySelectorAll(".course-card").forEach((card) => {
     const isActive = card === triggerCard;
@@ -1322,6 +1388,8 @@ function saveCourseResources(resources) {
 
 let serverQuizzes = [];
 let serverQuizSubmissions = [];
+let serverQuizExtraChances = [];
+let serverCourseEnrolledStudents = {};
 
 async function loadServerQuizzes(courseId = "") {
   if (!courseId) return [];
@@ -1351,6 +1419,39 @@ async function loadServerQuizSubmissions(courseId = "") {
   }
 }
 
+async function loadServerQuizExtraChances(courseId = "") {
+  if (!courseId) return [];
+  try {
+    const response = await fetch(getApiUrl(`/courses/${courseId}/quiz-extra-chances`));
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to load extra quiz attempts.");
+    serverQuizExtraChances = Array.isArray(result.data) ? result.data : [];
+    return serverQuizExtraChances;
+  } catch {
+    serverQuizExtraChances = [];
+    return serverQuizExtraChances;
+  }
+}
+
+async function loadServerEnrolledStudents(courseId = "") {
+  if (!courseId) return [];
+  try {
+    const response = await fetch(getApiUrl(`/courses/${encodeURIComponent(courseId)}/enrolled-students`));
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to load enrolled students.");
+    const students = Array.isArray(result.data) ? result.data : [];
+    serverCourseEnrolledStudents[courseId] = students;
+    return students;
+  } catch {
+    serverCourseEnrolledStudents[courseId] = [];
+    return [];
+  }
+}
+
+function getCourseEnrolledStudents(courseId = "") {
+  return Array.isArray(serverCourseEnrolledStudents[courseId]) ? serverCourseEnrolledStudents[courseId] : [];
+}
+
 function getCourseQuizzes() {
   return Array.isArray(serverQuizzes) ? serverQuizzes : [];
 }
@@ -1370,11 +1471,12 @@ function saveCourseQuizSubmissions(submissions) {
 }
 
 function getQuizExtraChances() {
-  return getStoredItems("gthQuizExtraChances", []);
+  return Array.isArray(serverQuizExtraChances) ? serverQuizExtraChances : [];
 }
 
 function saveQuizExtraChances(chances) {
-  saveStoredItems("gthQuizExtraChances", chances);
+  serverQuizExtraChances = Array.isArray(chances) ? chances : [];
+  return true;
 }
 
 function getQuizExtraChance(quizId, studentId = currentStudent.id) {
@@ -1385,11 +1487,27 @@ function hasQuizExtraChance(quizId, studentId = currentStudent.id) {
   return Boolean(getQuizExtraChance(quizId, studentId));
 }
 
-function consumeQuizExtraChance(quizId, studentId = currentStudent.id) {
-  saveQuizExtraChances(getQuizExtraChances().map((chance) => {
-    if (chance.quizId !== quizId || chance.studentId !== studentId || chance.usedAt) return chance;
-    return { ...chance, usedAt: new Date().toISOString() };
+async function consumeQuizExtraChance(quizId, studentId = currentStudent.id) {
+  const chance = getQuizExtraChance(quizId, studentId);
+  if (!chance) return;
+
+  const updated = { ...chance, usedAt: new Date().toISOString() };
+  saveQuizExtraChances(getQuizExtraChances().map((item) => {
+    if (item.quizId !== quizId || item.studentId !== studentId || item.usedAt) return item;
+    return updated;
   }));
+
+  if (chance.id) {
+    try {
+      await fetch(getApiUrl(`/courses/${encodeURIComponent(chance.courseId || "")}/quiz-extra-chances/${encodeURIComponent(chance.id)}`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usedAt: updated.usedAt })
+      });
+    } catch {
+      // ignore update failures and keep the UI state consistent
+    }
+  }
 }
 
 function getCourseNextPosts() {
@@ -1782,6 +1900,10 @@ function getQuestionType(quiz, question = {}) {
 
 function isManualGradeType(type) {
   return ["enumeration", "essay", "modified-true-false"].includes(type);
+}
+
+function isAutoGradeType(type) {
+  return ["multiple-choice", "true-false", "matching"].includes(type);
 }
 
 function getManualQuestionScore(submission, question) {
@@ -2192,10 +2314,13 @@ function getQuizScore(quiz, submission) {
   return getQuizQuestions(quiz).reduce((total, question, index) => {
     const manualScore = getManualQuestionScore(submission, question);
     if (manualScore !== null) return total + manualScore;
-    if (isManualGradeType(getQuestionType(quiz, question))) return total;
-    if (getQuestionType(quiz, question) === "matching") {
+
+    const type = getQuestionType(quiz, question);
+    if (isManualGradeType(type)) return total;
+    if (type === "matching") {
       return total + getMatchingQuestionScore(question, getSubmittedAnswer(submission, question, index));
     }
+    if (!isAutoGradeType(type)) return total;
     return total + (isQuestionCorrect(quiz, question, submission, index) ? getQuestionPoints(question) : 0);
   }, 0);
 }
@@ -2304,7 +2429,7 @@ function renderQuizExtraChancePanel(quiz) {
   panel.className = "course-extra-chance-panel";
   panel.append(
     createTextElement("h4", "h6 mb-1", "Add attempt approvals"),
-    createTextElement("p", "small text-secondary mb-2", "Open a classroom, then approve one extra quiz attempt for each enrolled student who missed the due date.")
+    createTextElement("p", "small text-secondary mb-2", "Approve one extra quiz attempt for each student currently enrolled in this course who missed the due date.")
   );
 
   if (!isPastDue(quiz.dueAt)) {
@@ -2315,7 +2440,14 @@ function renderQuizExtraChancePanel(quiz) {
   const submittedStudentIds = new Set(getCourseQuizSubmissions()
     .filter((submission) => submission.quizId === quiz.id)
     .map((submission) => submission.studentId));
-  const missedStudents = getAllStudents().filter((student) => !submittedStudentIds.has(student.id));
+  const enrolledStudents = getCourseEnrolledStudents(quiz.courseId)
+    .map((student) => ({
+      id: student.id || student._id || student.username,
+      name: student.fullName || student.username || student.name || "Student",
+      classroom: student.classroom || "all"
+    }))
+    .filter((student) => Boolean(student.id));
+  const missedStudents = enrolledStudents.filter((student) => !submittedStudentIds.has(student.id));
 
   if (!missedStudents.length) {
     panel.appendChild(createTextElement("p", "text-secondary small mb-0", "No missed students for this quiz."));
@@ -2428,7 +2560,10 @@ function renderCourseQuizItem(quiz) {
       const questionBlock = document.createElement("div");
       questionBlock.className = "course-quiz-question";
       questionBlock.appendChild(createTextElement("p", "fw-bold mb-2", `${index + 1}. ${question.question}`));
-      questionBlock.appendChild(createTextElement("small", "text-secondary mb-2", `${getQuestionPoints(question)} point${getQuestionPoints(question) === 1 ? "" : "s"}`));
+      const gradingHint = isManualGradeType(type)
+        ? "Admin will grade this manually"
+        : "Auto-graded on submission";
+      questionBlock.appendChild(createTextElement("small", "text-secondary mb-2", `${getQuestionPoints(question)} point${getQuestionPoints(question) === 1 ? "" : "s"} • ${gradingHint}`));
 
       const options = document.createElement("div");
       options.className = "course-quiz-options mb-2";
@@ -2673,6 +2808,10 @@ function createQuizQuestionRow(index, activeType = "multiple-choice", existingQu
   points.required = true;
   points.value = existingQuestion.points || 1;
 
+  const gradingHint = createTextElement("small", "text-secondary d-block", activeType === "multiple-choice" || activeType === "true-false"
+    ? "Auto-graded with the assigned points"
+    : "Admin will grade this manually");
+
   const mcFields = document.createElement("div");
   mcFields.className = "course-quiz-fields";
   mcFields.dataset.quizFields = "multiple-choice";
@@ -2790,7 +2929,7 @@ function createQuizQuestionRow(index, activeType = "multiple-choice", existingQu
   essayGuide.value = activeType === "essay" ? existingQuestion.correctAnswer || "" : "";
   essayFields.appendChild(essayGuide);
 
-  row.append(header, question, points, mcFields, tfFields, modifiedFields, matchingFields, enumerationFields, essayFields);
+  row.append(header, question, points, gradingHint, mcFields, tfFields, modifiedFields, matchingFields, enumerationFields, essayFields);
   updateQuizQuestionRowType(row, activeType);
   return row;
 }
@@ -3647,7 +3786,7 @@ document.addEventListener("submit", async (event) => {
   }
 
   saveCourseQuizSubmissions(submissions);
-  if (extraChance) consumeQuizExtraChance(quizId);
+  if (extraChance) await consumeQuizExtraChance(quizId);
   refreshOpenCourseWorkspace(quiz.courseId);
 });
 
@@ -3664,7 +3803,7 @@ document.addEventListener("pointerup", (event) => {
   event.preventDefault();
 });
 
-document.addEventListener("click", (event) => {
+document.addEventListener("click", async (event) => {
   if (Date.now() - lastMatchingPointerAt < 450 && event.target.closest("[data-matching-board]")) {
     event.preventDefault();
     return;
@@ -3793,26 +3932,32 @@ document.addEventListener("click", (event) => {
 
   const chanceButton = event.target.closest("[data-quiz-chance-action='grant']");
   if (chanceButton) {
-    const chances = getQuizExtraChances();
-    const alreadyGranted = chances.some((chance) => {
+    const alreadyGranted = getQuizExtraChances().some((chance) => {
       return chance.quizId === chanceButton.dataset.quizId
         && chance.studentId === chanceButton.dataset.studentId
         && !chance.usedAt;
     });
 
     if (!alreadyGranted) {
-      chances.push({
-        id: `quiz-extra-chance-${Date.now()}`,
-        quizId: chanceButton.dataset.quizId,
-        courseId: chanceButton.dataset.courseId,
-        studentId: chanceButton.dataset.studentId,
-        studentName: chanceButton.dataset.studentName,
-        grantedAt: new Date().toISOString()
-      });
-      saveQuizExtraChances(chances);
+      const courseId = chanceButton.dataset.courseId;
+      const quizId = chanceButton.dataset.quizId;
+      const studentId = chanceButton.dataset.studentId;
+      const studentName = chanceButton.dataset.studentName;
+      fetch(getApiUrl(`/courses/${courseId}/quiz-extra-chances`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quizId, studentId, studentName })
+      })
+        .then((response) => response.json().catch(() => ({})))
+        .then((result) => {
+          if (!result || !result.code || result.code >= 400) return;
+          return loadServerQuizExtraChances(courseId);
+        })
+        .finally(() => {
+          refreshOpenCourseWorkspace(courseId);
+        });
     }
 
-    refreshOpenCourseWorkspace(chanceButton.dataset.courseId);
     return;
   }
 
@@ -3833,9 +3978,22 @@ document.addEventListener("click", (event) => {
   if (!quizButton) return;
 
   const quiz = getCourseQuizzes().find((item) => item.id === quizButton.dataset.quizId);
-  saveCourseQuizzes(getCourseQuizzes().filter((item) => item.id !== quizButton.dataset.quizId));
-  saveCourseQuizSubmissions(getCourseQuizSubmissions().filter((item) => item.quizId !== quizButton.dataset.quizId));
-  if (quiz) refreshOpenCourseWorkspace(quiz.courseId);
+  if (!quiz) return;
+
+  const confirmed = window.confirm(`Delete this quiz and remove its contents and all submitted answers for ${quiz.title}? This action cannot be undone.`);
+  if (!confirmed) return;
+
+  try {
+    const response = await fetch(getApiUrl("/courses/" + quiz.courseId + "/quizzes/" + quiz.id), { method: "DELETE" });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to delete quiz.");
+    await loadServerQuizzes(quiz.courseId);
+    await loadServerQuizSubmissions(quiz.courseId);
+    await loadServerQuizExtraChances(quiz.courseId);
+    refreshOpenCourseWorkspace(quiz.courseId);
+  } catch (error) {
+    window.alert(error.message || "Unable to delete quiz.");
+  }
 });
 
 function getCurrentAuthor() {
@@ -6246,6 +6404,7 @@ renderInvitations();
 renderChatMessages();
 const currentUserForCourses = JSON.parse(sessionStorage.getItem("gthCurrentUser") || "null");
 loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "").then(async () => {
+  await syncCurrentStudentFromServer();
   const courseId = getCustomCourses()[0]?._id || getCustomCourses()[0]?.id || "";
   if (courseId) {
     await loadServerQuizzes(courseId);

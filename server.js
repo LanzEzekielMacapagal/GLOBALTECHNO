@@ -209,6 +209,33 @@ const quizSubmissionSchema = new mongoose.Schema({
   gradedAt: Date,
 });
 
+// Quiz Extra Chance Schema
+const quizExtraChanceSchema = new mongoose.Schema({
+  id: {
+    type: String,
+    required: true,
+    unique: true,
+  },
+  courseId: {
+    type: String,
+    required: true,
+  },
+  quizId: {
+    type: String,
+    required: true,
+  },
+  studentId: {
+    type: String,
+    required: true,
+  },
+  studentName: String,
+  grantedAt: {
+    type: Date,
+    default: Date.now,
+  },
+  usedAt: Date,
+});
+
 // Announcement Schema
 const announcementSchema = new mongoose.Schema({
   classroom: {
@@ -361,6 +388,7 @@ const User = mongoose.model("User", userSchema);
 const Course = mongoose.model("Course", courseSchema);
 const Quiz = mongoose.model("Quiz", quizSchema);
 const QuizSubmission = mongoose.model("QuizSubmission", quizSubmissionSchema);
+const QuizExtraChance = mongoose.model("QuizExtraChance", quizExtraChanceSchema);
 const Announcement = mongoose.model("Announcement", announcementSchema);
 const Video = mongoose.model("Video", videoSchema);
 const ChatMessage = mongoose.model("ChatMessage", chatMessageSchema);
@@ -402,6 +430,9 @@ const ensureDefaultAdmin = async () => {
       existingAdmin.password = "Gl0b@l4dmin!123";
       existingAdmin.role = "admin";
       existingAdmin.isActive = true;
+      if (!Array.isArray(existingAdmin.enrolledCourses)) {
+        existingAdmin.enrolledCourses = [];
+      }
       await existingAdmin.save();
       console.log("Default admin account updated successfully.");
       return;
@@ -413,6 +444,7 @@ const ensureDefaultAdmin = async () => {
       username: "Administrator",
       password: "Gl0b@l4dmin!123",
       role: "admin",
+      enrolledCourses: [],
     });
 
     await adminUser.save();
@@ -422,11 +454,55 @@ const ensureDefaultAdmin = async () => {
   }
 };
 
+const ensureUserEnrollmentDefaults = async () => {
+  try {
+    const result = await User.updateMany(
+      {
+        $or: [
+          { enrolledCourses: { $exists: false } },
+          { enrolledCourses: null },
+          { enrolledCourses: undefined },
+        ],
+      },
+      { $set: { enrolledCourses: [] } }
+    );
+
+    if (result.modifiedCount || result.matchedCount) {
+      console.log(`Backfilled enrollment arrays for ${result.modifiedCount || result.matchedCount} user record(s).`);
+    }
+  } catch (error) {
+    console.error("Cannot normalize user enrollments.", error.message);
+  }
+};
+
+const ensureEnrollmentIntegrity = async () => {
+  try {
+    const result = await User.updateMany(
+      {
+        $or: [
+          { enrolledCourses: { $exists: false } },
+          { enrolledCourses: null },
+          { enrolledCourses: undefined },
+        ],
+      },
+      { $set: { enrolledCourses: [] } }
+    );
+
+    if (result.modifiedCount || result.matchedCount) {
+      console.log(`Normalized enrollment arrays for ${result.modifiedCount || result.matchedCount} user record(s).`);
+    }
+  } catch (error) {
+    console.error("Cannot normalize user enrollments.", error.message);
+  }
+};
+
 if (db.readyState === 1) {
   ensureDefaultAdmin();
+  ensureEnrollmentIntegrity();
 } else {
   db.once("open", async () => {
     await ensureDefaultAdmin();
+    await ensureEnrollmentIntegrity();
   });
 }
 
@@ -506,6 +582,7 @@ server.post("/users/register", (req, res) => {
         username: req.body.username,
         password: req.body.password,
         role: req.body.role || "user",
+        enrolledCourses: [],
       });
 
       newUser
@@ -563,6 +640,11 @@ server.post("/users/login", (req, res) => {
         });
       }
 
+      if (!Array.isArray(user.enrolledCourses)) {
+        user.enrolledCourses = [];
+        user.save().catch(() => {});
+      }
+
       res.status(200).send({
         code: 200,
         message: "Login successful!",
@@ -572,7 +654,7 @@ server.post("/users/login", (req, res) => {
           email: user.email,
           username: user.username,
           role: user.role,
-          enrolledCourses: user.enrolledCourses || [],
+          enrolledCourses: Array.isArray(user.enrolledCourses) ? user.enrolledCourses : [],
         },
       });
     })
@@ -582,6 +664,38 @@ server.post("/users/login", (req, res) => {
         message: "There is an error during login.",
       });
     });
+});
+
+// Get user profile by ID
+server.get("/users/:userId/profile", async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId).select("_id fullName email username role enrolledCourses dateRegistered");
+    if (!user) {
+      return res.status(404).send({
+        code: 404,
+        message: "User not found.",
+      });
+    }
+
+    res.status(200).send({
+      code: 200,
+      message: "User profile loaded successfully.",
+      data: {
+        _id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        username: user.username,
+        role: user.role,
+        enrolledCourses: Array.isArray(user.enrolledCourses) ? user.enrolledCourses : [],
+        dateRegistered: user.dateRegistered,
+      },
+    });
+  } catch (error) {
+    res.status(500).send({
+      code: 500,
+      message: "There is an error fetching the user profile.",
+    });
+  }
 });
 
 // Get all users
@@ -870,6 +984,10 @@ server.post("/courses/join", async (req, res) => {
       });
     }
 
+    if (!Array.isArray(user.enrolledCourses)) {
+      user.enrolledCourses = [];
+    }
+
     const alreadyJoined = user.enrolledCourses.some((item) => String(item) === String(course._id));
     if (!alreadyJoined) {
       user.enrolledCourses.push(course._id);
@@ -891,6 +1009,52 @@ server.post("/courses/join", async (req, res) => {
     res.status(500).send({
       code: 500,
       message: "There is an error joining the course.",
+    });
+  }
+});
+
+// Get enrolled learners for a course
+server.get("/courses/:courseId/enrolled-students", async (req, res) => {
+  try {
+    const course = await Course.findById(req.params.courseId);
+    if (!course) {
+      return res.status(404).send({
+        code: 404,
+        message: "Course not found.",
+      });
+    }
+
+    const learners = await User.find({
+      isActive: { $ne: false },
+      role: { $ne: "admin" },
+    })
+      .select("username fullName email role dateRegistered enrolledCourses")
+      .sort({ username: 1, fullName: 1 });
+
+    const payload = learners
+      .filter((learner) => {
+        const enrolledCourses = Array.isArray(learner.enrolledCourses) ? learner.enrolledCourses : [];
+        return enrolledCourses.some((entry) => String(entry) === String(course._id));
+      })
+      .map((learner) => ({
+        id: String(learner._id),
+        _id: learner._id,
+        username: learner.username || learner.fullName || "Student",
+        fullName: learner.fullName || "",
+        email: learner.email || "",
+        role: learner.role || "user",
+        dateRegistered: learner.dateRegistered,
+      }));
+
+    res.status(200).send({
+      code: 200,
+      message: "Enrolled learners loaded successfully.",
+      data: payload,
+    });
+  } catch (error) {
+    res.status(500).send({
+      code: 500,
+      message: "There is an error fetching enrolled learners.",
     });
   }
 });
@@ -1077,10 +1241,94 @@ server.put("/courses/:courseId/quizzes/:quizId", async (req, res) => {
 server.delete("/courses/:courseId/quizzes/:quizId", async (req, res) => {
   try {
     await Quiz.deleteOne({ id: req.params.quizId, courseId: req.params.courseId });
-    await QuizSubmission.deleteMany({ quizId: req.params.quizId });
+    await QuizSubmission.deleteMany({ quizId: req.params.quizId, courseId: req.params.courseId });
+    await QuizExtraChance.deleteMany({ quizId: req.params.quizId, courseId: req.params.courseId });
     res.status(200).send({ code: 200, message: "Quiz deleted successfully." });
   } catch (error) {
     res.status(500).send({ code: 500, message: "There is an error deleting the quiz." });
+  }
+});
+
+server.get("/courses/:courseId/quiz-extra-chances", async (req, res) => {
+  try {
+    const chances = await QuizExtraChance.find({ courseId: req.params.courseId }).sort({ grantedAt: -1 });
+    res.status(200).send({ code: 200, data: chances });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "There is an error fetching extra quiz attempts." });
+  }
+});
+
+server.post("/courses/:courseId/quiz-extra-chances", async (req, res) => {
+  try {
+    const { quizId, studentId, studentName } = req.body;
+    if (!quizId || !studentId) {
+      return res.status(400).send({ code: 400, message: "Quiz and student are required." });
+    }
+
+    const course = await Course.findById(req.params.courseId);
+    if (!course) {
+      return res.status(404).send({ code: 404, message: "Course not found." });
+    }
+
+    const studentQuery = mongoose.Types.ObjectId.isValid(studentId)
+      ? { _id: new mongoose.Types.ObjectId(studentId) }
+      : { _id: studentId };
+
+    const student = await User.findOne({
+      ...studentQuery,
+      isActive: { $ne: false },
+      role: { $ne: "admin" },
+    }).select("_id enrolledCourses username fullName");
+
+    if (!student) {
+      return res.status(400).send({ code: 400, message: "Only students currently enrolled in this course can receive an extra attempt." });
+    }
+
+    const enrolledCourses = Array.isArray(student.enrolledCourses) ? student.enrolledCourses : [];
+    const isEnrolled = enrolledCourses.some((entry) => String(entry) === String(course._id));
+    if (!isEnrolled) {
+      return res.status(400).send({ code: 400, message: "Only students currently enrolled in this course can receive an extra attempt." });
+    }
+
+    const existing = await QuizExtraChance.findOne({
+      courseId: req.params.courseId,
+      quizId,
+      studentId,
+      usedAt: { $exists: false },
+    });
+
+    if (existing) {
+      return res.status(200).send({ code: 200, message: "Extra attempt already granted.", data: existing });
+    }
+
+    const chance = new QuizExtraChance({
+      id: `quiz-extra-chance-${Date.now()}`,
+      courseId: req.params.courseId,
+      quizId,
+      studentId,
+      studentName: studentName || student.fullName || student.username || "Student",
+      grantedAt: new Date(),
+    });
+
+    await chance.save();
+    res.status(201).send({ code: 201, message: "Extra attempt granted.", data: chance });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "There is an error granting the extra attempt." });
+  }
+});
+
+server.put("/courses/:courseId/quiz-extra-chances/:chanceId", async (req, res) => {
+  try {
+    const chance = await QuizExtraChance.findOne({ id: req.params.chanceId, courseId: req.params.courseId });
+    if (!chance) {
+      return res.status(404).send({ code: 404, message: "Extra attempt not found." });
+    }
+
+    chance.usedAt = req.body?.usedAt ? new Date(req.body.usedAt) : new Date();
+    await chance.save();
+    res.status(200).send({ code: 200, message: "Extra attempt consumed.", data: chance });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "There is an error updating the extra attempt." });
   }
 });
 
