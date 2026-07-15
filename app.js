@@ -689,6 +689,7 @@ function renderCourseQuizStack(courseId, options = {}) {
     }
 
     wrapper.appendChild(quizList);
+    if (options.adminControls) wrapper.appendChild(renderCourseManualGradingPanel(courseId));
   }
 
   if (course) {
@@ -2356,73 +2357,6 @@ function renderSubmittedAnswerForAdmin(quiz, question, submission, index) {
   return wrapper;
 }
 
-function renderQuizGradingPanel(quiz) {
-  const submissions = getCourseQuizSubmissions().filter((submission) => submission.quizId === quiz.id);
-  const panel = document.createElement("div");
-  panel.className = "course-grading-panel";
-
-  panel.appendChild(createTextElement("h4", "h6 mb-2", "Manual grading"));
-  if (!submissions.length) {
-    panel.appendChild(createTextElement("p", "text-secondary small mb-0", "No student submissions yet."));
-    return panel;
-  }
-
-  const questions = getQuizQuestions(quiz);
-  submissions.forEach((submission) => {
-    const form = document.createElement("form");
-    form.className = "course-grade-submission";
-    form.dataset.quizGradeForm = quiz.id;
-    form.dataset.submissionId = submission.id;
-
-    const score = getQuizScore(quiz, submission);
-    form.append(
-      createTextElement("strong", "", submission.studentName || "Student"),
-      createTextElement("small", "text-secondary", `Current score: ${formatQuizScore(score)}/${getQuizTotalPoints(quiz)} points`)
-    );
-
-    questions.forEach((question, index) => {
-      const type = getQuestionType(quiz, question);
-      const row = document.createElement("div");
-      row.className = "course-grade-question";
-      row.append(
-        createTextElement("p", "fw-bold mb-1", `${index + 1}. ${question.question}`),
-        renderSubmittedAnswerForAdmin(quiz, question, submission, index)
-      );
-
-      if (isManualGradeType(type)) {
-        const scoreLabel = document.createElement("label");
-        scoreLabel.className = "form-label small fw-bold mb-0";
-        const scoreInput = document.createElement("input");
-        scoreInput.className = "form-control form-control-sm mt-1";
-        scoreInput.name = `score-${question.id}`;
-        scoreInput.type = "number";
-        scoreInput.min = "0";
-        scoreInput.max = String(getQuestionPoints(question));
-        scoreInput.step = "0.01";
-        scoreInput.placeholder = `0-${getQuestionPoints(question)}`;
-        scoreInput.value = getManualQuestionScore(submission, question) ?? "";
-        scoreLabel.append(`Manual score out of ${getQuestionPoints(question)}`, scoreInput);
-        row.appendChild(scoreLabel);
-      } else {
-        const autoScore = type === "matching"
-          ? getMatchingQuestionScore(question, getSubmittedAnswer(submission, question, index))
-          : isQuestionCorrect(quiz, question, submission, index) ? getQuestionPoints(question) : 0;
-        row.appendChild(createTextElement("small", "text-secondary", `Auto score: ${formatQuizScore(autoScore)}/${getQuestionPoints(question)}`));
-      }
-
-      form.appendChild(row);
-    });
-
-    const save = document.createElement("button");
-    save.className = "btn btn-primary btn-sm align-self-start";
-    save.type = "submit";
-    save.textContent = "Save Scores";
-    form.appendChild(save);
-    panel.appendChild(form);
-  });
-
-  return panel;
-}
 
 function renderQuizExtraChancePanel(quiz) {
   const panel = document.createElement("div");
@@ -2618,7 +2552,6 @@ function renderCourseQuizItem(quiz) {
   }
 
   if (adminApp) {
-    content.appendChild(renderQuizGradingPanel(quiz));
     content.appendChild(renderQuizExtraChancePanel(quiz));
 
     const actions = document.createElement("div");
@@ -3072,6 +3005,122 @@ function renderCourseQuizForm(courseId, editingQuiz = null) {
   form.appendChild(button);
   panel.append(summary, form);
   return panel;
+}
+
+function renderCourseManualGradingPanel(courseId) {
+  const quizzes = getCourseItems(getCourseQuizzes(), courseId);
+  const submissions = getCourseQuizSubmissions().filter((submission) => submission.courseId === courseId);
+  const manualTasks = submissions.map((submission) => {
+    const quiz = quizzes.find((item) => item.id === submission.quizId);
+    if (!quiz) return null;
+
+    const questions = getQuizQuestions(quiz).filter((question) => isManualGradeType(getQuestionType(quiz, question)));
+    if (!questions.length) return null;
+
+    const graded = questions.filter((question) => getManualQuestionScore(submission, question) !== null).length;
+    const pending = questions.length - graded;
+    return pending > 0 ? { quiz, submission, questions, graded, pending } : null;
+  }).filter(Boolean);
+
+  const totalPending = manualTasks.reduce((total, task) => total + task.pending, 0);
+  const totalChecked = manualTasks.reduce((total, task) => total + task.graded, 0);
+
+  const panel = document.createElement("details");
+  panel.className = "course-add-quiz course-post-form mt-3 manual-grading-panel";
+  panel.dataset.courseManualGrading = courseId;
+
+  const summary = document.createElement("summary");
+  summary.className = "course-quiz-summary";
+  const summaryText = document.createElement("span");
+  summaryText.append(
+    createTextElement("strong", "", "Manual Grading"),
+    createTextElement("small", "text-secondary d-block", "Essay, modified true/false, and enumeration submissions")
+  );
+  summary.append(summaryText, createTextElement("span", "badge text-bg-info", "Admin"));
+  panel.appendChild(summary);
+
+  const content = document.createElement("div");
+  content.className = "course-quiz-form vstack gap-2";
+
+  if (!manualTasks.length) {
+    content.appendChild(createTextElement("p", "text-secondary small mb-0", "No manual grading tasks are pending for this course."));
+  } else {
+    content.appendChild(createTextElement("p", "small text-secondary mb-0", "Manual grading tasks are listed below for essay, modified true/false, and enumeration answers."));
+
+    const counts = document.createElement("div");
+    counts.className = "d-flex flex-wrap gap-2 mb-2";
+    counts.append(
+      createTextElement("span", "badge text-bg-warning", `Pending: ${totalPending}`),
+      createTextElement("span", "badge text-bg-success", `Checked: ${totalChecked}`)
+    );
+    content.appendChild(counts);
+
+    manualTasks.forEach((task) => {
+      const quiz = task.quiz;
+      const submission = task.submission;
+      const taskForm = document.createElement("form");
+      taskForm.className = "course-grade-submission";
+      taskForm.dataset.quizGradeForm = quiz.id;
+      taskForm.dataset.submissionId = submission.id;
+
+      const studentName = submission.studentName || submission.studentId || "Student";
+      const label = `${quiz.title} — ${studentName}`;
+      const header = document.createElement("div");
+      header.className = "d-flex flex-wrap gap-2 align-items-center justify-content-between";
+      header.append(
+        createTextElement("strong", "", label),
+        createTextElement("small", "text-secondary", `Pending: ${task.pending} • Checked: ${task.graded}`)
+      );
+      taskForm.appendChild(header);
+
+      task.questions.forEach((question, index) => {
+        const row = document.createElement("div");
+        row.className = "course-grade-question";
+        row.append(
+          createTextElement("p", "fw-bold mb-1", `${index + 1}. ${question.question}`),
+          renderSubmittedAnswerForAdmin(quiz, question, submission, index)
+        );
+
+        const scoreLabel = document.createElement("label");
+        scoreLabel.className = "form-label small fw-bold mb-0";
+        const scoreInput = document.createElement("input");
+        scoreInput.className = "form-control form-control-sm mt-1";
+        scoreInput.name = `score-${question.id}`;
+        scoreInput.type = "number";
+        scoreInput.min = "0";
+        scoreInput.max = String(getQuestionPoints(question));
+        scoreInput.step = "0.01";
+        scoreInput.placeholder = `0-${getQuestionPoints(question)}`;
+        scoreInput.value = getManualQuestionScore(submission, question) ?? "";
+        scoreLabel.append(`Manual score out of ${getQuestionPoints(question)}`, scoreInput);
+        row.appendChild(scoreLabel);
+
+        taskForm.appendChild(row);
+      });
+
+      const save = document.createElement("button");
+      save.className = "btn btn-primary btn-sm align-self-start";
+      save.type = "submit";
+      save.textContent = "Save Scores";
+      taskForm.appendChild(save);
+
+      content.appendChild(taskForm);
+    });
+  }
+
+  panel.appendChild(content);
+  return panel;
+}
+
+function refreshManualGradingPanel(courseId) {
+  const currentPanel = document.querySelector(`[data-course-manual-grading="${courseId}"]`);
+  if (!currentPanel) return false;
+  const wasOpen = currentPanel.hasAttribute("open");
+  const replacement = renderCourseManualGradingPanel(courseId);
+  if (wasOpen) replacement.open = true;
+  currentPanel.replaceWith(replacement);
+  observeMotionElements(replacement);
+  return true;
 }
 
 function createCustomCourseWorkspace(course, index) {
@@ -3596,7 +3645,9 @@ document.addEventListener("submit", async (event) => {
 
   saveCourseQuizSubmissions(submissions);
   await loadServerQuizSubmissions(quiz.courseId);
-  refreshOpenCourseWorkspace(quiz.courseId);
+  if (!refreshManualGradingPanel(quiz.courseId)) {
+    refreshOpenCourseWorkspace(quiz.courseId);
+  }
 });
 
 document.addEventListener("submit", async (event) => {

@@ -520,6 +520,12 @@ body {
   border: 1px solid var(--gth-line);
   border-radius: 0.55rem;
   background: #fff;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+
+.course-post-form:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(72, 95, 129, 0.06);
 }
 
 .course-quiz-item {
@@ -536,6 +542,12 @@ body {
   padding: 0.75rem;
   cursor: pointer;
   list-style: none;
+  transition: background 0.22s ease, transform 0.22s ease, border-color 0.22s ease;
+}
+
+.course-quiz-summary:hover {
+  background: rgba(232, 246, 250, 0.55);
+  transform: translateY(-1px);
 }
 
 .course-quiz-summary::-webkit-details-marker {
@@ -553,6 +565,11 @@ body {
   border-radius: 0.45rem;
   color: var(--gth-teal);
   font-weight: 900;
+  transition: transform 0.22s ease, border-color 0.22s ease, color 0.22s ease;
+}
+
+.course-quiz-item[open] .course-quiz-summary::after {
+  transform: rotate(45deg);
 }
 
 .course-quiz-item[open] .course-quiz-summary::after {
@@ -563,6 +580,18 @@ body {
   display: grid;
   gap: 0.65rem;
   padding: 0 0.75rem 0.75rem;
+  animation: fadeInUp 0.22s ease forwards;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(0.55rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .course-resource-item {
@@ -1508,6 +1537,61 @@ body {
 
 .course-add-quiz .course-quiz-form {
   padding: 0 0.75rem 0.75rem;
+}
+
+.manual-grading-panel {
+  border-color: rgba(94, 147, 190, 0.24);
+  background: rgba(229, 241, 251, 0.6);
+  box-shadow: 0 12px 24px rgba(72, 95, 129, 0.04);
+}
+
+.manual-grading-panel .course-quiz-summary {
+  background: linear-gradient(180deg, #f9fbff 0%, #ecf4ff 100%);
+  border-bottom: 1px solid #d8e7ec;
+}
+
+.manual-grading-panel .course-quiz-summary::after {
+  border-color: rgba(94, 147, 190, 0.4);
+  color: var(--gth-blue);
+}
+
+.manual-grading-panel .course-quiz-form {
+  padding: 0.85rem 0.95rem 0.95rem;
+}
+
+.manual-grading-panel .course-grade-submission {
+  padding: 1rem;
+  border: 1px solid rgba(111, 143, 179, 0.16);
+  border-radius: 0.65rem;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.5);
+}
+
+.manual-grading-panel .course-grade-submission > div {
+  gap: 0.65rem;
+}
+
+.manual-grading-panel .course-grade-question {
+  padding: 0.95rem 0.95rem 0.85rem;
+  border: 1px solid #e9eff4;
+  border-radius: 0.65rem;
+  background: #f8fbff;
+}
+
+.manual-grading-panel .course-grade-question p {
+  margin-bottom: 0.65rem;
+}
+
+.manual-grading-panel .course-grade-question label {
+  width: 100%;
+}
+
+.manual-grading-panel .course-grade-question input {
+  max-width: 12.5rem;
+}
+
+.manual-grading-panel .course-quiz-form > .btn {
+  margin-top: 0.15rem;
 }
 
 .course-test-section-list {
