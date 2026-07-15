@@ -410,6 +410,19 @@ const manualSummarySchema = new mongoose.Schema({
 
 const ManualSummary = mongoose.model("ManualSummary", manualSummarySchema);
 
+// Enrolled learner summary schema for course progress tracking
+const enrolledLearnerSummarySchema = new mongoose.Schema({
+  courseId: { type: String, required: true, index: true },
+  learnerId: { type: String, required: true, index: true },
+  learnerName: { type: String, default: "" },
+  email: { type: String, default: "" },
+  quizTotal: { type: Number, default: 0 },
+  quizAnswered: { type: Number, default: 0 },
+  updatedAt: { type: Date, default: Date.now },
+});
+
+const EnrolledLearnerSummary = mongoose.model("EnrolledLearnerSummary", enrolledLearnerSummarySchema);
+
 // Helper: recalculate and persist manual summary for a course (used internally)
 async function recalcManualSummary(courseId) {
   const quizzes = await Quiz.find({ courseId });
@@ -481,6 +494,78 @@ async function recalcManualSummary(courseId) {
     },
     { upsert: true }
   );
+}
+
+async function recalcEnrolledLearnerSummary(courseId, learnerId = null) {
+  const courseIdString = String(courseId);
+  const quizzes = await Quiz.find({ courseId: courseIdString }).select("id");
+  const quizIds = quizzes.map((quiz) => String(quiz.id));
+  const quizTotal = quizIds.length;
+
+  const updateLearner = async (learner) => {
+    const studentId = String(learner._id);
+    const submissions = await QuizSubmission.find({ courseId: courseIdString, studentId, quizId: { $in: quizIds } }).select("quizId");
+    const quizAnswered = new Set(submissions.map((submission) => String(submission.quizId))).size;
+
+    await EnrolledLearnerSummary.findOneAndUpdate(
+      { courseId: courseIdString, learnerId: studentId },
+      {
+        courseId: courseIdString,
+        learnerId: studentId,
+        learnerName: learner.username || learner.fullName || "Student",
+        email: learner.email || "",
+        quizTotal,
+        quizAnswered,
+        updatedAt: new Date(),
+      },
+      { upsert: true }
+    );
+  };
+
+  if (learnerId) {
+    const learner = await User.findById(learnerId).select("username fullName email enrolledCourses");
+    if (!learner) return;
+    const enrolledCourses = Array.isArray(learner.enrolledCourses) ? learner.enrolledCourses : [];
+    if (!enrolledCourses.some((entry) => String(entry) === courseIdString)) {
+      await EnrolledLearnerSummary.deleteOne({ courseId: courseIdString, learnerId: String(learnerId) });
+      return;
+    }
+    await updateLearner(learner);
+    return;
+  }
+
+  const enrollmentCourseId = mongoose.Types.ObjectId.isValid(courseIdString) ? mongoose.Types.ObjectId(courseIdString) : courseIdString;
+  const learners = await User.find({
+    isActive: { $ne: false },
+    role: { $ne: "admin" },
+    enrolledCourses: enrollmentCourseId,
+  }).select("username fullName email enrolledCourses");
+
+  const bulkOps = learners.map((learner) => {
+    const studentId = String(learner._id);
+    const learnerName = learner.username || learner.fullName || "Student";
+    const email = learner.email || "";
+    return {
+      updateOne: {
+        filter: { courseId, learnerId: studentId },
+        update: {
+          courseId,
+          learnerId: studentId,
+          learnerName,
+          email,
+          quizTotal,
+          quizAnswered: 0,
+          updatedAt: new Date(),
+        },
+        upsert: true,
+      },
+    };
+  });
+
+  if (bulkOps.length) {
+    await EnrolledLearnerSummary.bulkWrite(bulkOps);
+    await Promise.all(learners.map(updateLearner));
+  }
 }
 
 const escapeRegExp = (value = "") => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1079,6 +1164,7 @@ server.post("/courses/join", async (req, res) => {
     if (!alreadyJoined) {
       user.enrolledCourses.push(course._id);
       await user.save();
+      await recalcEnrolledLearnerSummary(course._id, user._id);
     }
 
     res.status(200).send({
@@ -1103,7 +1189,8 @@ server.post("/courses/join", async (req, res) => {
 // Get enrolled learners for a course
 server.get("/courses/:courseId/enrolled-students", async (req, res) => {
   try {
-    const course = await Course.findById(req.params.courseId);
+    const courseIdString = String(req.params.courseId);
+    const course = await Course.findById(courseIdString);
     if (!course) {
       return res.status(404).send({
         code: 404,
@@ -1111,27 +1198,72 @@ server.get("/courses/:courseId/enrolled-students", async (req, res) => {
       });
     }
 
+    const quizzes = await Quiz.find({ courseId: courseIdString }).select("id");
+    const quizIds = quizzes.map((quiz) => String(quiz.id));
+    const totalQuizzes = quizIds.length;
+
+    const submissions = await QuizSubmission.find({ courseId: courseIdString }).select("studentId quizId");
+    const answeredPerStudent = submissions.reduce((map, submission) => {
+      const studentKey = String(submission.studentId);
+      if (!map[studentKey]) {
+        map[studentKey] = new Set();
+      }
+      if (submission.quizId && quizIds.includes(String(submission.quizId))) {
+        map[studentKey].add(String(submission.quizId));
+      }
+      return map;
+    }, {});
+
+    const enrollmentCourseId = mongoose.Types.ObjectId.isValid(courseIdString) ? mongoose.Types.ObjectId(courseIdString) : courseIdString;
     const learners = await User.find({
       isActive: { $ne: false },
       role: { $ne: "admin" },
+      enrolledCourses: enrollmentCourseId,
     })
       .select("username fullName email role dateRegistered enrolledCourses")
       .sort({ username: 1, fullName: 1 });
 
-    const payload = learners
-      .filter((learner) => {
-        const enrolledCourses = Array.isArray(learner.enrolledCourses) ? learner.enrolledCourses : [];
-        return enrolledCourses.some((entry) => String(entry) === String(course._id));
-      })
-      .map((learner) => ({
-        id: String(learner._id),
+    const bulkOps = learners.map((learner) => {
+      const studentKey = String(learner._id);
+      const learnerName = learner.username || learner.fullName || "Student";
+      const email = learner.email || "";
+      const answeredSet = answeredPerStudent[studentKey] || new Set();
+      return {
+        updateOne: {
+          filter: { courseId: courseIdString, learnerId: studentKey },
+          update: {
+            courseId: courseIdString,
+            learnerId: studentKey,
+            learnerName,
+            email,
+            quizTotal: totalQuizzes,
+            quizAnswered: answeredSet.size,
+            updatedAt: new Date(),
+          },
+          upsert: true,
+        },
+      };
+    });
+
+    if (bulkOps.length) {
+      await EnrolledLearnerSummary.bulkWrite(bulkOps);
+    }
+
+    const payload = learners.map((learner) => {
+      const studentKey = String(learner._id);
+      const answeredSet = answeredPerStudent[studentKey] || new Set();
+      return {
+        id: studentKey,
         _id: learner._id,
         username: learner.username || learner.fullName || "Student",
         fullName: learner.fullName || "",
         email: learner.email || "",
         role: learner.role || "user",
         dateRegistered: learner.dateRegistered,
-      }));
+        quizAnswered: answeredSet.size,
+        quizTotal: totalQuizzes,
+      };
+    });
 
     res.status(200).send({
       code: 200,
@@ -1139,6 +1271,7 @@ server.get("/courses/:courseId/enrolled-students", async (req, res) => {
       data: payload,
     });
   } catch (error) {
+    console.error(error);
     res.status(500).send({
       code: 500,
       message: "There is an error fetching enrolled learners.",
@@ -1297,6 +1430,7 @@ server.post("/courses/:courseId/quizzes", async (req, res) => {
     });
 
     await quiz.save();
+    await recalcEnrolledLearnerSummary(req.params.courseId);
     res.status(201).send({
       code: 201,
       message: "Quiz saved successfully.",
@@ -1319,6 +1453,7 @@ server.put("/courses/:courseId/quizzes/:quizId", async (req, res) => {
 
     Object.assign(quiz, { ...req.body, updatedAt: new Date() });
     await quiz.save();
+    await recalcEnrolledLearnerSummary(req.params.courseId);
     res.status(200).send({ code: 200, message: "Quiz updated successfully.", data: quiz });
   } catch (error) {
     res.status(500).send({ code: 500, message: "There is an error updating the quiz." });
@@ -1330,6 +1465,7 @@ server.delete("/courses/:courseId/quizzes/:quizId", async (req, res) => {
     await Quiz.deleteOne({ id: req.params.quizId, courseId: req.params.courseId });
     await QuizSubmission.deleteMany({ quizId: req.params.quizId, courseId: req.params.courseId });
     await QuizExtraChance.deleteMany({ quizId: req.params.quizId, courseId: req.params.courseId });
+    await recalcEnrolledLearnerSummary(req.params.courseId);
     res.status(200).send({ code: 200, message: "Quiz deleted successfully." });
   } catch (error) {
     res.status(500).send({ code: 500, message: "There is an error deleting the quiz." });
@@ -1637,8 +1773,9 @@ server.post("/courses/:courseId/quiz-submissions", async (req, res) => {
     // Recalculate manual summary for this course so counts stay in DB
     try {
       await recalcManualSummary(req.params.courseId);
+      await recalcEnrolledLearnerSummary(req.params.courseId, String(submission.studentId));
     } catch (err) {
-      console.warn('Failed to recalc manual summary after submission save', err && err.message);
+      console.warn('Failed to recalc summaries after submission save', err && err.message);
     }
     res.status(201).send({ code: 201, message: "Submission saved successfully.", data: submission });
   } catch (error) {
@@ -1658,8 +1795,9 @@ server.put("/courses/:courseId/quiz-submissions/:submissionId", async (req, res)
     // Recalculate manual summary after grading/update
     try {
       await recalcManualSummary(req.params.courseId);
+      await recalcEnrolledLearnerSummary(req.params.courseId, String(submission.studentId));
     } catch (err) {
-      console.warn('Failed to recalc manual summary after submission update', err && err.message);
+      console.warn('Failed to recalc summaries after submission update', err && err.message);
     }
     res.status(200).send({ code: 200, message: "Submission updated successfully.", data: submission });
   } catch (error) {

@@ -506,24 +506,21 @@ function renderCourseLearnerTracker(course, courseId) {
         const info = document.createElement("div");
         info.className = "course-learner-info";
         const displayName = learner.username || learner.fullName || "Student";
-        const secondaryText = learner.fullName && learner.fullName !== displayName
-          ? learner.fullName
-          : "Enrolled learner";
+
+        const learnerMeta = document.createElement("div");
+        learnerMeta.className = "course-learner-meta";
+        learnerMeta.append(
+          createTextElement("strong", "", displayName),
+          createTextElement("small", "course-learner-email text-secondary d-block", learner.email || "No email"),
+          createTextElement("small", "learner-quiz-progress", `${learner.quizAnswered || 0}/${learner.quizTotal || 0} quizzes answered`)
+        );
 
         info.append(
           createTextElement("span", "avatar", getInitials(displayName)),
-          createTextElement("strong", "", displayName),
-          createTextElement("small", "text-secondary", secondaryText)
+          learnerMeta
         );
 
-        const status = document.createElement("div");
-        status.className = "course-learner-status";
-        status.append(
-          createTextElement("strong", "", "Joined"),
-          createTextElement("small", "text-secondary", learner.username ? `@${learner.username}` : "Student")
-        );
-
-        row.append(info, status);
+        row.append(info);
         list.appendChild(row);
       });
     })
@@ -3485,9 +3482,86 @@ document.addEventListener("click", async (event) => {
   }, { once: true });
 });
 
-function refreshOpenCourseWorkspace(courseId) {
+async function showQuizConfirmModal({ modalId, titleText, messageText, confirmLabel, confirmClass = "btn btn-primary btn-sm" }) {
+  document.getElementById(modalId)?.remove();
+  const modalBackdrop = document.querySelector(".modal-backdrop");
+  if (modalBackdrop) modalBackdrop.remove();
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "modal fade gth-confirm-modal";
+  wrapper.id = modalId;
+  wrapper.tabIndex = -1;
+  wrapper.setAttribute("aria-labelledby", `${modalId}Label`);
+  wrapper.setAttribute("aria-hidden", "true");
+
+  const dialog = document.createElement("div");
+  dialog.className = "modal-dialog modal-dialog-centered modal-sm";
+
+  const content = document.createElement("div");
+  content.className = "modal-content shadow-lg border-0";
+
+  const header = document.createElement("div");
+  header.className = "modal-header border-0 pb-0";
+  const title = document.createElement("div");
+  title.innerHTML = `<h5 class="modal-title" id="${modalId}Label">${titleText}</h5>`;
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "btn-close";
+  close.dataset.bsDismiss = "modal";
+  close.setAttribute("aria-label", "Close");
+  header.append(title, close);
+
+  const body = document.createElement("div");
+  body.className = "modal-body py-3";
+  body.innerHTML = `<p class="mb-3 text-secondary">${messageText}</p>`;
+
+  const footer = document.createElement("div");
+  footer.className = "modal-footer border-0 pt-0 justify-content-end";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "btn btn-outline-secondary btn-sm";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.dataset.bsDismiss = "modal";
+  const confirmBtn = document.createElement("button");
+  confirmBtn.type = "button";
+  confirmBtn.className = confirmClass;
+  confirmBtn.textContent = confirmLabel;
+  footer.append(cancelBtn, confirmBtn);
+
+  content.append(header, body, footer);
+  dialog.appendChild(content);
+  wrapper.appendChild(dialog);
+  document.body.appendChild(wrapper);
+
+  const modal = new window.bootstrap.Modal(wrapper, { backdrop: true, keyboard: true });
+  modal.show();
+
+  return new Promise((resolve) => {
+    confirmBtn.addEventListener("click", () => {
+      resolve(true);
+      modal.hide();
+    }, { once: true });
+    wrapper.addEventListener("hidden.bs.modal", () => {
+      resolve(false);
+      wrapper.remove();
+      document.querySelector(".modal-backdrop")?.remove();
+    }, { once: true });
+  });
+}
+
+async function showDeleteQuizModal(quiz) {
+  return showQuizConfirmModal({
+    modalId: "deleteQuizModal",
+    titleText: "Delete quiz?",
+    messageText: `This will remove ${quiz.title} and all submitted answers. This action cannot be undone.`,
+    confirmLabel: "Delete quiz",
+    confirmClass: "btn btn-danger btn-sm"
+  });
+}
+
+async function refreshOpenCourseWorkspace(courseId) {
   const activeCourseCard = document.querySelector(`.course-card-active[data-course='${courseId}']`);
-  if (activeCourseCard) renderCourseWorkspace(courseId, activeCourseCard);
+  if (activeCourseCard) await renderCourseWorkspace(courseId, activeCourseCard);
 }
 
 function refreshActiveCourseWorkspace() {
@@ -3742,6 +3816,17 @@ document.addEventListener("submit", async (event) => {
   const savedQuizzes = existingQuizzes.filter((item) => item.id !== quiz.id);
   saveCourseQuizzes([quiz, ...savedQuizzes]);
   try {
+    if (existingQuiz) {
+      const confirmed = await showQuizConfirmModal({
+        modalId: "editQuizModal",
+        titleText: "Save quiz changes?",
+        messageText: `You are editing ${quiz.title}. Do you want to save these updates to the database?`,
+        confirmLabel: "Save changes",
+        confirmClass: "btn btn-primary btn-sm"
+      });
+      if (!confirmed) return;
+    }
+
     const response = existingQuiz
       ? await fetch(getApiUrl(`/courses/${courseId}/quizzes/${quiz.id}`), {
         method: "PUT",
@@ -3756,6 +3841,7 @@ document.addEventListener("submit", async (event) => {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.message || "Unable to save quiz.");
     await loadServerQuizzes(courseId);
+    await loadServerEnrolledStudents(courseId);
     saveCourseQuizSubmissions(getCourseQuizSubmissions().filter((submission) => submission.quizId !== quiz.id));
     if (!existingQuiz) {
       addNotification({
@@ -3834,6 +3920,7 @@ document.addEventListener("submit", async (event) => {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.message || "Unable to submit quiz.");
     await loadServerQuizSubmissions(quiz.courseId);
+    await loadServerEnrolledStudents(quiz.courseId);
   } catch (error) {
     window.alert(error.message || "Unable to submit quiz.");
     return;
@@ -4034,7 +4121,7 @@ document.addEventListener("click", async (event) => {
   const quiz = getCourseQuizzes().find((item) => item.id === quizButton.dataset.quizId);
   if (!quiz) return;
 
-  const confirmed = window.confirm(`Delete this quiz and remove its contents and all submitted answers for ${quiz.title}? This action cannot be undone.`);
+  const confirmed = await showDeleteQuizModal(quiz);
   if (!confirmed) return;
 
   try {
@@ -4042,9 +4129,10 @@ document.addEventListener("click", async (event) => {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.message || "Unable to delete quiz.");
     await loadServerQuizzes(quiz.courseId);
+    await loadServerEnrolledStudents(quiz.courseId);
     await loadServerQuizSubmissions(quiz.courseId);
     await loadServerQuizExtraChances(quiz.courseId);
-    refreshOpenCourseWorkspace(quiz.courseId);
+    await refreshOpenCourseWorkspace(quiz.courseId);
   } catch (error) {
     window.alert(error.message || "Unable to delete quiz.");
   }
