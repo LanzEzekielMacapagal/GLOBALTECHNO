@@ -3036,7 +3036,15 @@ function renderCourseManualGradingPanel(courseId) {
     createTextElement("strong", "", "Manual Grading"),
     createTextElement("small", "text-secondary d-block", "Essay, modified true/false, and enumeration submissions")
   );
-  summary.append(summaryText, createTextElement("span", "badge text-bg-info", "Admin"));
+  // show pending/checked counts directly in the summary so they're visible when collapsed
+  const countsSummary = document.createElement("div");
+  countsSummary.className = "manual-grading-summary-badges";
+  countsSummary.append(
+    createTextElement("span", "badge text-bg-warning", `Pending: ${totalPending}`),
+    createTextElement("span", "badge text-bg-success", `Checked: ${totalChecked}`)
+  );
+
+  summary.append(summaryText, countsSummary, createTextElement("span", "badge text-bg-info badge-admin", "Admin"));
   panel.appendChild(summary);
 
   const content = document.createElement("div");
@@ -3047,13 +3055,8 @@ function renderCourseManualGradingPanel(courseId) {
   } else {
     content.appendChild(createTextElement("p", "small text-secondary mb-0", "Manual grading tasks are listed below for essay, modified true/false, and enumeration answers."));
 
-    const counts = document.createElement("div");
-    counts.className = "d-flex flex-wrap gap-2 mb-2";
-    counts.append(
-      createTextElement("span", "badge text-bg-warning", `Pending: ${totalPending}`),
-      createTextElement("span", "badge text-bg-success", `Checked: ${totalChecked}`)
-    );
-    content.appendChild(counts);
+    // Note: summary already shows Pending/Checked counts when collapsed.
+    // Remove duplicate counts inside the panel to avoid repetition.
 
     manualTasks.forEach((task) => {
       const quiz = task.quiz;

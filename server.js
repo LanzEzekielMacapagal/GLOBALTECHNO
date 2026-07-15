@@ -396,6 +396,93 @@ const PrivateMessage = mongoose.model("PrivateMessage", privateMessageSchema);
 const Invitation = mongoose.model("Invitation", invitationSchema);
 const Grade = mongoose.model("Grade", gradeSchema);
 
+// Manual summary schema to track pending / checked counts and quiz status
+const manualSummarySchema = new mongoose.Schema({
+  courseId: { type: String, required: true, index: true },
+  quizId: { type: String, required: false, index: true },
+  pending: { type: Number, default: 0 },
+  checked: { type: Number, default: 0 },
+  openCount: { type: Number, default: 0 },
+  closedCount: { type: Number, default: 0 },
+  missedCount: { type: Number, default: 0 },
+  updatedAt: { type: Date, default: Date.now },
+});
+
+const ManualSummary = mongoose.model("ManualSummary", manualSummarySchema);
+
+// Helper: recalculate and persist manual summary for a course (used internally)
+async function recalcManualSummary(courseId) {
+  const quizzes = await Quiz.find({ courseId });
+  const submissions = await QuizSubmission.find({ courseId });
+
+  const interpretStatus = (quiz) => {
+    if (!quiz || !quiz.dueAt) return "open";
+    const d = new Date(quiz.dueAt);
+    if (isNaN(d)) return "open";
+    const now = new Date();
+    return d < now ? "closed" : "open";
+  };
+
+  const perQuiz = [];
+  for (const quiz of quizzes) {
+    const quizSubs = submissions.filter((s) => String(s.quizId) === String(quiz.id));
+    let pending = 0;
+    let checked = 0;
+    for (const sub of quizSubs) {
+      const ms = sub.manualScores || {};
+      const gradedCount = Object.keys(ms).filter((k) => ms[k] !== null && ms[k] !== undefined && ms[k] !== "").length;
+      if (gradedCount > 0) checked += 1; else pending += 1;
+    }
+
+    const status = interpretStatus(quiz);
+    const missed = 0;
+
+    perQuiz.push({ quizId: quiz.id, pending, checked, open: status === "open", closed: status === "closed", missed });
+
+    await ManualSummary.findOneAndUpdate(
+      { courseId, quizId: quiz.id },
+      {
+        courseId,
+        quizId: quiz.id,
+        pending,
+        checked,
+        openCount: status === "open" ? 1 : 0,
+        closedCount: status === "closed" ? 1 : 0,
+        missedCount: missed,
+        updatedAt: new Date(),
+      },
+      { upsert: true }
+    );
+  }
+
+  const totals = perQuiz.reduce(
+    (acc, p) => {
+      acc.pending += p.pending;
+      acc.checked += p.checked;
+      acc.open += p.open ? 1 : 0;
+      acc.closed += p.closed ? 1 : 0;
+      acc.missed += p.missed || 0;
+      return acc;
+    },
+    { pending: 0, checked: 0, open: 0, closed: 0, missed: 0 }
+  );
+
+  await ManualSummary.findOneAndUpdate(
+    { courseId, quizId: null },
+    {
+      courseId,
+      quizId: null,
+      pending: totals.pending,
+      checked: totals.checked,
+      openCount: totals.open,
+      closedCount: totals.closed,
+      missedCount: totals.missed,
+      updatedAt: new Date(),
+    },
+    { upsert: true }
+  );
+}
+
 const escapeRegExp = (value = "") => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const generateInvitationCode = (title = "") => {
@@ -1332,6 +1419,201 @@ server.put("/courses/:courseId/quiz-extra-chances/:chanceId", async (req, res) =
   }
 });
 
+// Recalculate and persist manual grading summary for a course (and per-quiz)
+server.post("/courses/:courseId/manual-summary/recalculate", async (req, res) => {
+  try {
+    const courseId = req.params.courseId;
+    const quizzes = await Quiz.find({ courseId });
+    const submissions = await QuizSubmission.find({ courseId });
+
+    // Helper to interpret quiz status from dueAt string
+    const interpretStatus = (quiz) => {
+      if (!quiz || !quiz.dueAt) return "open";
+      const d = new Date(quiz.dueAt);
+      if (isNaN(d)) return "open";
+      const now = new Date();
+      return d < now ? "closed" : "open";
+    };
+
+    // Aggregate per-quiz
+    const perQuiz = [];
+    for (const quiz of quizzes) {
+      const quizSubs = submissions.filter((s) => String(s.quizId) === String(quiz.id));
+      // determine manual-graded questions count per submission by looking for manualScores keys
+      let pending = 0;
+      let checked = 0;
+      for (const sub of quizSubs) {
+        // count manual score entries: assume manualScores has questionId keys with numeric scores when graded
+        const ms = sub.manualScores || {};
+        const gradedCount = Object.keys(ms).filter((k) => ms[k] !== null && ms[k] !== undefined && ms[k] !== "").length;
+        const totalManual = 0; // we don't have question schema here; treat submission-level: graded vs ungraded
+        if (gradedCount > 0) checked += 1; else pending += 1;
+      }
+
+      const status = interpretStatus(quiz);
+      const missed = 0; // missed concept not derivable here without business rules
+
+      perQuiz.push({ quizId: quiz.id, pending, checked, open: status === "open", closed: status === "closed", missed });
+
+      // upsert summary for this quiz
+      await ManualSummary.findOneAndUpdate(
+        { courseId, quizId: quiz.id },
+        {
+          courseId,
+          quizId: quiz.id,
+          pending,
+          checked,
+          openCount: status === "open" ? 1 : 0,
+          closedCount: status === "closed" ? 1 : 0,
+          missedCount: missed,
+          updatedAt: new Date(),
+        },
+        { upsert: true }
+      );
+    }
+
+    // Aggregate course-level totals
+    const totals = perQuiz.reduce(
+      (acc, p) => {
+        acc.pending += p.pending;
+        acc.checked += p.checked;
+        acc.open += p.open ? 1 : 0;
+        acc.closed += p.closed ? 1 : 0;
+        acc.missed += p.missed || 0;
+        return acc;
+      },
+      { pending: 0, checked: 0, open: 0, closed: 0, missed: 0 }
+    );
+
+    await ManualSummary.findOneAndUpdate(
+      { courseId, quizId: null },
+      {
+        courseId,
+        quizId: null,
+        pending: totals.pending,
+        checked: totals.checked,
+        openCount: totals.open,
+        closedCount: totals.closed,
+        missedCount: totals.missed,
+        updatedAt: new Date(),
+      },
+      { upsert: true }
+    );
+
+    res.status(200).send({ code: 200, message: "Manual summary recalculated.", data: { perQuiz, totals } });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ code: 500, message: "Error recalculating manual summary." });
+  }
+});
+
+// Get manual summary for a course
+server.get("/courses/:courseId/manual-summary", async (req, res) => {
+  try {
+    const courseId = req.params.courseId;
+    const courseTotals = await ManualSummary.findOne({ courseId, quizId: null }).lean();
+    const perQuiz = await ManualSummary.find({ courseId, quizId: { $ne: null } }).lean();
+    res.status(200).send({ code: 200, data: { courseTotals, perQuiz } });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "Error fetching manual summary." });
+  }
+});
+
+// Duplicate endpoints at top-level for compatibility
+server.post("/manual-summary/:courseId/recalculate", async (req, res) => {
+  // Delegate to existing route logic by calling the internal handler
+  try {
+    req.params.courseId = req.params.courseId;
+    // reuse the same logic as /courses/:courseId/manual-summary/recalculate
+    const courseId = req.params.courseId;
+    const quizzes = await Quiz.find({ courseId });
+    const submissions = await QuizSubmission.find({ courseId });
+
+    const interpretStatus = (quiz) => {
+      if (!quiz || !quiz.dueAt) return "open";
+      const d = new Date(quiz.dueAt);
+      if (isNaN(d)) return "open";
+      const now = new Date();
+      return d < now ? "closed" : "open";
+    };
+
+    const perQuiz = [];
+    for (const quiz of quizzes) {
+      const quizSubs = submissions.filter((s) => String(s.quizId) === String(quiz.id));
+      let pending = 0;
+      let checked = 0;
+      for (const sub of quizSubs) {
+        const ms = sub.manualScores || {};
+        const gradedCount = Object.keys(ms).filter((k) => ms[k] !== null && ms[k] !== undefined && ms[k] !== "").length;
+        if (gradedCount > 0) checked += 1; else pending += 1;
+      }
+
+      const status = interpretStatus(quiz);
+      const missed = 0;
+
+      perQuiz.push({ quizId: quiz.id, pending, checked, open: status === "open", closed: status === "closed", missed });
+
+      await ManualSummary.findOneAndUpdate(
+        { courseId, quizId: quiz.id },
+        {
+          courseId,
+          quizId: quiz.id,
+          pending,
+          checked,
+          openCount: status === "open" ? 1 : 0,
+          closedCount: status === "closed" ? 1 : 0,
+          missedCount: missed,
+          updatedAt: new Date(),
+        },
+        { upsert: true }
+      );
+    }
+
+    const totals = perQuiz.reduce(
+      (acc, p) => {
+        acc.pending += p.pending;
+        acc.checked += p.checked;
+        acc.open += p.open ? 1 : 0;
+        acc.closed += p.closed ? 1 : 0;
+        acc.missed += p.missed || 0;
+        return acc;
+      },
+      { pending: 0, checked: 0, open: 0, closed: 0, missed: 0 }
+    );
+
+    await ManualSummary.findOneAndUpdate(
+      { courseId, quizId: null },
+      {
+        courseId,
+        quizId: null,
+        pending: totals.pending,
+        checked: totals.checked,
+        openCount: totals.open,
+        closedCount: totals.closed,
+        missedCount: totals.missed,
+        updatedAt: new Date(),
+      },
+      { upsert: true }
+    );
+
+    res.status(200).send({ code: 200, message: "Manual summary recalculated.", data: { perQuiz, totals } });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ code: 500, message: "Error recalculating manual summary." });
+  }
+});
+
+server.get("/manual-summary/:courseId", async (req, res) => {
+  try {
+    const courseId = req.params.courseId;
+    const courseTotals = await ManualSummary.findOne({ courseId, quizId: null }).lean();
+    const perQuiz = await ManualSummary.find({ courseId, quizId: { $ne: null } }).lean();
+    res.status(200).send({ code: 200, data: { courseTotals, perQuiz } });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "Error fetching manual summary." });
+  }
+});
+
 server.get("/courses/:courseId/quiz-submissions", async (req, res) => {
   try {
     const submissions = await QuizSubmission.find({ courseId: req.params.courseId }).sort({ submittedAt: -1 });
@@ -1352,6 +1634,12 @@ server.post("/courses/:courseId/quiz-submissions", async (req, res) => {
     });
 
     await submission.save();
+    // Recalculate manual summary for this course so counts stay in DB
+    try {
+      await recalcManualSummary(req.params.courseId);
+    } catch (err) {
+      console.warn('Failed to recalc manual summary after submission save', err && err.message);
+    }
     res.status(201).send({ code: 201, message: "Submission saved successfully.", data: submission });
   } catch (error) {
     res.status(500).send({ code: 500, message: "There is an error saving the submission." });
@@ -1367,6 +1655,12 @@ server.put("/courses/:courseId/quiz-submissions/:submissionId", async (req, res)
 
     Object.assign(submission, { ...req.body, submittedAt: submission.submittedAt });
     await submission.save();
+    // Recalculate manual summary after grading/update
+    try {
+      await recalcManualSummary(req.params.courseId);
+    } catch (err) {
+      console.warn('Failed to recalc manual summary after submission update', err && err.message);
+    }
     res.status(200).send({ code: 200, message: "Submission updated successfully.", data: submission });
   } catch (error) {
     res.status(500).send({ code: 500, message: "There is an error updating the submission." });
@@ -1949,6 +2243,30 @@ server.delete("/grades/delete/:gradeId", (req, res) => {
 // START THE SERVER
 // =============================================
 
-server.listen(port, () =>
-  console.log(`Server is now running at port ${port}.`),
-);
+// Log registered routes for debugging
+server.listen(port, () => {
+  console.log(`Server is now running at port ${port}.`);
+  try {
+    const routes = [];
+    if (server && server._router && server._router.stack) {
+      server._router.stack.forEach((middleware) => {
+        if (middleware.route) {
+          const methods = Object.keys(middleware.route.methods).join(',').toUpperCase();
+          routes.push(`${methods} ${middleware.route.path}`);
+        } else if (middleware.name === 'router' && middleware.handle && middleware.handle.stack) {
+          middleware.handle.stack.forEach((handler) => {
+            if (handler.route) {
+              const methods = Object.keys(handler.route.methods).join(',').toUpperCase();
+              routes.push(`${methods} ${handler.route.path}`);
+            }
+          });
+        }
+      });
+      console.log('Registered routes:\n' + routes.join('\n'));
+    } else {
+      console.warn('No router stack available to enumerate routes.');
+    }
+  } catch (e) {
+    console.warn('Unable to enumerate routes', e && e.message);
+  }
+});
