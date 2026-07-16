@@ -2461,14 +2461,22 @@ server.delete("/private-messages/delete/:messageId", (req, res) => {
 
 // Schedule a live session
 server.post("/invitations/add", (req, res) => {
-  let newInvitation = new Invitation({
-    classroom: req.body.classroom || "all",
-    title: req.body.title,
-    meetingLink: req.body.meetingLink,
-  });
+  const title = String(req.body.title || "").trim();
+  const meetingLink = String(req.body.meetingLink || req.body.link || "").trim();
+  const classroom = String(req.body.classroom || "all").trim() || "all";
 
-  newInvitation
-    .save()
+  if (!title || !meetingLink) {
+    return res.status(400).send({
+      code: 400,
+      message: "Title and meeting link are required.",
+    });
+  }
+
+  Invitation.findOneAndUpdate(
+    { classroom },
+    { title, meetingLink, createdAt: new Date() },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  )
     .then((savedInvitation) => {
       res.status(201).send({
         code: 201,
@@ -2486,7 +2494,12 @@ server.post("/invitations/add", (req, res) => {
 
 // Get all invitations / live sessions
 server.get("/invitations/all", (req, res) => {
-  Invitation.find({}).sort({ createdAt: -1 })
+  const classroom = String(req.query.classroom || "").trim();
+  const query = classroom
+    ? { $or: [{ classroom }, { classroom: "all" }] }
+    : {};
+
+  Invitation.find(query).sort({ createdAt: -1 })
     .then((result) => {
       res.status(200).send({
         code: 200,

@@ -190,13 +190,13 @@ const classroomStudents = {
 
 function getClassroomTitle(classroom = "") {
   if (classroom === "all") return "All Subjects";
-  return getCustomCourses().find((course) => course.id === classroom)?.title || classroomTitles[classroom] || "Subject";
+  return getCustomCourses().find((course) => String(course._id || course.id) === String(classroom))?.title || classroomTitles[classroom] || "Subject";
 }
 
 function getSubjectTargets(options = {}) {
   const { includeAll = true } = options;
   const targets = getCustomCourses().map((course) => ({
-    value: course.id,
+    value: String(course._id || course.id),
     label: course.title
   }));
 
@@ -267,6 +267,7 @@ const demoAssignments = [];
 let expandedAssignmentId;
 
 const demoInvitations = [];
+let serverInvitations = null;
 
 const courseWorkspaces = {};
 
@@ -733,7 +734,7 @@ async function renderCourseWorkspace(courseId, triggerCard) {
 
   const inviteCode = course.invitationCode || createInvitationCode(course.title, course.id);
   const invitePanel = document.createElement("div");
-  invitePanel.className = "course-invite-code course-invite-code-hero";
+  invitePanel.className = "course-invite-code course-invite-code-hero course-invite-code-copy";
   const inviteText = document.createElement("div");
   inviteText.append(
     createTextElement("span", "", "Subject invitation code"),
@@ -748,43 +749,45 @@ async function renderCourseWorkspace(courseId, triggerCard) {
 
   hero.appendChild(heroText);
 
-  if (!adminApp) {
-    const liveInvitation = getLatestCourseInvitation(courseId);
-    const livePanel = document.createElement("div");
-    livePanel.className = "course-invite-code course-invite-code-hero course-live-link-hero";
+  const livePanel = document.createElement("div");
+  livePanel.className = "course-invite-code course-invite-code-hero course-live-link-hero course-invite-code-copy";
+  const liveText = document.createElement("div");
+  liveText.append(createTextElement("span", "", "Live session link"));
+  livePanel.appendChild(liveText);
 
-    const liveText = document.createElement("div");
-    liveText.append(
-      createTextElement("span", "", "Live session link"),
-      createTextElement("strong", "", liveInvitation ? liveInvitation.title : "No live session")
-    );
-    livePanel.appendChild(liveText);
+  const liveActions = document.createElement("div");
+  liveActions.className = "course-live-link-actions";
+  livePanel.appendChild(liveActions);
 
-    if (liveInvitation) {
-      const liveActions = document.createElement("div");
-      liveActions.className = "course-live-link-actions";
+  const liveInvitation = getLatestCourseInvitation(courseId, course.title, inviteCode);
+  const liveLink = liveInvitation?.link?.trim();
+  const liveTitle = String(liveInvitation?.title || "").trim();
+  liveText.innerHTML = "";
+  liveText.append(createTextElement("span", "", "Live session link"));
 
-      const openLive = document.createElement("a");
-      openLive.className = "btn btn-primary btn-sm";
-      openLive.href = liveInvitation.link;
-      openLive.target = "_blank";
-      openLive.rel = "noopener";
-      openLive.textContent = "Open";
+  if (liveLink && liveTitle) {
+    liveText.appendChild(createTextElement("strong", "", liveTitle));
 
-      const copyLive = document.createElement("button");
-      copyLive.className = "btn btn-outline-primary btn-sm";
-      copyLive.type = "button";
-      copyLive.dataset.copyLiveSessionLink = liveInvitation.link;
-      copyLive.textContent = "Copy";
+    const openLive = document.createElement("a");
+    openLive.className = "btn btn-primary btn-sm";
+    openLive.href = liveLink;
+    openLive.target = "_blank";
+    openLive.rel = "noopener noreferrer";
+    openLive.textContent = "Open GMeet";
 
-      liveActions.append(openLive, copyLive);
-      livePanel.appendChild(liveActions);
-    }
+    const copyLive = document.createElement("button");
+    copyLive.className = "btn btn-outline-primary btn-sm";
+    copyLive.type = "button";
+    copyLive.dataset.copyLiveSessionLink = liveLink;
+    copyLive.textContent = "Copy";
 
-    hero.appendChild(livePanel);
+    liveActions.replaceChildren(openLive, copyLive);
+  } else {
+    liveText.appendChild(createTextElement("strong", "", "No live session link"));
+    liveActions.replaceChildren();
   }
 
-  hero.append(invitePanel, heroMeta);
+  hero.append(invitePanel, livePanel, heroMeta);
 
   const progress = document.createElement("div");
   progress.className = "course-workspace-progress progress";
@@ -1259,9 +1262,21 @@ function saveCustomCourses(courses) {
   serverCourses = Array.isArray(courses) ? courses : [];
 }
 
-function getLatestCourseInvitation(courseId) {
-  return getInvitations()
-    .filter((invitation) => invitation.classroom === "all" || invitation.classroom === courseId)
+function getCourseInvitations(courseId, courseTitle = "", courseInviteCode = "") {
+  const normalizedCourseId = String(courseId || "").trim().toLowerCase();
+  const normalizedTitle = String(courseTitle || "").trim().toLowerCase();
+  const normalizedInviteCode = String(courseInviteCode || "").trim().toLowerCase();
+  return getInvitations().filter((invitation) => {
+    const classroom = String(invitation.classroom || "").trim().toLowerCase();
+    return classroom === "all"
+      || classroom === normalizedCourseId
+      || classroom === normalizedTitle
+      || classroom === normalizedInviteCode;
+  });
+}
+
+function getLatestCourseInvitation(courseId, courseTitle = "", courseInviteCode = "") {
+  return getCourseInvitations(courseId, courseTitle, courseInviteCode)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null;
 }
 
@@ -3287,6 +3302,10 @@ function createCourseCard(course, index) {
   codeEl.style.margin = "0 0 0.75rem 0";
   codeEl.style.letterSpacing = "0.02em";
 
+  const courseInvitation = getLatestCourseInvitation(String(course._id || course.id));
+  const livePreview = createTextElement("p", "small text-secondary mb-3", courseInvitation ? `Latest live session: ${courseInvitation.title}` : "No live session scheduled yet.");
+  livePreview.style.margin = "0 0 0.75rem 0";
+
   const progressMeta = document.createElement("div");
   progressMeta.className = "d-flex justify-content-between small mb-1";
   progressMeta.style.fontSize = "0.85rem";
@@ -3314,6 +3333,7 @@ function createCourseCard(course, index) {
     descEl,
     codeLabel,
     codeEl,
+    livePreview,
     progressMeta,
     progress
   );
@@ -3378,6 +3398,8 @@ function renderCustomCourses() {
     visibleCourses.forEach((course, index) => {
       list.appendChild(createCourseCard(course, index));
     });
+
+    list.querySelectorAll(".course-card").forEach(bindCourseCard);
   });
 
 }
@@ -6224,16 +6246,31 @@ document.addEventListener("submit", (event) => {
   if (activeCourseCard) renderCourseWorkspace(form.dataset.studentGradeForm, activeCourseCard);
 });
 
-function getInvitations() {
-  const stored = getStoredItems("gthInvitations", null);
-  if (stored) {
-    const cleaned = removeDeprecatedSubjectItems(stored);
-    if (cleaned.length !== stored.length) saveStoredItems("gthInvitations", cleaned);
-    return cleaned;
+async function loadServerInvitations(classroom = "") {
+  try {
+    const query = classroom ? `?classroom=${encodeURIComponent(classroom)}` : "";
+    const response = await fetch(getApiUrl(`/invitations/all${query}`));
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to load live sessions.");
+
+    serverInvitations = Array.isArray(result.data)
+      ? result.data.map((item) => ({
+          ...item,
+          id: item._id || item.id || `invitation-${Date.now()}`,
+          link: item.meetingLink || item.link || "",
+          classroom: item.classroom || "all",
+          createdAt: item.createdAt || new Date().toISOString(),
+        }))
+      : [];
+  } catch (error) {
+    serverInvitations = [];
   }
 
-  saveStoredItems("gthInvitations", demoInvitations);
-  return demoInvitations;
+  return serverInvitations;
+}
+
+function getInvitations() {
+  return Array.isArray(serverInvitations) ? serverInvitations : [];
 }
 
 function renderInvitationCard(invitation, options = {}) {
@@ -6324,46 +6361,86 @@ function renderInvitations() {
 
 }
 
-invitationForm?.addEventListener("submit", (event) => {
+invitationForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const title = document.querySelector("#invitationTitle").value.trim();
   const link = document.querySelector("#invitationLink").value.trim();
   if (!title || !link) return;
 
-  const invitations = getInvitations();
+  const classroom = document.querySelector("#invitationClassroom").value;
   const invitation = {
     id: `invitation-${Date.now()}`,
-    classroom: document.querySelector("#invitationClassroom").value,
+    classroom,
     title,
     link,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
   };
-  invitations.unshift(invitation);
 
-  saveStoredItems("gthInvitations", invitations);
-  addNotification({
-    type: "invitation",
-    section: "gmeet",
-    classroom: invitation.classroom,
-    audience: { role: "student", classroom: invitation.classroom },
-    title: `New live session: ${title}`,
-    message: getClassroomTitle(invitation.classroom) || "Live session",
-    createdAt: invitation.createdAt
-  });
+  let savedInvitation = null;
+  try {
+    const response = await fetch(getApiUrl("/invitations/add"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        classroom,
+        title,
+        meetingLink: link,
+      }),
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (response.ok && result.data) {
+      savedInvitation = {
+        ...result.data,
+        id: result.data._id || result.data.id || invitation.id,
+        link: result.data.meetingLink || result.data.link || link,
+        classroom: result.data.classroom || classroom,
+        createdAt: result.data.createdAt || invitation.createdAt,
+      };
+    }
+  } catch (error) {
+    savedInvitation = null;
+  }
+
+  if (savedInvitation) {
+    if (!Array.isArray(serverInvitations)) serverInvitations = [];
+    serverInvitations = serverInvitations.filter((item) => item.classroom !== classroom);
+    serverInvitations.unshift(savedInvitation);
+  } else {
+    console.warn("Live session could not be saved to the server.");
+  }
+
   invitationForm.reset();
   renderInvitations();
   refreshActiveCourseWorkspace();
 });
 
-document.addEventListener("click", (event) => {
+document.addEventListener("click", async (event) => {
   const actionButton = event.target.closest("[data-invitation-action]");
   if (!actionButton) return;
 
   if (actionButton.dataset.invitationAction === "remove") {
-    saveStoredItems("gthInvitations", getInvitations().filter((item) => item.id !== actionButton.dataset.invitationId));
-    renderInvitations();
-    refreshActiveCourseWorkspace();
+    const invitationId = actionButton.dataset.invitationId;
+    try {
+      const response = await fetch(getApiUrl(`/invitations/delete/${encodeURIComponent(invitationId)}`), {
+        method: "DELETE",
+      });
+      if (response.ok) {
+        if (Array.isArray(serverInvitations)) {
+          serverInvitations = serverInvitations.filter((item) => item.id !== invitationId);
+        }
+        renderInvitations();
+        refreshActiveCourseWorkspace();
+      } else {
+        const result = await response.json().catch(() => ({}));
+        console.warn("Unable to delete live session:", result.message || response.statusText);
+      }
+    } catch (error) {
+      console.warn("Live session delete failed:", error.message);
+    }
   }
 });
 
@@ -6957,16 +7034,19 @@ if (selectedClassroomTitle) {
 renderAnnouncements();
 renderVideos();
 renderAssignments();
-renderInvitations();
 renderChatMessages();
 const currentUserForCourses = JSON.parse(sessionStorage.getItem("gthCurrentUser") || "null");
 loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "").then(async () => {
   await syncCurrentStudentFromServer();
+  await loadServerInvitations();
+  renderInvitations();
+
   const courseId = getCustomCourses()[0]?._id || getCustomCourses()[0]?.id || "";
   if (courseId) {
     await loadServerQuizzes(courseId);
     await loadServerQuizSubmissions(courseId);
   }
+
   renderCustomCourses();
   renderGradebook();
   setupPrivateMessageStudents();
