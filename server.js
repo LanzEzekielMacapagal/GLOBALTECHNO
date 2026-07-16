@@ -4,6 +4,8 @@ const express = require("express");
 const mongoose = require("mongoose");
 // import path module for static files
 const path = require("path");
+const fs = require("fs");
+const multer = require("multer");
 // provide name for the server
 const server = express();
 // Declare server port
@@ -17,6 +19,23 @@ mongoose.connect(process.env.MONGODB_URI || "mongodb://GlobalTechnoLMS:qwerty123
   });
 
 let db = mongoose.connection;
+
+const uploadDir = path.join(__dirname, "uploads", "assignments");
+fs.mkdirSync(uploadDir, { recursive: true });
+
+const uploadStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => {
+    const safeName = String(file.originalname || "file").replace(/[^\w.-]+/g, "-");
+    const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`;
+    cb(null, uniqueName);
+  }
+});
+
+const upload = multer({
+  storage: uploadStorage,
+  limits: { fileSize: 20 * 1024 * 1024 }
+});
 
 // Check if connection has error
 db.on("error", console.error.bind(console, "Cannot connect to MongoDB."));
@@ -379,6 +398,21 @@ const gradeSchema = new mongoose.Schema({
   },
 });
 
+// Assignment Schema
+const assignmentSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  courseId: { type: String, required: true, index: true },
+  title: { type: String, required: true },
+  instructions: { type: String, required: true },
+  attachments: {
+    type: Array,
+    default: []
+  },
+  dueDate: { type: Date, required: true },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
 // =============================================
 // MODELS
 // =============================================
@@ -395,6 +429,7 @@ const ChatMessage = mongoose.model("ChatMessage", chatMessageSchema);
 const PrivateMessage = mongoose.model("PrivateMessage", privateMessageSchema);
 const Invitation = mongoose.model("Invitation", invitationSchema);
 const Grade = mongoose.model("Grade", gradeSchema);
+const Assignment = mongoose.model("Assignment", assignmentSchema);
 
 // Manual summary schema to track pending / checked counts and quiz status
 const manualSummarySchema = new mongoose.Schema({
@@ -534,7 +569,7 @@ async function recalcEnrolledLearnerSummary(courseId, learnerId = null) {
     return;
   }
 
-  const enrollmentCourseId = mongoose.Types.ObjectId.isValid(courseIdString) ? mongoose.Types.ObjectId(courseIdString) : courseIdString;
+  const enrollmentCourseId = mongoose.Types.ObjectId.isValid(courseIdString) ? new mongoose.Types.ObjectId(courseIdString) : courseIdString;
   const learners = await User.find({
     isActive: { $ne: false },
     role: { $ne: "admin" },
@@ -682,10 +717,122 @@ if (db.readyState === 1) {
 // MIDDLEWARES
 // =============================================
 
-server.use(express.json());
-server.use(express.urlencoded({ extended: true }));
+server.use(express.json({ limit: "50mb" }));
+server.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+const escapeHtml = (value = "") => String(value)
+  .replace(/&/g, "&amp;")
+  .replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;")
+  .replace(/\"/g, "&quot;")
+  .replace(/'/g, "&#39;");
+
+const getSafeUploadFilePath = (requestedFile = "") => {
+  const decodedName = decodeURIComponent(String(requestedFile || ""));
+  const safeName = path.basename(decodedName);
+  if (!safeName) return "";
+  return path.join(uploadDir, safeName);
+};
+
+const getUploadMimeType = (filePath = "") => {
+  const extension = path.extname(filePath).toLowerCase();
+  return {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".txt": "text/plain; charset=utf-8",
+    ".csv": "text/csv; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".md": "text/markdown; charset=utf-8",
+    ".log": "text/plain; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".htm": "text/html; charset=utf-8",
+    ".xml": "application/xml; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".yaml": "text/yaml; charset=utf-8",
+    ".yml": "text/yaml; charset=utf-8",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  }[extension] || "application/octet-stream";
+};
+
+const isTextPreviewable = (filePath = "") => {
+  const extension = path.extname(filePath).toLowerCase();
+  return [".txt", ".md", ".csv", ".json", ".log", ".html", ".htm", ".xml", ".js", ".css", ".yaml", ".yml"].includes(extension);
+};
 
 // Serve static files (HTML, CSS, JS, assets)
+server.get("/uploads/assignments/preview/:filename", (req, res) => {
+  const filePath = getSafeUploadFilePath(req.params.filename);
+
+  if (!filePath || !fs.existsSync(filePath)) {
+    return res.status(404).send({ code: 404, message: "File not found." });
+  }
+
+  if (!isTextPreviewable(filePath)) {
+    return res.status(400).send({ code: 400, message: "This file type cannot be previewed as text." });
+  }
+
+  try {
+    const content = fs.readFileSync(filePath, "utf8");
+    const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(path.basename(filePath))}</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; padding: 1.25rem; background: #f8fbfc; color: #12333b; }
+      pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid #d8e7ec; border-radius: 0.6rem; padding: 1rem; overflow-x: auto; }
+      h1 { font-size: 1rem; margin-bottom: 0.75rem; }
+    </style>
+  </head>
+  <body>
+    <h1>${escapeHtml(path.basename(filePath))}</h1>
+    <pre>${escapeHtml(content)}</pre>
+  </body>
+</html>`;
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.send(html);
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "Unable to read file for preview." });
+  }
+});
+
+server.get("/uploads/assignments/:filename", (req, res) => {
+  const filePath = getSafeUploadFilePath(req.params.filename);
+
+  if (!filePath || !fs.existsSync(filePath)) {
+    return res.status(404).send({ code: 404, message: "File not found." });
+  }
+
+  const mimeType = getUploadMimeType(filePath);
+
+  res.setHeader("Content-Type", mimeType);
+  res.setHeader("Content-Disposition", `inline; filename="${path.basename(filePath)}"`);
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  res.sendFile(filePath);
+});
+
 server.use(express.static(path.join(__dirname)));
 
 // =============================================
@@ -1214,7 +1361,7 @@ server.get("/courses/:courseId/enrolled-students", async (req, res) => {
       return map;
     }, {});
 
-    const enrollmentCourseId = mongoose.Types.ObjectId.isValid(courseIdString) ? mongoose.Types.ObjectId(courseIdString) : courseIdString;
+    const enrollmentCourseId = mongoose.Types.ObjectId.isValid(courseIdString) ? new mongoose.Types.ObjectId(courseIdString) : courseIdString;
     const learners = await User.find({
       isActive: { $ne: false },
       role: { $ne: "admin" },
@@ -1836,6 +1983,127 @@ server.delete("/courses/delete/:courseId", async (req, res) => {
       code: 500,
       message: "There is an error deleting the course.",
     });
+  }
+});
+
+// =============================================
+// ASSIGNMENT ROUTES — CRUD
+// =============================================
+
+// Get assignments for a course
+server.get("/courses/:courseId/assignments", async (req, res) => {
+  try {
+    const courseId = req.params.courseId;
+    const assignments = await Assignment.find({ courseId }).lean();
+    res.status(200).send({ code: 200, data: assignments });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "Error fetching assignments." });
+  }
+});
+
+// Create a new assignment
+server.post("/courses/:courseId/assignments", upload.fields([{ name: "attachments", maxCount: 10 }]), async (req, res) => {
+  try {
+    const courseId = req.params.courseId;
+    const body = req.body || {};
+    const payload = typeof body === "object" && body !== null ? body : {};
+    const title = String(payload.title || body.title || "").trim();
+    const instructions = String(payload.instructions || body.instructions || "").trim();
+    const dueDate = String(payload.dueDate || body.dueDate || "").trim();
+    const uploadedFiles = Array.isArray(req.files?.attachments)
+      ? req.files.attachments.map((file) => {
+          const normalized = {
+            name: String(file.originalname || ""),
+            filename: String(file.filename || ""),
+            originalname: String(file.originalname || ""),
+            mimetype: String(file.mimetype || ""),
+            type: String(file.mimetype || ""),
+            size: Number(file.size || 0),
+            path: `/uploads/assignments/${String(file.filename || "")}`,
+            url: `/uploads/assignments/${String(file.filename || "")}`
+          };
+          return normalized;
+        })
+      : [];
+    
+    // Validation
+    if (!courseId) {
+      return res.status(400).send({ code: 400, message: "Course ID is required." });
+    }
+    if (!title || title.trim() === "") {
+      return res.status(400).send({ code: 400, message: "Assignment title is required." });
+    }
+    if (!instructions || instructions.trim() === "") {
+      return res.status(400).send({ code: 400, message: "Assignment instructions are required." });
+    }
+    if (!dueDate) {
+      return res.status(400).send({ code: 400, message: "Due date is required." });
+    }
+    
+    const id = `assignment-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    const assignment = await Assignment.create({
+      id,
+      courseId,
+      title,
+      instructions,
+      dueDate: new Date(dueDate),
+      attachments: Array.isArray(uploadedFiles) ? uploadedFiles.map((item) => ({ ...item })) : []
+    });
+    
+    res.status(201).send({ code: 201, message: "Assignment created successfully.", data: assignment });
+  } catch (error) {
+    console.error("Assignment creation error:", error.message);
+    res.status(500).send({ code: 500, message: `Error creating assignment: ${error.message}` });
+  }
+});
+
+// Update an assignment
+server.put("/courses/:courseId/assignments/:assignmentId", async (req, res) => {
+  try {
+    const { courseId, assignmentId } = req.params;
+    const payload = req.body && typeof req.body === "object" ? req.body : {};
+    const title = String(payload.title || "").trim();
+    const instructions = String(payload.instructions || "").trim();
+    const dueDate = String(payload.dueDate || "").trim();
+    const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
+    
+    const assignment = await Assignment.findOneAndUpdate(
+      { courseId, id: assignmentId },
+      {
+        title,
+        instructions,
+        dueDate: new Date(dueDate),
+        attachments,
+        updatedAt: new Date()
+      },
+      { new: true }
+    );
+    
+    if (!assignment) {
+      return res.status(404).send({ code: 404, message: "Assignment not found." });
+    }
+    
+    res.status(200).send({ code: 200, message: "Assignment updated successfully.", data: assignment });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "Error updating assignment." });
+  }
+});
+
+// Delete an assignment
+server.delete("/courses/:courseId/assignments/:assignmentId", async (req, res) => {
+  try {
+    const { courseId, assignmentId } = req.params;
+    
+    const assignment = await Assignment.findOneAndDelete({ courseId, id: assignmentId });
+    
+    if (!assignment) {
+      return res.status(404).send({ code: 404, message: "Assignment not found." });
+    }
+    
+    res.status(200).send({ code: 200, message: "Assignment deleted successfully." });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "Error deleting assignment." });
   }
 });
 
