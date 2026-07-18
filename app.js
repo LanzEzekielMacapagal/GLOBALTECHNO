@@ -1800,9 +1800,19 @@ function renderCourseResourcePreview(resource) {
     return preview;
   }
 
+  const extension = getFileExtension(file.name || file.filename || file.originalname || "");
+
   if (fileData && (file.type === "application/pdf" || isPdfPath(file.name))) {
     const frame = document.createElement("iframe");
     frame.src = getFilePreviewUrl(file);
+    frame.title = `${file.name} preview`;
+    preview.appendChild(frame);
+    return preview;
+  }
+
+  if (fileData && ["doc", "docx", "ppt", "pptx", "xls", "xlsx"].includes(extension)) {
+    const frame = document.createElement("iframe");
+    frame.src = `https://docs.google.com/viewer?url=${encodeURIComponent(getFilePreviewUrl(file))}&embedded=true`;
     frame.title = `${file.name} preview`;
     preview.appendChild(frame);
     return preview;
@@ -4071,19 +4081,21 @@ document.addEventListener("click", async (event) => {
 
     event.preventDefault();
     const tile = filePreviewButton.closest(".file-preview-tile");
-    const isInlinePreviewable = Boolean(getFilePreviewTarget(file)) && (
+    const extension = getFileExtension(file.name || file.filename || file.originalname || "");
+    const previewUrl = getFilePreviewTarget(file);
+    const isRemoteOffice = ["doc", "docx", "ppt", "pptx", "xls", "xlsx"].includes(extension) && /^https?:\/\//i.test(previewUrl);
+    const isTextPreview = ["txt", "md", "csv", "json", "log", "html", "htm", "xml", "js", "css", "yaml", "yml"].includes(extension);
+    const isInlinePreviewable = Boolean(previewUrl) && (
       file.type?.startsWith("image/")
       || file.type === "application/pdf"
-      || ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "apng", "pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx"].includes(getFileExtension(file.name || file.filename || file.originalname || ""))
+      || isTextPreview
+      || isRemoteOffice
     );
 
     if (isInlinePreviewable) {
       renderInlineFilePreview(file, tile);
-    } else {
-      const previewUrl = getFilePreviewTarget(file);
-      if (previewUrl) {
-        window.open(previewUrl, "_blank", "noopener,noreferrer");
-      }
+    } else if (previewUrl) {
+      window.open(previewUrl, "_blank", "noopener,noreferrer");
     }
     return;
   }
@@ -5287,7 +5299,8 @@ function getFilePreviewTarget(file = {}) {
   }
 
   if (["doc", "docx", "xls", "xlsx", "ppt", "pptx"].includes(extension)) {
-    return `https://docs.google.com/viewer?url=${encodeURIComponent(previewUrl)}&embedded=true`;
+    const remoteUrl = /^https?:\/\//i.test(previewUrl) && !/^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/i.test(previewUrl);
+    return remoteUrl ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(previewUrl)}` : previewUrl;
   }
 
   return previewUrl;
@@ -5318,11 +5331,27 @@ function renderInlineFilePreview(file = {}, container = null) {
     frame.className = "file-preview-inline-frame";
     previewWrapper.appendChild(frame);
   } else if (isOffice && previewUrl) {
-    const frame = document.createElement("iframe");
-    frame.src = `https://docs.google.com/viewer?url=${encodeURIComponent(previewUrl)}&embedded=true`;
-    frame.title = file.name || "Attachment preview";
-    frame.className = "file-preview-inline-frame";
-    previewWrapper.appendChild(frame);
+    const isRemoteOffice = /^https?:\/\//i.test(previewUrl);
+    if (isRemoteOffice) {
+      const frame = document.createElement("iframe");
+      frame.src = previewUrl;
+      frame.title = file.name || "Attachment preview";
+      frame.className = "file-preview-inline-frame";
+      previewWrapper.appendChild(frame);
+    } else {
+      const fallback = document.createElement("div");
+      fallback.className = "file-preview-inline-fallback";
+      const message = document.createElement("p");
+      message.textContent = "Preview is not available for this document type locally. Open or download the file instead.";
+      const openLink = document.createElement("a");
+      openLink.href = getFilePreviewUrl(file);
+      openLink.target = "_blank";
+      openLink.rel = "noopener noreferrer";
+      openLink.textContent = "Open file";
+      openLink.className = "btn btn-outline-primary btn-sm";
+      fallback.append(message, openLink);
+      previewWrapper.appendChild(fallback);
+    }
   } else if (isTextPreview && previewUrl) {
     const frame = document.createElement("iframe");
     frame.src = previewUrl;
