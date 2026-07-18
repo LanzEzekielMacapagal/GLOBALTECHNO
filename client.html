@@ -121,14 +121,25 @@
               <button class="btn btn-outline-secondary" type="submit">Search</button>
             </form>
 
-            <form class="course-import-form mb-3" id="studentImportForm">
-              <label class="form-label mb-0">
-                Import a subject code to join
-                <input class="form-control mt-1" id="studentImportCode" type="text" placeholder="Enter subject code" autocomplete="off" required>
-              </label>
-              <button class="btn btn-primary" type="submit">Import</button>
-              <p class="course-import-message mb-0" id="studentImportMessage" aria-live="polite"></p>
-            </form>
+            <div class="student-import-panel mb-3 p-3 rounded-3 border border-200 bg-white shadow-sm">
+              <div class="d-flex flex-column flex-md-row align-items-start justify-content-between gap-3 mb-3">
+                <div>
+                  <p class="section-label mb-1">Import subject</p>
+                  <h2 class="h5 mb-1">Join a course with your subject code</h2>
+                  <p class="text-secondary mb-0">Enter the subject code provided by your instructor to add the course to your learning dashboard.</p>
+                </div>
+                <span class="badge text-bg-info align-self-start">Secure access</span>
+              </div>
+
+              <form class="course-import-form d-flex flex-column flex-md-row gap-2 align-items-stretch" id="studentImportForm">
+                <div class="flex-grow-1">
+                  <label class="form-label visually-hidden" for="studentImportCode">Subject code</label>
+                  <input class="form-control" id="studentImportCode" type="text" placeholder="Enter subject code" autocomplete="off" required>
+                </div>
+                <button class="btn btn-primary w-100 w-md-auto" type="submit">Import subject</button>
+              </form>
+              <p class="course-import-message mt-2 mb-0" id="studentImportMessage" aria-live="polite"></p>
+            </div>
 
             <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-3">
               <div>
@@ -257,6 +268,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="course-linking.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

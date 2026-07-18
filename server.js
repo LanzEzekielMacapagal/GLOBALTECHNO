@@ -303,6 +303,10 @@ const chatMessageSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  userId: {
+    type: String,
+    default: null,
+  },
   sender: {
     type: String,
     required: true,
@@ -1237,20 +1241,21 @@ server.post("/tasks/:taskId/mark-complete", (req, res) => {
 // Add a new course
 server.post("/courses/add", async (req, res) => {
   try {
-    const existingCourse = await Course.findOne({ title: req.body.title });
+    const title = String(req.body.title || "").trim();
+    const description = String(req.body.description || "").trim();
 
-    if (existingCourse != null) {
-      return res.status(409).send({
-        code: 409,
-        message: "A course with this title already exists!",
+    if (!title) {
+      return res.status(400).send({
+        code: 400,
+        message: "Course title is required.",
       });
     }
 
     const invitationCode = req.body.invitationCode || await generateUniqueInvitationCode(req.body.title);
 
     const newCourse = new Course({
-      title: req.body.title,
-      description: req.body.description,
+      title,
+      description,
       invitationCode,
       status: req.body.status || "live",
       nextUpTitle: req.body.nextUpTitle || "",
@@ -1471,43 +1476,36 @@ server.get("/courses/all", async (req, res) => {
 });
 
 // Edit a course
-server.put("/courses/edit/:courseId", (req, res) => {
-  Course.findOne({ _id: req.params.courseId })
-    .then((result) => {
-      if (result == null) {
-        return res.status(404).send({
-          code: 404,
-          message: "Course not found. Cannot edit!",
-        });
-      }
+server.put("/courses/edit/:courseId", async (req, res) => {
+  try {
+    const title = String(req.body.title || "").trim();
+    const description = String(req.body.description || "").trim();
+    const result = await Course.findOne({ _id: req.params.courseId });
 
-      result.title = req.body.title || result.title;
-      result.description = req.body.description || result.description;
-      result.status = req.body.status || result.status;
-      result.cover = req.body.cover || result.cover;
-
-      result
-        .save()
-        .then((updatedCourse) => {
-          res.status(200).send({
-            code: 200,
-            message: "Course updated successfully!",
-            data: updatedCourse,
-          });
-        })
-        .catch((updateErr) => {
-          res.status(500).send({
-            code: 500,
-            message: "There is an error updating the course.",
-          });
-        });
-    })
-    .catch((err) => {
-      res.status(500).send({
-        code: 500,
-        message: "There is an error finding the course.",
+    if (result == null) {
+      return res.status(404).send({
+        code: 404,
+        message: "Course not found. Cannot edit!",
       });
+    }
+
+    result.title = title || result.title;
+    result.description = description || result.description;
+    result.status = req.body.status || result.status;
+    result.cover = req.body.cover || result.cover;
+
+    const updatedCourse = await result.save();
+    res.status(200).send({
+      code: 200,
+      message: "Course updated successfully!",
+      data: updatedCourse,
     });
+  } catch (err) {
+    res.status(500).send({
+      code: 500,
+      message: "There is an error updating the course.",
+    });
+  }
 });
 
 // Delete a course
@@ -2297,30 +2295,76 @@ server.delete("/videos/delete/:videoId", (req, res) => {
 // =============================================
 
 // Send a chat message
-server.post("/chat/send", (req, res) => {
-  let newMessage = new ChatMessage({
-    classroom: req.body.classroom,
-    sender: req.body.sender,
-    role: req.body.role || "student",
-    text: req.body.text,
-    attachments: req.body.attachments || [],
-  });
+server.post("/chat/send", async (req, res) => {
+  const classroom = String(req.body.classroom || "").trim();
+  const sender = String(req.body.sender || "").trim();
+  const role = String(req.body.role || "student").trim();
+  const userId = req.body.userId ? String(req.body.userId).trim() : null;
+  const text = req.body.text || "";
+  const attachments = Array.isArray(req.body.attachments) ? req.body.attachments : [];
 
-  newMessage
-    .save()
-    .then((savedMessage) => {
-      res.status(201).send({
-        code: 201,
-        message: "Chat message sent!",
-        data: savedMessage,
-      });
-    })
-    .catch((saveErr) => {
-      res.status(500).send({
-        code: 500,
-        message: "There is an error sending the chat message.",
-      });
+  if (!classroom || !sender || !role) {
+    return res.status(400).send({
+      code: 400,
+      message: "Chat message classroom, sender, and role are required.",
     });
+  }
+
+  try {
+    const course = await Course.findOne({ _id: classroom });
+    if (!course) {
+      return res.status(404).send({
+        code: 404,
+        message: "Course not found for class chat.",
+      });
+    }
+
+    if (role === "student") {
+      if (!userId) {
+        return res.status(400).send({
+          code: 400,
+          message: "Student userId is required to send class chat messages.",
+        });
+      }
+
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).send({
+          code: 404,
+          message: "User not found.",
+        });
+      }
+
+      const enrolledCourseIds = (user.enrolledCourses || []).map(String);
+      if (!enrolledCourseIds.includes(String(classroom))) {
+        return res.status(403).send({
+          code: 403,
+          message: "You are not enrolled in this course and cannot post to this class chat.",
+        });
+      }
+    }
+
+    const newMessage = new ChatMessage({
+      classroom,
+      userId,
+      sender,
+      role,
+      text,
+      attachments,
+    });
+
+    const savedMessage = await newMessage.save();
+    res.status(201).send({
+      code: 201,
+      message: "Chat message sent!",
+      data: savedMessage,
+    });
+  } catch (saveErr) {
+    res.status(500).send({
+      code: 500,
+      message: "There is an error sending the chat message.",
+    });
+  }
 });
 
 // Get all chat messages (optionally filter by classroom)

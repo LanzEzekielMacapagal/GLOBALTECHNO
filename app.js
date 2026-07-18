@@ -190,7 +190,9 @@ const classroomStudents = {
 
 function getClassroomTitle(classroom = "") {
   if (classroom === "all") return "All Subjects";
-  return getCustomCourses().find((course) => String(course._id || course.id) === String(classroom))?.title || classroomTitles[classroom] || "Subject";
+  const course = getCustomCourses().find((item) => String(item._id || item.id) === String(classroom));
+  if (course?.title) return course.title;
+  return classroomTitles[classroom] || "Subject";
 }
 
 function getSubjectTargets(options = {}) {
@@ -239,6 +241,7 @@ const selectedClassroom = availableClassrooms.some((target) => target.value === 
   ? requestedClassroom
   : availableClassrooms[0]?.value || "";
 const selectedClassroomTitle = getClassroomTitle(selectedClassroom);
+const courseLinking = typeof window !== "undefined" && window.courseLinking ? window.courseLinking : null;
 const currentUserFromSession = (() => {
   try {
     return JSON.parse(sessionStorage.getItem("gthCurrentUser") || "null");
@@ -1305,12 +1308,16 @@ function syncAssignmentSubjects() {
 
   courses.forEach((course) => {
     const option = document.createElement("option");
-    option.value = course.title;
+    option.value = String(course._id || course.id);
     option.textContent = course.title;
     assignmentSubject.appendChild(option);
   });
 
-  if (courses.some((course) => course.title === currentValue)) assignmentSubject.value = currentValue;
+  if (courses.some((course) => String(course._id || course.id) === currentValue)) {
+    assignmentSubject.value = currentValue;
+  } else if (courses.some((course) => course.title === currentValue)) {
+    assignmentSubject.value = String(courses.find((course) => course.title === currentValue)?._id || courses.find((course) => course.title === currentValue)?.id || "");
+  }
 }
 
 function syncPostTargetSelectors() {
@@ -1340,12 +1347,16 @@ function syncPostTargetSelectors() {
 
   courses.forEach((course) => {
     const option = document.createElement("option");
-    option.value = course.title;
+    option.value = String(course._id || course.id);
     option.textContent = course.title;
     announcementSubject.appendChild(option);
   });
 
-  if (courses.some((course) => course.title === currentValue)) announcementSubject.value = currentValue;
+  if (courses.some((course) => String(course._id || course.id) === currentValue)) {
+    announcementSubject.value = currentValue;
+  } else if (courses.some((course) => course.title === currentValue)) {
+    announcementSubject.value = String(courses.find((course) => course.title === currentValue)?._id || courses.find((course) => course.title === currentValue)?.id || "");
+  }
 }
 
 function normalizeSubjectCode(value = "") {
@@ -4274,7 +4285,8 @@ function isVisibleForSelectedClassroom(item) {
   if (item.classroom === "all") return true;
   if (selectedClassroom !== "all") return item.classroom === selectedClassroom;
 
-  const course = getCustomCourses().find((customCourse) => customCourse.id === item.classroom);
+  const courseId = String(item.classroom || "");
+  const course = getCustomCourses().find((customCourse) => String(customCourse._id || customCourse.id) === courseId);
   return course ? isCourseJoined(course) : item.classroom === currentStudent.classroom;
 }
 
@@ -5430,11 +5442,12 @@ function getAssignmentSubmission(assignmentId, student = currentStudent) {
 
 function getAssignmentCourseId(assignment) {
   if (assignment?.courseId) return assignment.courseId;
-  const subject = String(assignment?.subject || "").trim().toLowerCase();
+  const subject = String(assignment?.subject || "").trim();
   if (!subject) return "";
-  return Object.entries(courseWorkspaces).find(([, course]) => {
-    return String(course.title || "").trim().toLowerCase() === subject;
-  })?.[0] || "";
+  const matchingCourse = courseLinking?.findCourseByReference
+    ? courseLinking.findCourseByReference(subject, getCustomCourses())
+    : null;
+  return matchingCourse ? String(matchingCourse._id || matchingCourse.id) : "";
 }
 
 function getAssignmentById(assignmentId = "") {
@@ -6444,13 +6457,48 @@ document.addEventListener("click", async (event) => {
   }
 });
 
+let serverChatMessages = [];
+
 function getActiveChatClassroom() {
   if (chatClassroom) return chatClassroom.value || getSubjectTargets({ includeAll: false })[0]?.value || "";
   return selectedClassroom;
 }
 
 function getChatMessages() {
-  return getStoredItems("gthChatMessages", []);
+  return serverChatMessages || [];
+}
+
+async function fetchClassChatMessages(classroom = "") {
+  if (!classroom) return [];
+  try {
+    const response = await fetch(getApiUrl(`/chat/all?classroom=${encodeURIComponent(classroom)}`));
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to load chat messages.");
+    return Array.isArray(result.data) ? result.data : [];
+  } catch {
+    return [];
+  }
+}
+
+async function sendServerClassChatMessage({ classroom, sender, role, userId, text = "", attachments = [] }) {
+  if (!classroom || !sender || !role) {
+    throw new Error("Missing chat message metadata.");
+  }
+
+  const response = await fetch(getApiUrl("/chat/send"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ classroom, sender, role, userId, text, attachments })
+  });
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.message || "Unable to send chat message.");
+  return result.data;
+}
+
+async function refreshClassChat(classroom = "") {
+  serverChatMessages = await fetchClassChatMessages(classroom || getActiveChatClassroom());
+  renderChatMessages();
 }
 
 function getInitials(name) {
@@ -6703,14 +6751,14 @@ function renderClassChatRecents() {
       const latest = classroomMessages[classroomMessages.length - 1];
       chatRecentList.appendChild(createRecentChatItem({
         title: label,
-        preview: latest ? `${latest.author}: ${latest.text || `${latest.attachments?.length || 0} attachment(s)`}` : "Start the class conversation.",
+        preview: latest ? `${latest.sender || latest.author}: ${latest.text || `${latest.attachments?.length || 0} attachment(s)`}` : "Start the class conversation.",
         time: latest ? getMessageTimeLabel(latest) : "",
         initials: "G",
         active: classroom === activeClassroom,
         unreadCount: getUnreadNotificationCount(getNotificationSectionId({ section: "class-chat" }), { classroom }),
-        onClick: () => {
+        onClick: async () => {
           if (chatClassroom) chatClassroom.value = classroom;
-          renderChatMessages();
+          await refreshClassChat(classroom);
         }
       }));
     });
@@ -6746,12 +6794,13 @@ function renderChatMessages() {
   const currentAuthor = chatbox?.dataset.role === "admin" ? "Admin" : "Student";
 
   messages.slice(-20).forEach((message) => {
+    const author = message.sender || message.author || "Unknown";
     chatMessages.appendChild(createChatBubble({
-      author: message.author,
+      author,
       text: message.text,
       attachments: message.attachments || [],
       createdAt: message.createdAt,
-      own: message.author === currentAuthor,
+      own: author === currentAuthor,
       group: true
     }));
   });
@@ -6760,7 +6809,9 @@ function renderChatMessages() {
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-chatClassroom?.addEventListener("change", renderChatMessages);
+chatClassroom?.addEventListener("change", async () => {
+  await refreshClassChat(getActiveChatClassroom());
+});
 
 document.addEventListener("click", (event) => {
   const actionButton = event.target.closest("[data-chat-info-action]");
@@ -6788,30 +6839,28 @@ chatForm?.addEventListener("submit", async (event) => {
   const attachments = await readChatAttachments(chatAttachment);
   if (!text && !attachments.length) return;
 
-  const messages = getChatMessages();
-  const message = {
-    id: `chat-${Date.now()}`,
-    classroom: getActiveChatClassroom(),
-    author: chatbox?.dataset.role === "admin" ? "Admin" : "Student",
-    text,
-    attachments,
-    createdAt: new Date().toISOString()
-  };
-  messages.push(message);
+  const classroom = getActiveChatClassroom();
+  const sender = chatbox?.dataset.role === "admin" ? "Admin" : currentStudent.name || "Student";
+  const role = chatbox?.dataset.role === "admin" ? "admin" : "student";
+  const userId = currentStudent.id || null;
 
-  saveStoredItems("gthChatMessages", messages);
-  addNotification({
-    type: "class-chat",
-    section: "class-chat",
-    classroom: message.classroom,
-    audience: { role: message.author === "Admin" ? "student" : "admin", classroom: message.classroom },
-    title: message.author === "Admin" ? "Admin sent a class message" : `${message.author} sent a class message`,
-    message: `${getClassroomTitle(message.classroom) || "Class Chat"} - ${message.text || `${message.attachments.length} attachment(s)`}`,
-    createdAt: message.createdAt
-  });
-  chatMessage.value = "";
-  if (chatAttachment) chatAttachment.value = "";
-  renderChatMessages();
+  try {
+    await sendServerClassChatMessage({ classroom, sender, role, userId, text, attachments });
+    await refreshClassChat(classroom);
+    addNotification({
+      type: "class-chat",
+      section: "class-chat",
+      classroom,
+      audience: { role: role === "admin" ? "student" : "admin", classroom },
+      title: role === "admin" ? "Admin sent a class message" : `${sender} sent a class message`,
+      message: `${getClassroomTitle(classroom) || "Class Chat"} - ${text || `${attachments.length} attachment(s)`}`,
+      createdAt: new Date().toISOString()
+    });
+    chatMessage.value = "";
+    if (chatAttachment) chatAttachment.value = "";
+  } catch (error) {
+    window.alert(error.message || "Unable to send chat message.");
+  }
 });
 
 chatToggles.forEach((toggle) => {
@@ -7051,6 +7100,7 @@ loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "").then(async (
   renderGradebook();
   setupPrivateMessageStudents();
   renderPrivateMessages();
+  await refreshClassChat(getActiveChatClassroom());
   renderNotificationCenter();
   observeMotionElements();
 });
