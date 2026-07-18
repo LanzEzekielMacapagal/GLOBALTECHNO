@@ -57,6 +57,47 @@ body {
   box-shadow: 0 10px 24px rgba(8, 127, 155, 0.18);
   transform: rotate(-2deg) scale(1.04);
 }
+.file-preview-docx-html {
+  padding: 1rem;
+  background: #ffffff;
+  border-radius: 0.6rem;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.02);
+  color: var(--gth-ink);
+  line-height: 1.6;
+  font-size: 0.95rem;
+  max-height: 44rem;
+  overflow: auto;
+  box-sizing: border-box;
+}
+
+/* Normalize converted DOCX content: override inline pt/px sizes from Mammoth output */
+.file-preview-docx-html,
+.file-preview-docx-html * {
+  font-size: 0.95rem !important;
+  line-height: 1.6 !important;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif !important;
+  color: inherit !important;
+  transform: none !important;
+  zoom: 1 !important;
+  box-sizing: border-box !important;
+}
+
+.file-preview-docx-html h1 { font-size: 1.25rem !important; margin-top: 0.5rem !important; }
+.file-preview-docx-html h2 { font-size: 1.1rem !important; margin-top: 0.45rem !important; }
+.file-preview-docx-html h3 { font-size: 1rem !important; margin-top: 0.4rem !important; }
+.file-preview-docx-html p { margin: 0.5rem 0 !important; }
+
+/* Ensure media and tables scale to container */
+.file-preview-docx-html img,
+.file-preview-docx-html table,
+.file-preview-docx-html svg,
+.file-preview-docx-html iframe {
+  max-width: 100% !important;
+  height: auto !important;
+}
+
+/* Prevent oversized margins or large gaps from DOCX styles */
+.file-preview-docx-html > * { max-width: 100% !important; }
 
 .navbar-brand strong,
 .display-title,

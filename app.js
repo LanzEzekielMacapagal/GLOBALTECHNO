@@ -5331,26 +5331,78 @@ function renderInlineFilePreview(file = {}, container = null) {
     frame.className = "file-preview-inline-frame";
     previewWrapper.appendChild(frame);
   } else if (isOffice && previewUrl) {
-    const isRemoteOffice = /^https?:\/\//i.test(previewUrl);
-    if (isRemoteOffice) {
-      const frame = document.createElement("iframe");
-      frame.src = previewUrl;
-      frame.title = file.name || "Attachment preview";
-      frame.className = "file-preview-inline-frame";
-      previewWrapper.appendChild(frame);
+    const officeExt = getFileExtension(file.name || file.filename || file.originalname || "");
+
+    if (officeExt === "docx") {
+      (async () => {
+        try {
+          if (typeof window.mammoth === "undefined") {
+            await new Promise((resolve, reject) => {
+              const script = document.createElement("script");
+              script.src = "https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.16/mammoth.browser.min.js";
+              script.async = true;
+              script.onload = resolve;
+              script.onerror = reject;
+              document.head.appendChild(script);
+            });
+          }
+
+          const resp = await fetch(previewUrl, { credentials: "same-origin" });
+          if (!resp.ok) throw new Error("Unable to fetch document for preview.");
+          const arrayBuffer = await resp.arrayBuffer();
+          const result = await window.mammoth.convertToHtml({ arrayBuffer });
+          const html = result && result.value ? result.value : "<p>Unable to render document.</p>";
+          const containerDiv = document.createElement("div");
+          containerDiv.className = "file-preview-docx-html";
+          containerDiv.innerHTML = html;
+          previewWrapper.appendChild(containerDiv);
+        } catch (err) {
+          const isAbsolute = /^https?:\/\//i.test(previewUrl);
+          if (isAbsolute) {
+            const frame = document.createElement("iframe");
+            frame.src = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(previewUrl)}`;
+            frame.title = file.name || "Attachment preview";
+            frame.className = "file-preview-inline-frame";
+            previewWrapper.appendChild(frame);
+            return;
+          }
+
+          const fallback = document.createElement("div");
+          fallback.className = "file-preview-inline-fallback";
+          const message = document.createElement("p");
+          message.textContent = "Preview is not available for this document type locally. Open or download the file instead.";
+          const openLink = document.createElement("a");
+          openLink.href = getFilePreviewUrl(file);
+          openLink.target = "_blank";
+          openLink.rel = "noopener noreferrer";
+          openLink.textContent = "Open file";
+          openLink.className = "btn btn-outline-primary btn-sm";
+          fallback.append(message, openLink);
+          previewWrapper.appendChild(fallback);
+        }
+      })();
     } else {
-      const fallback = document.createElement("div");
-      fallback.className = "file-preview-inline-fallback";
-      const message = document.createElement("p");
-      message.textContent = "Preview is not available for this document type locally. Open or download the file instead.";
-      const openLink = document.createElement("a");
-      openLink.href = getFilePreviewUrl(file);
-      openLink.target = "_blank";
-      openLink.rel = "noopener noreferrer";
-      openLink.textContent = "Open file";
-      openLink.className = "btn btn-outline-primary btn-sm";
-      fallback.append(message, openLink);
-      previewWrapper.appendChild(fallback);
+      const isRemoteOffice = /^https?:\/\//i.test(previewUrl);
+      if (isRemoteOffice) {
+        const frame = document.createElement("iframe");
+        frame.src = previewUrl;
+        frame.title = file.name || "Attachment preview";
+        frame.className = "file-preview-inline-frame";
+        previewWrapper.appendChild(frame);
+      } else {
+        const fallback = document.createElement("div");
+        fallback.className = "file-preview-inline-fallback";
+        const message = document.createElement("p");
+        message.textContent = "Preview is not available for this document type locally. Open or download the file instead.";
+        const openLink = document.createElement("a");
+        openLink.href = getFilePreviewUrl(file);
+        openLink.target = "_blank";
+        openLink.rel = "noopener noreferrer";
+        openLink.textContent = "Open file";
+        openLink.className = "btn btn-outline-primary btn-sm";
+        fallback.append(message, openLink);
+        previewWrapper.appendChild(fallback);
+      }
     }
   } else if (isTextPreview && previewUrl) {
     const frame = document.createElement("iframe");
