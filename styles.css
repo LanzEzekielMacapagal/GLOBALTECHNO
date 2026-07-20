@@ -667,6 +667,41 @@ body {
   }
 }
 
+.course-assignment-item {
+  padding: 0;
+  overflow: hidden;
+}
+
+.course-assignment-answer {
+  padding: 0.75rem;
+  border-top: 1px solid #f0f7fa;
+}
+
+.course-assignment-answer textarea,
+.course-assignment-answer input[type="file"] {
+  border-radius: 0.45rem;
+}
+
+.course-resource-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid #e1ecf0;
+  border-radius: 0.45rem;
+  background: #f8fbfc;
+  color: var(--gth-teal);
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition: all 0.22s ease;
+}
+
+.course-resource-link:hover {
+  border-color: #b9d9e5;
+  background: #e8f6fa;
+  transform: translateY(-1px);
+}
+
 .course-resource-item {
   display: grid;
   gap: 0.65rem;
@@ -1833,6 +1868,25 @@ body {
   background: #f8fbfc;
 }
 
+.assignment-course-section {
+  padding: 1.2rem;
+  background: #fff;
+  border: 1px solid #e1ecf0;
+  border-radius: 0.75rem;
+  box-shadow: 0 2px 8px rgba(12, 42, 51, 0.04);
+}
+
+.assignment-course-header {
+  padding-bottom: 0.85rem;
+  border-bottom: 2px solid #f0f7fa;
+}
+
+.assignment-course-header h3 {
+  color: var(--gth-ink);
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+
 .assignment-workspace {
   align-items: flex-start;
 }
@@ -1858,6 +1912,13 @@ body {
 #adminAssignments {
   min-height: 14rem;
   max-height: 100%;
+  padding-right: 0.2rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+#studentAssignments {
   padding-right: 0.2rem;
   overflow-y: auto;
   overscroll-behavior: contain;

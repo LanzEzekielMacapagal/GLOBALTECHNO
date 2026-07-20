@@ -95,6 +95,7 @@
       <aside class="student-section-nav" id="sectionNav" aria-label="Student sections">
         <a href="#announcements" class="active" data-student-section-link="announcements">Announcements</a>
         <a href="#courses" data-student-section-link="courses">Courses</a>
+        <a href="#assignments" data-student-section-link="assignments">Assignments</a>
         <a href="#student-chat" data-student-section-link="student-chat">Class Chat</a>
         <a href="#private-messages" data-student-section-link="private-messages">Private Messages</a>
       </aside>
@@ -154,6 +155,20 @@
             </div>
 
             <div class="vstack gap-3" id="courseList"></div>
+          </div>
+        </section>
+
+        <section class="card student-section-card" id="assignments" data-student-section="assignments">
+          <div class="card-body">
+            <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3">
+              <div>
+                <p class="section-label mb-1">Assignments</p>
+                <h2 class="h5 mb-0">My Assignments</h2>
+              </div>
+              <span class="badge text-bg-info align-self-start" id="studentAssignmentClass">Current classroom</span>
+            </div>
+            <p class="text-secondary mb-3">Download instructor files, upload your submission files, and submit essay responses where required.</p>
+            <div id="studentAssignments" class="vstack gap-3"></div>
           </div>
         </section>
 

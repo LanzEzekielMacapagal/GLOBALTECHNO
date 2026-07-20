@@ -70,7 +70,7 @@ const notificationCount = document.querySelector("[data-notification-count]");
 const notificationClear = document.querySelector("[data-notification-clear]");
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const mobileSectionQuery = window.matchMedia("(max-width: 991.98px)");
-const apiBaseUrl = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") && window.location.port !== "3000"
+const apiBaseUrl = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.protocol === "file:")
   ? "http://localhost:3000"
   : "";
 let serverCourses = [];
@@ -205,6 +205,15 @@ function getSubjectTargets(options = {}) {
   return includeAll ? [{ value: "all", label: "All Subjects" }, ...targets] : targets;
 }
 
+function initializeClassroomSelection() {
+  requestedClassroom = new URLSearchParams(window.location.search).get("classroom") || "";
+  availableClassrooms = getSubjectTargets({ includeAll: false });
+  selectedClassroom = availableClassrooms.some((target) => target.value === requestedClassroom)
+    ? requestedClassroom
+    : availableClassrooms[0]?.value || "";
+  selectedClassroomTitle = getClassroomTitle(selectedClassroom);
+}
+
 function populateSubjectTargetSelect(select, options = {}) {
   if (!select) return;
 
@@ -235,12 +244,10 @@ function populateSubjectTargetSelect(select, options = {}) {
   }
 }
 
-const requestedClassroom = new URLSearchParams(window.location.search).get("classroom") || "";
-const availableClassrooms = getSubjectTargets({ includeAll: false });
-const selectedClassroom = availableClassrooms.some((target) => target.value === requestedClassroom)
-  ? requestedClassroom
-  : availableClassrooms[0]?.value || "";
-const selectedClassroomTitle = getClassroomTitle(selectedClassroom);
+let requestedClassroom = new URLSearchParams(window.location.search).get("classroom") || "";
+let availableClassrooms = [];
+let selectedClassroom = "";
+let selectedClassroomTitle = "";
 const courseLinking = typeof window !== "undefined" && window.courseLinking ? window.courseLinking : null;
 const currentUserFromSession = (() => {
   try {
@@ -251,11 +258,13 @@ const currentUserFromSession = (() => {
 })();
 const currentStudent = {
   ...((classroomStudents[selectedClassroom] || classroomStudents.ict)[0]),
+  _id: currentUserFromSession?._id || currentUserFromSession?.id || "",
   id: currentUserFromSession?._id || currentUserFromSession?.id || "",
   name: currentUserFromSession?.username || currentUserFromSession?.fullName || "Student",
   username: currentUserFromSession?.username || "",
   fullName: currentUserFromSession?.fullName || "",
-  classroom: selectedClassroom
+  classroom: selectedClassroom,
+  enrolledCourses: Array.isArray(currentUserFromSession?.enrolledCourses) ? currentUserFromSession.enrolledCourses : []
 };
 
 const subjectCourseMap = {
@@ -327,11 +336,17 @@ async function syncCurrentStudentFromServer() {
 
     const profile = result.data || {};
     const nextName = profile.username || profile.fullName || currentUser.username || currentUser.fullName || "Student";
+    currentStudent._id = profile._id || currentUser._id || currentStudent._id;
     currentStudent.id = profile._id || currentUser._id || currentStudent.id;
     currentStudent.name = nextName;
     currentStudent.username = profile.username || currentUser.username || currentStudent.username || "";
     currentStudent.fullName = profile.fullName || currentUser.fullName || currentStudent.fullName || "";
     currentStudent.classroom = currentStudent.classroom || selectedClassroom;
+    currentStudent.enrolledCourses = Array.isArray(profile.enrolledCourses)
+      ? profile.enrolledCourses
+      : Array.isArray(currentUser.enrolledCourses)
+        ? currentUser.enrolledCourses
+        : currentStudent.enrolledCourses;
     sessionStorage.setItem("gthCurrentUser", JSON.stringify({ ...currentUser, ...profile }));
   } catch {
     currentStudent.name = currentUser.username || currentUser.fullName || currentStudent.name || "Student";
@@ -439,8 +454,10 @@ function renderCourseResourcesPanel(course, courseId) {
 }
 
 function getCourseAssignments(course, courseId = "") {
+  const normalizedCourseId = String(courseId || "").trim();
   return serverAssignments.filter((assignment) => {
-    return assignment.courseId === courseId;
+    const assignmentCourseId = String(assignment.courseId || "").trim();
+    return assignmentCourseId === normalizedCourseId;
   });
 }
 
@@ -651,6 +668,20 @@ function renderCourseAssignmentForm(courseId) {
   attachmentLabel.appendChild(attachmentContainer);
   attachmentLabel.appendChild(attachments);
 
+  const pointsLabel = document.createElement("label");
+  pointsLabel.className = "form-label small fw-bold mb-0";
+  pointsLabel.textContent = "Points value";
+  const pointsInput = document.createElement("input");
+  pointsInput.className = "form-control form-control-sm mt-1";
+  pointsInput.name = "points";
+  pointsInput.type = "number";
+  pointsInput.min = "1";
+  pointsInput.step = "1";
+  pointsInput.value = "10";
+  pointsInput.required = true;
+  pointsInput.placeholder = "10";
+  pointsLabel.appendChild(pointsInput);
+
   const dueLabel = document.createElement("label");
   dueLabel.className = "form-label small fw-bold mb-0";
   dueLabel.textContent = "Due date and time";
@@ -676,6 +707,263 @@ function renderCourseAssignmentForm(courseId) {
   );
   panel.append(summary, form);
   return panel;
+}
+
+function renderCourseAssignmentItem(assignment) {
+  const item = document.createElement("details");
+  item.className = "course-quiz-item course-assignment-item";
+  item.dataset.assignmentId = assignment.id;
+
+  const submission = getStudentAssignmentSubmission(assignment.id, currentStudent._id || currentStudent.id);
+  const assignmentExpired = isPastDue(assignment.dueDate);
+  const assignmentAvailable = !assignmentExpired;
+  
+  const summary = document.createElement("summary");
+  summary.className = "course-quiz-summary";
+  const summaryText = document.createElement("span");
+  summaryText.append(
+    createTextElement("strong", "", assignment.title),
+    createTextElement("small", "text-secondary d-block", "Essay & File Upload")
+  );
+  if (assignment.dueDate) {
+    summaryText.appendChild(createTextElement("small", assignmentExpired && !submission ? "text-danger d-block" : "text-secondary d-block", `Due ${formatDateTime(assignment.dueDate)}`));
+  }
+  
+  const summaryBadge = createTextElement(
+    "span",
+    `badge ${submission ? "text-bg-success" : assignmentAvailable ? "text-bg-info" : "text-bg-warning"}`,
+    submission ? "Submitted" : assignmentExpired ? "Closed" : "Open"
+  );
+  summary.append(summaryText, summaryBadge);
+
+  const meta = document.createElement("div");
+  meta.className = "d-flex flex-wrap gap-2 align-items-center mb-2";
+  meta.append(
+    createTextElement("span", "badge text-bg-info", "Essay & File Upload"),
+    createTextElement("small", "text-secondary", formatDate(assignment.createdAt))
+  );
+  if (assignment.dueDate) {
+    meta.appendChild(createTextElement("span", assignmentExpired ? "badge text-bg-warning" : "badge text-bg-info", `Due ${formatDateTime(assignment.dueDate)}`));
+  }
+
+  const content = document.createElement("div");
+  content.className = "course-quiz-content";
+  content.appendChild(meta);
+
+  // Instructions
+  if (assignment.instructions) {
+    content.appendChild(createTextElement("p", "fw-bold mb-2", "Instructions"));
+    content.appendChild(createTextElement("p", "text-secondary mb-2", assignment.instructions));
+  }
+
+  // Attached materials
+  if (assignment.attachments?.length) {
+    content.appendChild(createTextElement("p", "fw-bold mb-2 mt-3", "Materials provided by instructor"));
+    const materialsList = document.createElement("div");
+    materialsList.className = "course-quiz-options mb-2";
+    
+    assignment.attachments.forEach((file) => {
+      const link = document.createElement("a");
+      link.href = file.url || file.path || `/uploads/assignments/${file.filename}`;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.className = "course-resource-link";
+      link.append(
+        createTextElement("span", "", "📎"),
+        createTextElement("span", "", file.originalname || file.name || file.filename)
+      );
+      materialsList.appendChild(link);
+    });
+    
+    content.appendChild(materialsList);
+  }
+
+  // Submission status
+  if (submission) {
+    const submitted = document.createElement("div");
+    submitted.className = "course-quiz-result";
+    submitted.append(
+      createTextElement("span", "badge text-bg-success", "Submitted"),
+      createTextElement("small", "text-secondary", `Submitted on ${formatDateTime(submission.submittedAt)}`)
+    );
+    
+    if (submission.submissionType === "essay" && submission.essay) {
+      submitted.appendChild(createTextElement("p", "mt-2 mb-0 text-secondary", `Essay: ${submission.essay.substring(0, 150)}${submission.essay.length > 150 ? "..." : ""}`));
+    } else if (submission.attachments?.length) {
+      const submittedFiles = document.createElement("div");
+      submittedFiles.className = "mt-2";
+      submittedFiles.appendChild(createTextElement("small", "text-secondary mb-1", "Submitted files:"));
+      const fileList = document.createElement("ul");
+      fileList.className = "mb-0 ps-3 small";
+      
+      submission.attachments.forEach((file) => {
+        const item = document.createElement("li");
+        item.textContent = file.originalname || file.name || file.filename;
+        fileList.appendChild(item);
+      });
+      
+      submittedFiles.appendChild(fileList);
+      submitted.appendChild(submittedFiles);
+    }
+    
+    content.appendChild(submitted);
+  } else if (!adminApp) {
+    // Show submission form
+    if (!assignmentAvailable) {
+      const closed = document.createElement("div");
+      closed.className = "course-quiz-result";
+      closed.append(
+        createTextElement("span", "badge text-bg-warning", "Closed"),
+        createTextElement("small", "text-secondary", `This assignment closed on ${formatDateTime(assignment.dueDate)}.`),
+        createTextElement("small", "text-secondary", "If you missed the due date, ask the admin to reopen the assignment for you.")
+      );
+      content.appendChild(closed);
+    } else {
+      // Submission form
+      const form = document.createElement("form");
+      form.className = "course-assignment-answer vstack gap-2 mt-3";
+      form.dataset.assignmentSubmitForm = assignment.id;
+
+      // Always show both essay and file inputs
+      const essayLabel = createTextElement("label", "form-label mb-1", "Write your response (optional)");
+      const essayInput = document.createElement("textarea");
+      essayInput.className = "form-control form-control-sm";
+      essayInput.name = "essayAnswer";
+      essayInput.rows = 4;
+      essayInput.placeholder = "You can write your answer here or attach files below (or both)...";
+
+      form.append(essayLabel, essayInput);
+
+      // File upload section
+      const fileLabel = createTextElement("label", "form-label mb-1 mt-2", "Attach files (optional)");
+      const fileInput = document.createElement("input");
+      fileInput.className = "d-none";
+      fileInput.name = "assignmentFiles";
+      fileInput.type = "file";
+      fileInput.multiple = true;
+
+      const addButton = document.createElement("button");
+      addButton.type = "button";
+      addButton.className = "btn btn-outline-primary btn-sm";
+      addButton.textContent = "Add files";
+      addButton.addEventListener("click", (e) => {
+        e.preventDefault();
+        fileInput.click();
+      });
+
+      const fileList = document.createElement("div");
+      fileList.className = "small text-secondary mt-2";
+      const updateFileList = () => {
+        fileList.textContent = fileInput.files.length 
+          ? `${fileInput.files.length} file(s) selected` 
+          : "No files selected";
+      };
+      fileInput.addEventListener("change", updateFileList);
+      updateFileList();
+
+      form.append(fileLabel, addButton, fileInput, fileList);
+
+      const submitBtn = document.createElement("button");
+      submitBtn.type = "submit";
+      submitBtn.className = "btn btn-primary btn-sm align-self-start";
+      submitBtn.textContent = "Submit Assignment";
+
+      form.appendChild(submitBtn);
+      
+      // Add form event listener
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        
+        const essayText = essayInput.value.trim();
+        const files = Array.from(fileInput.files || []);
+
+        // At least one submission method required
+        if (!essayText && !files.length) {
+          addNotification("Please write an essay or upload files (or both)", "error");
+          return;
+        }
+        
+        const formData = new FormData();
+        formData.append("studentId", currentStudent._id || currentStudent.id);
+        formData.append("studentName", currentStudent.fullName || currentStudent.name);
+        formData.append("submissionType", "both");
+        
+        if (essayText) {
+          formData.append("essay", essayText);
+        }
+        
+        files.forEach((file) => {
+          formData.append("submissionFiles", file);
+        });
+        
+        try {
+          // Find course ID
+          let courseId = null;
+          for (const cId in studentCourseAssignments) {
+            if (studentCourseAssignments[cId].some(a => a.id === assignment.id)) {
+              courseId = cId;
+              break;
+            }
+          }
+          
+          if (!courseId) {
+            throw new Error("Course not found");
+          }
+          
+          const response = await fetch(
+            getApiUrl(`/courses/${courseId}/assignments/${assignment.id}/submit`),
+            { method: "POST", body: formData }
+          );
+          
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.message || "Submission failed");
+          
+          // Update cache
+          const key = `${assignment.id}_${currentStudent._id || currentStudent.id}`;
+          studentAssignmentSubmissions[key] = result.data;
+          
+          alert("Assignment submitted successfully!");
+          
+          // Refresh workspace
+          const activeCard = document.querySelector(".course-card-active");
+          if (activeCard) {
+            renderCourseWorkspace(activeCard.dataset.course, activeCard);
+          }
+        } catch (error) {
+          alert(`Error: ${error.message}`);
+        }
+      });
+
+      content.appendChild(form);
+    }
+  }
+
+  // Admin actions
+  if (adminApp) {
+    const actions = document.createElement("div");
+    actions.className = "d-flex flex-wrap gap-2 mt-3";
+    
+    const editBtn = document.createElement("button");
+    editBtn.className = "btn btn-outline-primary btn-sm";
+    editBtn.type = "button";
+    editBtn.dataset.assignmentAction = "edit";
+    editBtn.dataset.assignmentId = assignment.id;
+    editBtn.textContent = "Edit";
+    
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "btn btn-outline-danger btn-sm";
+    deleteBtn.type = "button";
+    deleteBtn.dataset.assignmentAction = "delete";
+    deleteBtn.dataset.assignmentId = assignment.id;
+    deleteBtn.textContent = "Delete";
+    
+    actions.append(editBtn, deleteBtn);
+    content.appendChild(actions);
+  }
+
+  item.appendChild(summary);
+  item.appendChild(content);
+  return item;
 }
 
 function renderCourseQuizStack(courseId, options = {}) {
@@ -755,7 +1043,11 @@ function renderCourseQuizStack(courseId, options = {}) {
       assignmentList.appendChild(createTextElement("p", "text-secondary small mb-0", options.adminControls ? "No assignments posted yet." : "No assignments for this course yet."));
     } else {
       courseAssignments.forEach((assignment) => {
-        assignmentList.appendChild(renderAssignmentCard(assignment, { admin: Boolean(options.adminControls) }));
+        if (options.adminControls) {
+          assignmentList.appendChild(renderAssignmentCard(assignment, { admin: true }));
+        } else {
+          assignmentList.appendChild(renderCourseAssignmentItem(assignment));
+        }
       });
     }
 
@@ -1463,6 +1755,8 @@ let serverQuizSubmissions = [];
 let serverQuizExtraChances = [];
 let serverCourseEnrolledStudents = {};
 let serverAssignments = [];
+let studentCourseAssignments = {};
+let studentAssignmentSubmissions = {};
 
 async function loadServerQuizzes(courseId = "") {
   if (!courseId) return [];
@@ -1524,15 +1818,75 @@ async function loadServerEnrolledStudents(courseId = "") {
 async function loadServerAssignments(courseId = "") {
   if (!courseId) return [];
   try {
-    const response = await fetch(getApiUrl(`/courses/${courseId}/assignments`));
+    const fetchUrl = getApiUrl(`/courses/${courseId}/assignments`);
+    console.debug("Fetching assignments from:", fetchUrl);
+    const response = await fetch(fetchUrl);
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.message || "Unable to load assignments.");
     serverAssignments = Array.isArray(result.data) ? result.data : [];
+    serverAssignments = serverAssignments.map((assignment) => ({
+      ...assignment,
+      courseId: String(assignment.courseId || ""),
+      classroom: assignment.classroom || "all",
+      subject: assignment.subject || "General Activity",
+      type: assignment.type || "file",
+      points: Number.isFinite(Number(assignment.points)) && Number(assignment.points) > 0 ? Number(assignment.points) : 0
+    }));
     return serverAssignments;
   } catch {
     serverAssignments = [];
     return serverAssignments;
   }
+}
+
+async function loadStudentAssignmentsByAllCourses(enrolledCourseIds = []) {
+  studentCourseAssignments = {};
+  
+  for (const courseId of enrolledCourseIds) {
+    try {
+      const fetchUrl = getApiUrl(`/courses/${courseId}/assignments`);
+      console.debug("Fetching student assignments from:", fetchUrl);
+      const response = await fetch(fetchUrl);
+      const result = await response.json().catch(() => ({}));
+      if (response.ok) {
+        studentCourseAssignments[courseId] = Array.isArray(result.data)
+          ? result.data.map((assignment) => ({
+              ...assignment,
+              courseId: String(assignment.courseId || ""),
+              classroom: assignment.classroom || "all",
+              subject: assignment.subject || "General Activity",
+              type: assignment.type || "file"
+            }))
+          : [];
+      }
+    } catch (error) {
+      studentCourseAssignments[courseId] = [];
+    }
+  }
+  
+  return studentCourseAssignments;
+}
+
+async function loadStudentAssignmentSubmission(courseId, assignmentId, studentId) {
+  try {
+    const response = await fetch(
+      getApiUrl(`/courses/${courseId}/assignments/${assignmentId}/submissions?studentId=${studentId}`)
+    );
+    const result = await response.json().catch(() => ({}));
+    if (response.ok) {
+      const key = `${assignmentId}_${studentId}`;
+      studentAssignmentSubmissions[key] = result.data || null;
+      return result.data || null;
+    }
+  } catch (error) {
+    console.error("Error loading submission:", error);
+  }
+  return null;
+}
+
+function getStudentAssignmentSubmission(assignmentId, studentId) {
+  const key = `${assignmentId}_${studentId}`;
+  return studentAssignmentSubmissions[key] || null;
 }
 
 function getCourseEnrolledStudents(courseId = "") {
@@ -4377,7 +4731,7 @@ function getCurrentAuthor() {
 
 function isVisibleForSelectedClassroom(item) {
   if (adminApp) return true;
-  if (item.classroom === "all") return true;
+  if (!item || !item.classroom || item.classroom === "all") return true;
   if (selectedClassroom !== "all") return item.classroom === selectedClassroom;
 
   const courseId = String(item.classroom || "");
@@ -5297,11 +5651,27 @@ videoModal?.addEventListener("hidden.bs.modal", () => {
 });
 
 function getAssignments() {
-  const stored = getStoredItems("gthAssignments", null);
-  if (stored) {
-    const cleaned = removeDeprecatedSubjectItems(stored);
-    if (cleaned.length !== stored.length) saveStoredItems("gthAssignments", cleaned);
-    return cleaned;
+  const localAssignments = getStoredItems("gthAssignments", []);
+  const cleanedLocal = removeDeprecatedSubjectItems(localAssignments);
+  if (cleanedLocal.length !== localAssignments.length) {
+    saveStoredItems("gthAssignments", cleanedLocal);
+  }
+
+  const serverList = Array.isArray(serverAssignments) ? serverAssignments : [];
+  const merged = [...serverList, ...cleanedLocal];
+  const uniqueAssignments = [];
+  const seenIds = new Set();
+
+  merged.forEach((assignment) => {
+    const key = String(assignment.id || assignment._id || `${assignment.title || ""}-${assignment.dueDate || ""}`);
+    if (!seenIds.has(key)) {
+      seenIds.add(key);
+      uniqueAssignments.push(assignment);
+    }
+  });
+
+  if (uniqueAssignments.length) {
+    return uniqueAssignments;
   }
 
   saveStoredItems("gthAssignments", demoAssignments);
@@ -6123,7 +6493,7 @@ function renderAssignmentCard(assignment, options = {}) {
       details.appendChild(actions.cloneNode(true));
     }
   } else {
-    const submission = getAssignmentSubmission(assignment.id);
+    const submission = getStudentAssignmentSubmission(assignment.id, currentStudent._id || currentStudent.id);
     const uploadForm = document.createElement("form");
     uploadForm.className = "assignment-upload-form vstack gap-2 mt-3";
     uploadForm.dataset.assignmentUploadForm = assignment.id;
@@ -6154,7 +6524,7 @@ function renderAssignmentCard(assignment, options = {}) {
       uploadLabel.textContent = "Upload files";
 
       const fileInput = document.createElement("input");
-      fileInput.className = "form-control mt-1";
+      fileInput.className = "d-none";
       fileInput.name = "assignmentFiles";
       fileInput.type = "file";
       fileInput.multiple = true;
@@ -6162,8 +6532,17 @@ function renderAssignmentCard(assignment, options = {}) {
       fileInput.setAttribute("data-multi-file-picker", "true");
       fileInput.setAttribute("aria-label", "Select one or more files to upload");
 
+      const addFileButton = document.createElement("button");
+      addFileButton.type = "button";
+      addFileButton.className = "btn btn-outline-primary btn-sm mt-2";
+      addFileButton.textContent = "Add files";
+      addFileButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        fileInput.click();
+      });
+
       const uploadSummary = document.createElement("div");
-      uploadSummary.className = "small text-secondary mt-1";
+      uploadSummary.className = "small text-secondary mt-2";
       const uploadSummaryTitle = document.createElement("div");
       uploadSummaryTitle.className = "fw-semibold";
       uploadSummaryTitle.textContent = "No files selected yet.";
@@ -6196,7 +6575,7 @@ function renderAssignmentCard(assignment, options = {}) {
       updateUploadSummary();
 
       submitButton.textContent = submission ? "Replace Upload" : "Upload";
-      uploadLabel.appendChild(fileInput);
+      uploadLabel.append(addFileButton, fileInput);
       uploadForm.append(uploadLabel, uploadSummary, submitButton);
     }
 
@@ -6228,6 +6607,76 @@ function renderAssignmentCard(assignment, options = {}) {
   card.appendChild(body);
   wrapper.appendChild(card);
   return wrapper;
+}
+
+async function renderStudentAssignmentsByCourse() {
+  if (!studentAssignments) return;
+  
+  const courseIds = Array.isArray(currentStudent.enrolledCourses) ? currentStudent.enrolledCourses : [];
+  
+  if (!courseIds.length) {
+    const empty = document.createElement("p");
+    empty.className = "text-secondary mb-0";
+    empty.textContent = "You are not enrolled in any courses yet.";
+    studentAssignments.appendChild(empty);
+    return;
+  }
+
+  // Load assignments for all enrolled courses
+  await loadStudentAssignmentsByAllCourses(courseIds);
+
+  let hasAssignments = false;
+  const container = document.createElement("div");
+  container.className = "vstack gap-4";
+
+  // Render assignments for each course
+  for (const courseId of courseIds) {
+    const course = serverCourses.find(c => String(c._id) === String(courseId));
+    const courseAssignments = studentCourseAssignments[courseId] || [];
+
+    if (courseAssignments.length === 0) continue;
+    
+    hasAssignments = true;
+
+    // Course header
+    const courseSection = document.createElement("section");
+    courseSection.className = "assignment-course-section";
+
+    const courseHeader = document.createElement("div");
+    courseHeader.className = "assignment-course-header mb-3";
+    courseHeader.append(
+      createTextElement("h3", "h6 mb-0", course?.title || "Course"),
+      createTextElement("small", "text-secondary", `${courseAssignments.length} assignment${courseAssignments.length !== 1 ? "s" : ""}`)
+    );
+
+    courseSection.appendChild(courseHeader);
+
+    // Assignments for this course
+    const assignmentsList = document.createElement("div");
+    assignmentsList.className = "course-post-list";
+
+    for (const assignment of courseAssignments) {
+      // Load student's submission if exists
+      const studentId = currentStudent._id || currentStudent.id;
+      if (studentId) {
+        await loadStudentAssignmentSubmission(courseId, assignment.id, studentId);
+      }
+
+      assignmentsList.appendChild(renderCourseAssignmentItem(assignment));
+    }
+
+    courseSection.appendChild(assignmentsList);
+    container.appendChild(courseSection);
+  }
+
+  if (!hasAssignments) {
+    const empty = document.createElement("p");
+    empty.className = "text-secondary mb-0";
+    empty.textContent = "No assignments available in your courses yet.";
+    studentAssignments.appendChild(empty);
+  } else {
+    studentAssignments.appendChild(container);
+  }
 }
 
 function renderAssignments() {
@@ -6269,17 +6718,8 @@ function renderAssignments() {
     studentAssignments.replaceChildren();
     if (studentAssignmentClass) studentAssignmentClass.textContent = selectedClassroomTitle;
 
-    if (!classroomAssignments.length) {
-      const empty = document.createElement("p");
-      empty.className = "text-secondary mb-0";
-      empty.textContent = "No assignments for this classroom yet.";
-      studentAssignments.appendChild(empty);
-      return;
-    }
-
-    classroomAssignments.forEach((assignment) => {
-      studentAssignments.appendChild(renderAssignmentCard(assignment));
-    });
+    // Render assignments organized by course
+    renderStudentAssignmentsByCourse();
 
     observeMotionElements(studentAssignments);
   }
@@ -6290,6 +6730,7 @@ function renderAssignments() {
 async function saveAssignmentFromForm(form, courseId = "") {
   const title = (form.elements.title?.value || "").trim();
   const instructions = (form.elements.instructions?.value || "").trim();
+  
   if (!title || !instructions) {
     setFormStatus(form, "Complete the assignment title and instructions before posting.");
     return;
@@ -6324,8 +6765,14 @@ async function saveAssignmentFromForm(form, courseId = "") {
 
   console.log("Form data:", { title, instructions, dueDate, attachmentCount: attachments.length });
 
+  const points = Number(form.elements.points?.value || "0");
   if (!title || !instructions || !dueDate) {
     setFormStatus(form, "Complete the assignment title, instructions, and due date before posting.");
+    return;
+  }
+
+  if (!Number.isFinite(points) || points < 1) {
+    setFormStatus(form, "Enter a valid point value for the assignment.");
     return;
   }
 
@@ -6339,6 +6786,10 @@ async function saveAssignmentFromForm(form, courseId = "") {
     const formData = new FormData();
     formData.append("title", title);
     formData.append("instructions", instructions);
+    formData.append("subject", form.elements.subject?.value || assignmentSubject?.value || "General Activity");
+    formData.append("classroom", form.elements.classroom?.value || assignmentClassroom?.value || "all");
+    formData.append("type", form.elements.type?.value || assignmentType?.value || "file");
+    formData.append("points", String(points));
     formData.append("dueDate", parsedDueDate.toISOString());
     formData.append("attachmentCount", String(attachments.length));
     attachments.forEach((file) => {
@@ -6557,47 +7008,105 @@ document.addEventListener("submit", async (event) => {
 
   event.preventDefault();
 
-  const assignment = getAssignments().find((item) => item.id === form.dataset.assignmentUploadForm);
-  if (!assignment) return;
+  const assignmentId = form.dataset.assignmentUploadForm;
+  
+  // Find assignment from student's course assignments
+  let assignment = null;
+  for (const courseId in studentCourseAssignments) {
+    assignment = studentCourseAssignments[courseId].find(a => a.id === assignmentId);
+    if (assignment) break;
+  }
+  
+  if (!assignment) {
+    window.alert("Assignment not found.");
+    return;
+  }
 
   const fileInput = form.querySelector("input[type='file']");
   const essayInput = form.querySelector("[name='assignmentEssay']");
   const files = Array.from(fileInput?.files || []);
   const essay = essayInput?.value.trim() || "";
-  if (assignment.type === "essay" && !essay) return;
-  if (assignment.type !== "essay" && !files.length) return;
-  const storedFiles = assignment.type === "essay" ? [] : (await Promise.all(files.map(readStorageFile))).filter(Boolean);
 
-  const assignmentId = form.dataset.assignmentUploadForm;
-  expandedAssignmentId = assignmentId;
-  const submissions = getAssignmentSubmissions().filter((submission) => {
-    return !isSubmissionForStudent(submission, assignmentId, currentStudent);
-  });
+  if (assignment.type === "essay" && !essay) {
+    window.alert("Please write your essay response.");
+    return;
+  }
 
-  submissions.push({
-    id: `assignment-submission-${Date.now()}`,
-    assignmentId,
-    classroom: selectedClassroom,
-    studentId: currentStudent.id,
-    studentName: currentStudent.name,
-    essay,
-    files: storedFiles,
-    submittedAt: new Date().toISOString()
-  });
+  if (assignment.type !== "essay" && !files.length) {
+    window.alert("Please upload at least one file.");
+    return;
+  }
 
-  saveStoredItems("gthAssignmentSubmissions", submissions);
-  addNotification({
-    type: "assignment",
-    section: "courses",
-    classroom: selectedClassroom,
-    studentId: currentStudent.id,
-    studentName: currentStudent.name,
-    audience: { role: "admin" },
-    title: `Assignment submitted by ${currentStudent.name}`,
-    message: `Submitted ${getAssignmentTitle(assignment)} in ${getClassroomTitle(selectedClassroom)}`,
-    createdAt: new Date().toISOString()
-  });
-  refreshAssignmentSurfaces(assignmentId);
+  // Create FormData for file upload
+  const formData = new FormData();
+  formData.append("studentId", currentStudent._id || currentStudent.id);
+  formData.append("studentName", currentStudent.fullName || currentStudent.name);
+  formData.append("submissionType", assignment.type === "essay" ? "essay" : "file");
+  
+  if (assignment.type === "essay") {
+    formData.append("essay", essay);
+  } else {
+    files.forEach((file) => {
+      formData.append("submissionFiles", file);
+    });
+  }
+
+  try {
+    // Find the course ID for this assignment
+    let courseId = null;
+    for (const cId in studentCourseAssignments) {
+      if (studentCourseAssignments[cId].some(a => a.id === assignmentId)) {
+        courseId = cId;
+        break;
+      }
+    }
+
+    if (!courseId) {
+      window.alert("Course information not found.");
+      return;
+    }
+
+    const response = await fetch(
+      getApiUrl(`/courses/${courseId}/assignments/${assignmentId}/submit`),
+      {
+        method: "POST",
+        body: formData
+      }
+    );
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to submit assignment.");
+    }
+
+    // Update local submission storage
+    const key = `${assignmentId}_${currentStudent._id || currentStudent.id}`;
+    studentAssignmentSubmissions[key] = result.data;
+
+    // Clear form
+    if (fileInput) fileInput.value = "";
+    if (essayInput) essayInput.value = "";
+
+    // Show success and refresh
+    window.alert("Assignment submitted successfully!");
+    expandedAssignmentId = assignmentId;
+    renderStudentAssignmentsByCourse();
+    
+    addNotification({
+      type: "assignment",
+      section: "courses",
+      studentId: currentStudent._id || currentStudent.id,
+      studentName: currentStudent.fullName || currentStudent.name,
+      audience: { role: "admin" },
+      title: `Assignment submitted by ${currentStudent.fullName || currentStudent.name}`,
+      message: `Submitted ${assignment.title}`,
+      createdAt: new Date().toISOString()
+    });
+  } catch (error) {
+    window.alert(error.message || "Failed to submit assignment.");
+    console.error("Assignment submission error:", error);
+  }
 });
 
 document.addEventListener("submit", (event) => {
@@ -7461,11 +7970,20 @@ if (selectedClassroomTitle) {
 
 renderAnnouncements();
 renderVideos();
-renderAssignments();
 renderChatMessages();
 const currentUserForCourses = JSON.parse(sessionStorage.getItem("gthCurrentUser") || "null");
 loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "").then(async () => {
+  initializeClassroomSelection();
+  currentStudent.classroom = currentStudent.classroom || selectedClassroom;
+  if (selectedClassroomTitle) {
+    if (classroomName) classroomName.textContent = selectedClassroomTitle;
+    if (classroomLabel) classroomLabel.textContent = selectedClassroomTitle;
+  }
+
   await syncCurrentStudentFromServer();
+  currentStudent.classroom = currentStudent.classroom || selectedClassroom;
+  await loadServerAssignments(getCustomCourses()[0]?._id || getCustomCourses()[0]?.id || "");
+  renderAssignments();
   await loadServerInvitations();
   renderInvitations();
 

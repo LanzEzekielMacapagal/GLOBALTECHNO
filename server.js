@@ -431,12 +431,30 @@ const assignmentSchema = new mongoose.Schema({
   courseId: { type: String, required: true, index: true },
   title: { type: String, required: true },
   instructions: { type: String, required: true },
+  type: { type: String, enum: ["essay", "file"], default: "file" },
   attachments: {
     type: Array,
     default: []
   },
   dueDate: { type: Date, required: true },
   createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+// Assignment Submission Schema
+const assignmentSubmissionSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  assignmentId: { type: String, required: true, index: true },
+  courseId: { type: String, required: true, index: true },
+  studentId: { type: String, required: true, index: true },
+  studentName: { type: String, default: "" },
+  submissionType: { type: String, default: "file" }, // 'file' or 'essay'
+  essay: { type: String, default: "" },
+  attachments: {
+    type: Array,
+    default: []
+  },
+  submittedAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
 
@@ -457,6 +475,7 @@ const PrivateMessage = mongoose.model("PrivateMessage", privateMessageSchema);
 const Invitation = mongoose.model("Invitation", invitationSchema);
 const Grade = mongoose.model("Grade", gradeSchema);
 const Assignment = mongoose.model("Assignment", assignmentSchema);
+const AssignmentSubmission = mongoose.model("AssignmentSubmission", assignmentSubmissionSchema);
 
 // Manual summary schema to track pending / checked counts and quiz status
 const manualSummarySchema = new mongoose.Schema({
@@ -2015,7 +2034,9 @@ server.delete("/courses/delete/:courseId", async (req, res) => {
 server.get("/courses/:courseId/assignments", async (req, res) => {
   try {
     const courseId = req.params.courseId;
+    console.log(`GET /courses/${courseId}/assignments called`);
     const assignments = await Assignment.find({ courseId }).lean();
+    console.log(`Found ${Array.isArray(assignments) ? assignments.length : 0} assignments for course ${courseId}`);
     res.status(200).send({ code: 200, data: assignments });
   } catch (error) {
     res.status(500).send({ code: 500, message: "Error fetching assignments." });
@@ -2030,6 +2051,7 @@ server.post("/courses/:courseId/assignments", upload.fields([{ name: "attachment
     const payload = typeof body === "object" && body !== null ? body : {};
     const title = String(payload.title || body.title || "").trim();
     const instructions = String(payload.instructions || body.instructions || "").trim();
+    const type = String(payload.type || body.type || "file").trim();
     const dueDate = String(payload.dueDate || body.dueDate || "").trim();
     const uploadedFiles = Array.isArray(req.files?.attachments)
       ? req.files.attachments.map((file) => {
@@ -2068,6 +2090,7 @@ server.post("/courses/:courseId/assignments", upload.fields([{ name: "attachment
       courseId,
       title,
       instructions,
+      type,
       dueDate: new Date(dueDate),
       attachments: Array.isArray(uploadedFiles) ? uploadedFiles.map((item) => ({ ...item })) : []
     });
@@ -2086,6 +2109,7 @@ server.put("/courses/:courseId/assignments/:assignmentId", upload.fields([{ name
     const payload = req.body && typeof req.body === "object" ? req.body : {};
     const title = String(payload.title || "").trim();
     const instructions = String(payload.instructions || "").trim();
+    const type = String(payload.type || "file").trim();
     const dueDate = String(payload.dueDate || "").trim();
 
     const existingAssignment = await Assignment.findOne({ courseId, id: assignmentId });
@@ -2123,6 +2147,7 @@ server.put("/courses/:courseId/assignments/:assignmentId", upload.fields([{ name
       {
         title,
         instructions,
+        type,
         dueDate: dueDate ? new Date(dueDate) : existingAssignment.dueDate,
         attachments,
         updatedAt: new Date()
@@ -2155,6 +2180,203 @@ server.delete("/courses/:courseId/assignments/:assignmentId", async (req, res) =
     res.status(200).send({ code: 200, message: "Assignment deleted successfully." });
   } catch (error) {
     res.status(500).send({ code: 500, message: "Error deleting assignment." });
+  }
+});
+
+// =============================================
+// ASSIGNMENT SUBMISSION ROUTES — CRUD
+// =============================================
+
+// Submit an assignment (student)
+server.post("/courses/:courseId/assignments/:assignmentId/submit", upload.fields([{ name: "submissionFiles", maxCount: 10 }]), async (req, res) => {
+  try {
+    const { courseId, assignmentId } = req.params;
+    const studentId = String(req.body.studentId || "").trim();
+    const studentName = String(req.body.studentName || "").trim();
+    const submissionType = String(req.body.submissionType || "file").trim();
+    const essay = String(req.body.essay || "").trim();
+
+    // Validation
+    if (!studentId) {
+      return res.status(400).send({ code: 400, message: "Student ID is required." });
+    }
+
+    // Check if user is enrolled in the course
+    const user = await User.findById(studentId);
+    if (!user) {
+      return res.status(404).send({ code: 404, message: "User not found." });
+    }
+
+    const enrolledCourseIds = (user.enrolledCourses || []).map(String);
+    if (!enrolledCourseIds.includes(String(courseId))) {
+      return res.status(403).send({ code: 403, message: "You are not enrolled in this course." });
+    }
+
+    // Check if assignment exists
+    const assignment = await Assignment.findOne({ courseId, id: assignmentId });
+    if (!assignment) {
+      return res.status(404).send({ code: 404, message: "Assignment not found." });
+    }
+
+    // Process uploaded files
+    const uploadedFiles = Array.isArray(req.files?.submissionFiles)
+      ? req.files.submissionFiles.map((file) => ({
+          name: String(file.originalname || ""),
+          filename: String(file.filename || ""),
+          originalname: String(file.originalname || ""),
+          mimetype: String(file.mimetype || ""),
+          type: String(file.mimetype || ""),
+          size: Number(file.size || 0),
+          path: `/uploads/assignments/${String(file.filename || "")}`,
+          url: `/uploads/assignments/${String(file.filename || "")}`
+        }))
+      : [];
+
+    // Check if submission already exists
+    const existingSubmission = await AssignmentSubmission.findOne({ assignmentId, studentId });
+    
+    const submissionId = existingSubmission 
+      ? existingSubmission.id 
+      : `submission-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    if (existingSubmission) {
+      // Update existing submission
+      const currentAttachments = Array.isArray(existingSubmission.attachments)
+        ? existingSubmission.attachments
+        : [];
+      
+      const updatedSubmission = await AssignmentSubmission.findOneAndUpdate(
+        { assignmentId, studentId },
+        {
+          submissionType,
+          essay: submissionType === "essay" ? essay : "",
+          attachments: uploadedFiles.length > 0 ? uploadedFiles : currentAttachments,
+          updatedAt: new Date()
+        },
+        { new: true }
+      );
+
+      return res.status(200).send({
+        code: 200,
+        message: "Assignment submission updated successfully.",
+        data: updatedSubmission
+      });
+    } else {
+      // Create new submission
+      if (submissionType === "file" && uploadedFiles.length === 0) {
+        return res.status(400).send({
+          code: 400,
+          message: "Please upload at least one file."
+        });
+      }
+
+      if (submissionType === "essay" && !essay) {
+        return res.status(400).send({
+          code: 400,
+          message: "Please write your essay response."
+        });
+      }
+
+      const submission = await AssignmentSubmission.create({
+        id: submissionId,
+        assignmentId,
+        courseId,
+        studentId,
+        studentName: studentName || user.username || user.fullName,
+        submissionType,
+        essay: submissionType === "essay" ? essay : "",
+        attachments: uploadedFiles
+      });
+
+      return res.status(201).send({
+        code: 201,
+        message: "Assignment submitted successfully.",
+        data: submission
+      });
+    }
+  } catch (error) {
+    console.error("Assignment submission error:", error.message);
+    res.status(500).send({
+      code: 500,
+      message: `Error submitting assignment: ${error.message}`
+    });
+  }
+});
+
+// Get assignment submissions for a specific assignment (admin/student)
+server.get("/courses/:courseId/assignments/:assignmentId/submissions", async (req, res) => {
+  try {
+    const { courseId, assignmentId } = req.params;
+    const studentId = req.query.studentId ? String(req.query.studentId) : null;
+
+    // If studentId provided, only get that student's submission
+    if (studentId) {
+      const submission = await AssignmentSubmission.findOne({ assignmentId, studentId }).lean();
+      return res.status(200).send({
+        code: 200,
+        data: submission || null
+      });
+    }
+
+    // Otherwise get all submissions for this assignment (admin only)
+    const submissions = await AssignmentSubmission.find({ assignmentId }).lean();
+    res.status(200).send({
+      code: 200,
+      data: submissions
+    });
+  } catch (error) {
+    res.status(500).send({
+      code: 500,
+      message: "Error fetching submissions."
+    });
+  }
+});
+
+// Get all submissions for a student in a course
+server.get("/courses/:courseId/student/:studentId/submissions", async (req, res) => {
+  try {
+    const { courseId, studentId } = req.params;
+
+    const submissions = await AssignmentSubmission.find({ courseId, studentId }).lean();
+    res.status(200).send({
+      code: 200,
+      data: submissions
+    });
+  } catch (error) {
+    res.status(500).send({
+      code: 500,
+      message: "Error fetching student submissions."
+    });
+  }
+});
+
+// Delete an assignment submission (student or admin)
+server.delete("/courses/:courseId/assignments/:assignmentId/submissions/:submissionId", async (req, res) => {
+  try {
+    const { courseId, assignmentId, submissionId } = req.params;
+
+    const submission = await AssignmentSubmission.findOneAndDelete({
+      id: submissionId,
+      assignmentId,
+      courseId
+    });
+
+    if (!submission) {
+      return res.status(404).send({
+        code: 404,
+        message: "Submission not found."
+      });
+    }
+
+    res.status(200).send({
+      code: 200,
+      message: "Submission deleted successfully."
+    });
+  } catch (error) {
+    res.status(500).send({
+      code: 500,
+      message: "Error deleting submission."
+    });
   }
 });
 
