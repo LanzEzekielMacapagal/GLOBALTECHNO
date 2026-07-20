@@ -56,6 +56,44 @@ test("admin assignment form shows an add-file control", async ({ page }) => {
   expect(hasAddButton).toBe(true);
 });
 
+test("admin assignment edit button reveals the editing form", async ({ page }) => {
+  await page.goto("http://127.0.0.1:3000/admin.html");
+
+  const result = await page.evaluate(() => {
+    const assignment = {
+      id: "assignment-edit-visibility-test-1",
+      courseId: "course-test-1",
+      title: "Original title",
+      instructions: "Original instructions",
+      dueDate: "2025-12-31T23:59:00.000Z",
+      classroom: "all",
+      subject: "General Activity",
+      type: "file",
+      attachments: [],
+      createdAt: new Date().toISOString()
+    };
+
+    const container = document.createElement("div");
+    container.id = "assignment-edit-visibility-test-root";
+    document.body.appendChild(container);
+    container.appendChild(window.renderAssignmentCard(assignment, { admin: true }));
+
+    const editButton = container.querySelector("[data-assignment-action='edit']");
+    editButton.click();
+
+    const form = container.querySelector("[data-assignment-edit-form]");
+    return {
+      formHidden: form?.hidden,
+      titleValue: form?.querySelector('input[name="title"]').value,
+      dueValue: form?.querySelector('input[name="dueDate"]').value
+    };
+  });
+
+  expect(result.formHidden).toBe(false);
+  expect(result.titleValue).toBe("Original title");
+  expect(result.dueValue).toContain("2025-12-31T");
+});
+
 test("admin assignment edits submit multipart updates with files", async ({ page }) => {
   await page.goto("http://127.0.0.1:3000/admin.html");
 
