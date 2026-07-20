@@ -268,6 +268,7 @@ const demoVideos = [];
 const demoAssignments = [];
 
 let expandedAssignmentId;
+let editingAssignmentId;
 
 const demoInvitations = [];
 let serverInvitations = null;
@@ -5579,6 +5580,17 @@ function createAssignmentEditForm(assignment) {
   dueInput.value = assignment.dueDate ? new Date(assignment.dueDate).toISOString().slice(0, 16) : "";
   dueInput.required = true;
 
+  const fileInput = document.createElement("input");
+  fileInput.className = "form-control form-control-sm";
+  fileInput.name = "attachments";
+  fileInput.type = "file";
+  fileInput.multiple = true;
+
+  const existingAttachments = document.createElement("div");
+  existingAttachments.className = "mt-2";
+  existingAttachments.appendChild(createTextElement("small", "text-secondary d-block mb-1", "Existing attachments:"));
+  existingAttachments.appendChild(renderAssignmentFiles(assignment.attachments || []));
+
   const actions = document.createElement("div");
   actions.className = "d-flex flex-wrap gap-2 mt-2";
 
@@ -5593,6 +5605,7 @@ function createAssignmentEditForm(assignment) {
   cancelButton.textContent = "Cancel";
   cancelButton.addEventListener("click", (event) => {
     event.preventDefault();
+    editingAssignmentId = null;
     form.hidden = true;
   });
 
@@ -5604,6 +5617,9 @@ function createAssignmentEditForm(assignment) {
     instructionsInput,
     createTextElement("label", "form-label small fw-bold mb-1", "Edit due date"),
     dueInput,
+    createTextElement("label", "form-label small fw-bold mb-1", "Add or replace attachments"),
+    fileInput,
+    existingAttachments,
     actions
   );
 
@@ -5844,6 +5860,9 @@ function renderAssignmentCard(assignment, options = {}) {
   );
 
   const editForm = createAssignmentEditForm(assignment);
+  if (assignment.id === editingAssignmentId) {
+    editForm.hidden = false;
+  }
 
   const header = document.createElement("div");
   header.className = "assignment-card-header";
@@ -6178,6 +6197,7 @@ document.addEventListener("click", async (event) => {
     const editForm = actionButton.closest(".assignment-card")?.querySelector(`[data-assignment-edit-form='${assignmentId}']`);
     if (!assignment || !editForm) return;
 
+    editingAssignmentId = assignmentId;
     editForm.hidden = false;
     editForm.querySelector('[name="title"]').value = assignment.title || "";
     editForm.querySelector('[name="instructions"]').value = assignment.instructions || "";
@@ -6190,24 +6210,32 @@ document.addEventListener("click", async (event) => {
   if (actionButton.dataset.assignmentAction === "remove") {
     const assignmentId = actionButton.dataset.assignmentId;
     const assignment = getAssignmentById(assignmentId);
-    
     if (!assignment) return;
-    
+
+    const confirmed = await showQuizConfirmModal({
+      modalId: `deleteAssignmentModal-${assignmentId}`,
+      titleText: "Delete assignment?",
+      messageText: `This will remove ${assignment.title || "this assignment"} and all its submissions and attached files. This action cannot be undone.`,
+      confirmLabel: "Remove assignment",
+      confirmClass: "btn btn-danger btn-sm"
+    });
+
+    if (!confirmed) return;
+
     const courseId = assignment.courseId;
     if (expandedAssignmentId === assignmentId) expandedAssignmentId = null;
-    
+
     try {
       const response = await fetch(getApiUrl(`/courses/${courseId}/assignments/${assignmentId}`), {
         method: "DELETE"
       });
-      
+
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
         throw new Error(result.message || "Unable to delete assignment.");
       }
-      
-      document.querySelectorAll(`[data-assignment-id="${assignmentId}"]`).forEach((wrapper) => wrapper.remove());
 
+      document.querySelectorAll(`[data-assignment-id="${assignmentId}"]`).forEach((wrapper) => wrapper.remove());
       await loadServerAssignments(courseId);
     } catch (error) {
       window.alert(error.message || "Failed to delete assignment.");
@@ -6231,21 +6259,26 @@ document.addEventListener("submit", async (event) => {
     if (!title || !instructions || !dueDate) return;
 
     try {
+      const formData = new FormData();
+      formData.append("title", title);
+      formData.append("instructions", instructions);
+      formData.append("dueDate", new Date(dueDate).toISOString());
+      const attachmentFiles = Array.from(editForm.elements.attachments?.files || []);
+      attachmentFiles.forEach((file) => {
+        formData.append("attachments", file, file.name);
+      });
+      formData.append("existingAttachments", JSON.stringify(assignment.attachments || []));
+
       const response = await fetch(getApiUrl(`/courses/${assignment.courseId}/assignments/${assignment.id}`), {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title,
-          instructions,
-          dueDate: new Date(dueDate).toISOString(),
-          attachments: assignment.attachments || []
-        })
+        body: formData
       });
 
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.message || "Unable to update assignment.");
 
       await loadServerAssignments(assignment.courseId);
+      editingAssignmentId = null;
       editForm.hidden = true;
       await refreshAssignmentSurfaces(assignment.id);
     } catch (error) {

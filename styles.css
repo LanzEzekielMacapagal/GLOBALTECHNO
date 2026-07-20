@@ -4552,7 +4552,7 @@ body {
 
   .announcement-item,
   .assignment-upload-form {
-    padding: 0.8rem;
+    padding: 0.9rem;
   }
 
   .assignment-card-header {
@@ -4564,8 +4564,103 @@ body {
     justify-content: space-between;
   }
 
-  .assignment-review-row {
+  .course-resource-item,
+  .course-resource-summary,
+  .course-resource-content,
+  .course-resource-preview,
+  .file-preview-tile,
+  .assignment-materials,
+  .assignment-upload-form,
+  .announcement-item,
+  .notification-item,
+  .student-section-card,
+  .course-workspace,
+  .course-workspace-panel {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 0 1rem !important;
+  }
+
+  .course-resource-summary {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.5rem 0;
+    background: transparent !important;
+  }
+
+  .course-resource-summary > span:first-child,
+  .course-resource-content,
+  .file-preview-meta {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .course-resource-content {
+    padding: 0.5rem 0 0;
+    gap: 0.9rem;
+  }
+
+  .course-resource-preview-shell {
+    gap: 0.75rem;
+  }
+
+  .course-resource-preview {
+    border: none;
+    box-shadow: none;
+    background: #f8fbfc;
+    max-height: 34rem;
+    min-height: auto;
+    padding: 0.65rem;
+    border-radius: 1rem;
+  }
+
+  .course-resource-preview iframe,
+  .course-resource-preview img,
+  .course-resource-preview video {
+    width: 100%;
+    max-height: 34rem;
+  }
+
+  .file-preview-tile {
+    display: grid;
     grid-template-columns: 1fr;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+    border: none;
+    background: transparent;
+  }
+
+  .file-preview-actions {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.25rem 0 0;
+  }
+
+  .file-preview-actions .btn {
+    width: 100%;
+    min-width: 0;
+    padding: 0.85rem 1rem;
+  }
+
+  .file-preview-name {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    padding-right: 0.25rem;
+  }
+
+  .assignment-review-row,
+  .gradebook-row,
+  .course-workspace-grid,
+  .student-course-quiz-panel,
+  .course-video-item {
+    grid-template-columns: 1fr !important;
   }
 
   .assignment-grade-form {
