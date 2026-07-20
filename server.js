@@ -432,6 +432,7 @@ const assignmentSchema = new mongoose.Schema({
   title: { type: String, required: true },
   instructions: { type: String, required: true },
   type: { type: String, enum: ["essay", "file"], default: "file" },
+  points: { type: Number, default: 10, min: 0 },
   attachments: {
     type: Array,
     default: []
@@ -454,6 +455,9 @@ const assignmentSubmissionSchema = new mongoose.Schema({
     type: Array,
     default: []
   },
+  score: { type: Number, default: null },
+  feedback: { type: String, default: "" },
+  gradedAt: { type: Date, default: null },
   submittedAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
@@ -2053,6 +2057,8 @@ server.post("/courses/:courseId/assignments", upload.fields([{ name: "attachment
     const instructions = String(payload.instructions || body.instructions || "").trim();
     const type = String(payload.type || body.type || "file").trim();
     const dueDate = String(payload.dueDate || body.dueDate || "").trim();
+    const pointsValue = Number(payload.points || body.points || 10);
+    const points = Number.isFinite(pointsValue) && pointsValue > 0 ? pointsValue : 10;
     const uploadedFiles = Array.isArray(req.files?.attachments)
       ? req.files.attachments.map((file) => {
           const normalized = {
@@ -2091,6 +2097,7 @@ server.post("/courses/:courseId/assignments", upload.fields([{ name: "attachment
       title,
       instructions,
       type,
+      points,
       dueDate: new Date(dueDate),
       attachments: Array.isArray(uploadedFiles) ? uploadedFiles.map((item) => ({ ...item })) : []
     });
@@ -2116,6 +2123,9 @@ server.put("/courses/:courseId/assignments/:assignmentId", upload.fields([{ name
     if (!existingAssignment) {
       return res.status(404).send({ code: 404, message: "Assignment not found." });
     }
+
+    const pointsValue = Number(payload.points || 0);
+    const points = Number.isFinite(pointsValue) && pointsValue > 0 ? pointsValue : existingAssignment.points || 10;
 
     const uploadedFiles = Array.isArray(req.files?.attachments)
       ? req.files.attachments.map((file) => ({
@@ -2148,6 +2158,7 @@ server.put("/courses/:courseId/assignments/:assignmentId", upload.fields([{ name
         title,
         instructions,
         type,
+        points,
         dueDate: dueDate ? new Date(dueDate) : existingAssignment.dueDate,
         attachments,
         updatedAt: new Date()
@@ -2351,6 +2362,34 @@ server.get("/courses/:courseId/student/:studentId/submissions", async (req, res)
 });
 
 // Delete an assignment submission (student or admin)
+server.put("/courses/:courseId/assignments/:assignmentId/submissions/:submissionId", async (req, res) => {
+  try {
+    const { courseId, assignmentId, submissionId } = req.params;
+    const submission = await AssignmentSubmission.findOne({ id: submissionId, assignmentId, courseId });
+
+    if (!submission) {
+      return res.status(404).send({ code: 404, message: "Submission not found." });
+    }
+
+    const score = req.body && Object.prototype.hasOwnProperty.call(req.body, "score")
+      ? req.body.score
+      : submission.score;
+    const feedback = req.body && Object.prototype.hasOwnProperty.call(req.body, "feedback")
+      ? String(req.body.feedback || "")
+      : submission.feedback || "";
+
+    submission.score = score === null || score === "" ? null : Number(score);
+    submission.feedback = feedback;
+    submission.gradedAt = req.body?.gradedAt ? new Date(req.body.gradedAt) : new Date();
+    submission.updatedAt = new Date();
+    await submission.save();
+
+    res.status(200).send({ code: 200, message: "Assignment graded successfully.", data: submission });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "Error updating assignment grade." });
+  }
+});
+
 server.delete("/courses/:courseId/assignments/:assignmentId/submissions/:submissionId", async (req, res) => {
   try {
     const { courseId, assignmentId, submissionId } = req.params;

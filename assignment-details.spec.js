@@ -161,3 +161,84 @@ test("admin assignment edits submit multipart updates with files", async ({ page
   expect(result.hasAttachments).toBe(true);
   expect(result.title).toBe("Updated title");
 });
+
+test("admin assignment grading panel exposes score controls for submitted work", async ({ page }) => {
+  await page.goto("http://127.0.0.1:3000/admin.html");
+
+  const panelState = await page.evaluate(() => {
+    const assignment = {
+      id: "assignment-grading-test-1",
+      courseId: "course-test-1",
+      title: "Reflection report",
+      instructions: "Write a short reflection.",
+      dueDate: "2025-12-31T23:59:00.000Z",
+      classroom: "all",
+      subject: "General Activity",
+      type: "essay",
+      points: 20,
+      attachments: [],
+      createdAt: new Date().toISOString()
+    };
+
+    window.serverAssignments = [assignment];
+    window.serverAssignmentSubmissions = [{
+      id: "submission-test-1",
+      assignmentId: assignment.id,
+      courseId: assignment.courseId,
+      studentId: "student-test-1",
+      studentName: "Jordan Lee",
+      submissionType: "essay",
+      essay: "I learned a lot from the exercise.",
+      attachments: [],
+      submittedAt: new Date().toISOString()
+    }];
+
+    const panel = window.renderCourseAssignmentManualGradingPanel("course-test-1");
+    document.body.appendChild(panel);
+    const scoreInput = panel.querySelector('input[name="assignmentScore"]');
+    const feedbackField = panel.querySelector('textarea[name="assignmentFeedback"]');
+    return { hasPanel: Boolean(panel), hasScoreInput: Boolean(scoreInput), hasFeedbackField: Boolean(feedbackField) };
+  });
+
+  expect(panelState.hasPanel).toBe(true);
+  expect(panelState.hasScoreInput).toBe(true);
+  expect(panelState.hasFeedbackField).toBe(true);
+});
+
+test("student submissions are persisted to the shared assignment submission store", async ({ page }) => {
+  await page.goto("http://127.0.0.1:3000/admin.html");
+
+  const persisted = await page.evaluate(() => {
+    if (typeof window.persistAssignmentSubmissionToStore !== "function") {
+      return { ok: false, reason: "missing-helper" };
+    }
+
+    const submission = {
+      id: "submission-store-test-1",
+      assignmentId: "assignment-store-test-1",
+      courseId: "course-test-1",
+      studentId: "student-test-1",
+      studentName: "Jordan Lee",
+      submissionType: "essay",
+      essay: "I completed the assignment.",
+      attachments: [],
+      submittedAt: new Date().toISOString()
+    };
+
+    window.persistAssignmentSubmissionToStore(submission);
+    const stored = JSON.parse(window.localStorage.getItem("gthAssignmentSubmissions") || "[]");
+    const match = stored.find((item) => item.id === submission.id);
+
+    return {
+      ok: true,
+      storedCount: stored.length,
+      hasMatch: Boolean(match),
+      essay: match?.essay || ""
+    };
+  });
+
+  expect(persisted.ok).toBe(true);
+  expect(persisted.hasMatch).toBe(true);
+  expect(persisted.storedCount).toBeGreaterThan(0);
+  expect(persisted.essay).toBe("I completed the assignment.");
+});
