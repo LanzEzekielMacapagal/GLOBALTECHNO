@@ -28,3 +28,98 @@ test("admin assignment cards expose a visible details panel", async ({ page }) =
 
   await expect(page.locator(".assignment-details-panel").first()).toBeVisible();
 });
+
+test("admin assignment form exposes a multi-file picker", async ({ page }) => {
+  await page.goto("http://127.0.0.1:3000/admin.html");
+
+  const pickerPresent = await page.evaluate(() => {
+    const form = window.renderCourseAssignmentForm("course-test-1");
+    document.body.appendChild(form);
+    const picker = form.querySelector('[data-multi-file-picker="true"]');
+    const input = form.querySelector('input[name="attachments"]');
+    return Boolean(picker && input?.multiple);
+  });
+
+  expect(pickerPresent).toBe(true);
+});
+
+test("admin assignment form shows an add-file control", async ({ page }) => {
+  await page.goto("http://127.0.0.1:3000/admin.html");
+
+  const hasAddButton = await page.evaluate(() => {
+    const form = window.renderCourseAssignmentForm("course-test-1");
+    document.body.appendChild(form);
+    const button = Array.from(form.querySelectorAll("button")).find((item) => item.textContent.includes("Add a file"));
+    return Boolean(button);
+  });
+
+  expect(hasAddButton).toBe(true);
+});
+
+test("admin assignment edits submit multipart updates with files", async ({ page }) => {
+  await page.goto("http://127.0.0.1:3000/admin.html");
+
+  const result = await page.evaluate(async () => {
+    const assignment = {
+      id: "assignment-edit-test-1",
+      courseId: "course-test-1",
+      title: "Original title",
+      instructions: "Original instructions",
+      dueDate: "2025-12-31T23:59:00.000Z",
+      classroom: "all",
+      subject: "General Activity",
+      type: "file",
+      attachments: [{ name: "existing.pdf", type: "application/pdf", size: 2048 }],
+      createdAt: new Date().toISOString()
+    };
+
+    const container = document.createElement("div");
+    container.id = "assignment-edit-test-root";
+    document.body.appendChild(container);
+    container.appendChild(window.renderAssignmentCard(assignment, { admin: true }));
+
+    const calls = [];
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (url, options = {}) => {
+      calls.push({ url, method: options.method || "GET", body: options.body });
+      return new Response(JSON.stringify({ code: 200, message: "ok", data: assignment }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    };
+
+    const editButton = container.querySelector("[data-assignment-action='edit']");
+    editButton.click();
+
+    const form = container.querySelector("[data-assignment-edit-form]");
+    form.querySelector('input[name="title"]').value = "Updated title";
+    form.querySelector('input[name="title"]').dispatchEvent(new Event("input", { bubbles: true }));
+    form.querySelector('textarea[name="instructions"]').value = "Updated instructions";
+    form.querySelector('textarea[name="instructions"]').dispatchEvent(new Event("input", { bubbles: true }));
+    form.querySelector('input[name="dueDate"]').value = "2026-08-01T09:00";
+    form.querySelector('input[name="dueDate"]').dispatchEvent(new Event("input", { bubbles: true }));
+
+    const fileInput = form.querySelector('input[name="attachments"]');
+    const dataTransfer = new DataTransfer();
+    const file = new File(["hello"], "notes.txt", { type: "text/plain" });
+    dataTransfer.items.add(file);
+    Object.defineProperty(fileInput, "files", { value: dataTransfer.files, configurable: true });
+    fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    window.fetch = originalFetch;
+
+    const request = calls[0];
+    return {
+      bodyType: request?.body?.constructor?.name || typeof request?.body,
+      hasAttachments: request?.body instanceof FormData && request.body.has("attachments"),
+      title: request?.body instanceof FormData ? request.body.get("title") : null
+    };
+  });
+
+  expect(result.bodyType).toBe("FormData");
+  expect(result.hasAttachments).toBe(true);
+  expect(result.title).toBe("Updated title");
+});

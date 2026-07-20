@@ -2057,62 +2057,58 @@ server.post("/courses/:courseId/assignments", upload.fields([{ name: "attachment
 });
 
 // Update an assignment
-server.put(
-  "/courses/:courseId/assignments/:assignmentId",
-  upload.fields([{ name: "attachments", maxCount: 10 }]),
-  async (req, res) => {
-    try {
-      const { courseId, assignmentId } = req.params;
-      const body = req.body || {};
-      const title = String(body.title || "").trim();
-      const instructions = String(body.instructions || "").trim();
-      const dueDate = String(body.dueDate || "").trim();
-      const existingAttachments = typeof body.existingAttachments === "string"
-        ? JSON.parse(body.existingAttachments || "[]")
-        : Array.isArray(body.existingAttachments)
-          ? body.existingAttachments
-          : [];
+server.put("/courses/:courseId/assignments/:assignmentId", upload.fields([{ name: "attachments", maxCount: 10 }]), async (req, res) => {
+  try {
+    const { courseId, assignmentId } = req.params;
+    const payload = req.body && typeof req.body === "object" ? req.body : {};
+    const title = String(payload.title || "").trim();
+    const instructions = String(payload.instructions || "").trim();
+    const dueDate = String(payload.dueDate || "").trim();
 
-      const uploadedFiles = Array.isArray(req.files?.attachments)
-        ? req.files.attachments.map((file) => ({
-            name: String(file.originalname || ""),
-            filename: String(file.filename || ""),
-            originalname: String(file.originalname || ""),
-            mimetype: String(file.mimetype || ""),
-            type: String(file.mimetype || ""),
-            size: Number(file.size || 0),
-            path: `/uploads/assignments/${String(file.filename || "")}`,
-            url: `/uploads/assignments/${String(file.filename || "")}`
-          }))
-        : [];
-
-      const attachments = Array.isArray(existingAttachments)
-        ? [...existingAttachments, ...uploadedFiles]
-        : uploadedFiles;
-
-      const assignment = await Assignment.findOneAndUpdate(
-        { courseId, id: assignmentId },
-        {
-          title,
-          instructions,
-          dueDate: new Date(dueDate),
-          attachments,
-          updatedAt: new Date()
-        },
-        { new: true }
-      );
-
-      if (!assignment) {
-        return res.status(404).send({ code: 404, message: "Assignment not found." });
-      }
-
-      res.status(200).send({ code: 200, message: "Assignment updated successfully.", data: assignment });
-    } catch (error) {
-      console.error("Assignment update error:", error.message);
-      res.status(500).send({ code: 500, message: "Error updating assignment." });
+    const existingAssignment = await Assignment.findOne({ courseId, id: assignmentId });
+    if (!existingAssignment) {
+      return res.status(404).send({ code: 404, message: "Assignment not found." });
     }
+
+    const uploadedFiles = Array.isArray(req.files?.attachments)
+      ? req.files.attachments.map((file) => ({
+          name: String(file.originalname || ""),
+          filename: String(file.filename || ""),
+          originalname: String(file.originalname || ""),
+          mimetype: String(file.mimetype || ""),
+          type: String(file.mimetype || ""),
+          size: Number(file.size || 0),
+          path: `/uploads/assignments/${String(file.filename || "")}`,
+          url: `/uploads/assignments/${String(file.filename || "")}`
+        }))
+      : [];
+
+    const attachments = uploadedFiles.length
+      ? uploadedFiles
+      : (Array.isArray(payload.attachments) ? payload.attachments : existingAssignment.attachments || []);
+
+    const assignment = await Assignment.findOneAndUpdate(
+      { courseId, id: assignmentId },
+      {
+        title,
+        instructions,
+        dueDate: dueDate ? new Date(dueDate) : existingAssignment.dueDate,
+        attachments,
+        updatedAt: new Date()
+      },
+      { new: true }
+    );
+
+    if (!assignment) {
+      return res.status(404).send({ code: 404, message: "Assignment not found." });
+    }
+
+    res.status(200).send({ code: 200, message: "Assignment updated successfully.", data: assignment });
+  } catch (error) {
+    console.error("Assignment update error:", error.message);
+    res.status(500).send({ code: 500, message: "Error updating assignment." });
   }
-);
+});
 
 // Delete an assignment
 server.delete("/courses/:courseId/assignments/:assignmentId", async (req, res) => {

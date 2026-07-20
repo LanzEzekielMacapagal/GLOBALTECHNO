@@ -268,7 +268,6 @@ const demoVideos = [];
 const demoAssignments = [];
 
 let expandedAssignmentId;
-let editingAssignmentId;
 
 const demoInvitations = [];
 let serverInvitations = null;
@@ -570,13 +569,86 @@ function renderCourseAssignmentForm(courseId) {
 
   const attachmentLabel = document.createElement("label");
   attachmentLabel.className = "form-label small fw-bold mb-0";
-  attachmentLabel.textContent = "Attach PDF or DOCX";
+  attachmentLabel.textContent = "Attach files (PDF, DOCX, images, text, ZIP, and more)";
+  const attachmentContainer = document.createElement("div");
+  attachmentContainer.className = "d-flex flex-column gap-2";
+
   const attachments = document.createElement("input");
-  attachments.className = "form-control form-control-sm mt-1";
+  attachments.className = "form-control form-control-sm mt-1 d-none";
   attachments.name = "attachments";
   attachments.type = "file";
-  attachments.accept = ".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  attachments.accept = ".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.gif,.webp,.zip,.ppt,.pptx,.xls,.xlsx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/*,text/plain,application/zip,application/x-zip-compressed";
   attachments.multiple = true;
+  attachments.setAttribute("data-multi-file-picker", "true");
+  attachments.setAttribute("aria-label", "Select one or more files to attach");
+  attachments.setAttribute("title", "Select one or more files to attach");
+
+  const addFileButton = document.createElement("button");
+  addFileButton.type = "button";
+  addFileButton.className = "btn btn-outline-primary btn-sm align-self-start px-3 shadow-sm transition";
+  addFileButton.textContent = "Add a file";
+  addFileButton.addEventListener("click", () => {
+    attachments.click();
+  });
+
+  const attachmentSummary = document.createElement("div");
+  attachmentSummary.className = "small text-secondary mt-1";
+  const attachmentSummaryTitle = document.createElement("div");
+  attachmentSummaryTitle.className = "fw-semibold";
+  attachmentSummaryTitle.textContent = "No files selected yet.";
+  const attachmentSummaryList = document.createElement("div");
+  attachmentSummaryList.className = "mt-1";
+  attachmentSummary.append(attachmentSummaryTitle, attachmentSummaryList);
+
+  const selectedAttachmentFiles = [];
+  const updateAttachmentSummary = () => {
+    const selectedFiles = selectedAttachmentFiles.slice();
+    attachmentSummaryTitle.textContent = selectedFiles.length
+      ? `Selected files (${selectedFiles.length})`
+      : "No files selected yet.";
+    attachmentSummaryList.replaceChildren();
+
+    if (!selectedFiles.length) {
+      const hint = document.createElement("span");
+      hint.textContent = "Use the button above to add files to this assignment.";
+      attachmentSummaryList.appendChild(hint);
+      return;
+    }
+
+    const filesList = document.createElement("ul");
+    filesList.className = "mb-0 ps-3";
+    selectedFiles.forEach((file) => {
+      const item = document.createElement("li");
+      item.textContent = file.name;
+      filesList.appendChild(item);
+    });
+    attachmentSummaryList.appendChild(filesList);
+  };
+
+  const addFilesToSelection = (incomingFiles = []) => {
+    incomingFiles.forEach((file) => {
+      const duplicate = selectedAttachmentFiles.some((selectedFile) => {
+        return selectedFile.name === file.name && selectedFile.size === file.size && selectedFile.lastModified === file.lastModified;
+      });
+      if (!duplicate) {
+        selectedAttachmentFiles.push(file);
+      }
+    });
+    attachments.__selectedAttachmentFiles = selectedAttachmentFiles;
+    updateAttachmentSummary();
+  };
+
+  attachments.addEventListener("change", () => {
+    const incomingFiles = Array.from(attachments.files || []);
+    if (incomingFiles.length) {
+      addFilesToSelection(incomingFiles);
+    }
+    attachments.value = "";
+  });
+  updateAttachmentSummary();
+
+  attachmentContainer.append(addFileButton, attachmentSummary);
+  attachmentLabel.appendChild(attachmentContainer);
   attachmentLabel.appendChild(attachments);
 
   const dueLabel = document.createElement("label");
@@ -598,6 +670,7 @@ function renderCourseAssignmentForm(courseId) {
     title,
     instructions,
     attachmentLabel,
+    attachmentSummary,
     dueLabel,
     button
   );
@@ -4093,8 +4166,17 @@ document.addEventListener("click", async (event) => {
       || isRemoteOffice
     );
 
+    const existingInlinePreview = tile?.querySelector(".file-preview-inline");
+    const shouldCollapse = Boolean(existingInlinePreview && existingInlinePreview.dataset.previewId === filePreviewButton.dataset.filePreviewId);
+    if (shouldCollapse) {
+      existingInlinePreview.remove();
+      return;
+    }
+   
+    existingInlinePreview?.remove();
+
     if (isInlinePreviewable) {
-      renderInlineFilePreview(file, tile);
+      renderInlineFilePreview(file, tile, filePreviewButton.dataset.filePreviewId);
     } else if (previewUrl) {
       window.open(previewUrl, "_blank", "noopener,noreferrer");
     }
@@ -5307,11 +5389,12 @@ function getFilePreviewTarget(file = {}) {
   return previewUrl;
 }
 
-function renderInlineFilePreview(file = {}, container = null) {
+function renderInlineFilePreview(file = {}, container = null, previewId = "") {
   if (!container) return;
 
   const previewWrapper = document.createElement("div");
   previewWrapper.className = "file-preview-inline";
+  if (previewId) previewWrapper.dataset.previewId = previewId;
   const previewUrl = getFilePreviewTarget(file);
   const extension = getFileExtension(file.name || file.filename || file.originalname || "");
   const isImage = file.type?.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "apng"].includes(extension);
@@ -5580,16 +5663,22 @@ function createAssignmentEditForm(assignment) {
   dueInput.value = assignment.dueDate ? new Date(assignment.dueDate).toISOString().slice(0, 16) : "";
   dueInput.required = true;
 
-  const fileInput = document.createElement("input");
-  fileInput.className = "form-control form-control-sm";
-  fileInput.name = "attachments";
-  fileInput.type = "file";
-  fileInput.multiple = true;
+  const attachmentLabel = document.createElement("label");
+  attachmentLabel.className = "form-label small fw-bold mb-1";
+  attachmentLabel.textContent = "Add or replace attached files";
 
-  const existingAttachments = document.createElement("div");
-  existingAttachments.className = "mt-2";
-  existingAttachments.appendChild(createTextElement("small", "text-secondary d-block mb-1", "Existing attachments:"));
-  existingAttachments.appendChild(renderAssignmentFiles(assignment.attachments || []));
+  const attachmentInput = document.createElement("input");
+  attachmentInput.className = "form-control form-control-sm";
+  attachmentInput.name = "attachments";
+  attachmentInput.type = "file";
+  attachmentInput.multiple = true;
+  attachmentInput.accept = ".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.gif,.webp,.zip,.ppt,.pptx,.xls,.xlsx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/*,text/plain,application/zip,application/x-zip-compressed";
+  attachmentInput.setAttribute("data-multi-file-picker", "true");
+  attachmentInput.setAttribute("aria-label", "Select one or more files to attach to this assignment");
+
+  const attachmentHint = document.createElement("div");
+  attachmentHint.className = "small text-secondary";
+  attachmentHint.textContent = "Pick one or more files to add to this assignment.";
 
   const actions = document.createElement("div");
   actions.className = "d-flex flex-wrap gap-2 mt-2";
@@ -5605,7 +5694,6 @@ function createAssignmentEditForm(assignment) {
   cancelButton.textContent = "Cancel";
   cancelButton.addEventListener("click", (event) => {
     event.preventDefault();
-    editingAssignmentId = null;
     form.hidden = true;
   });
 
@@ -5617,9 +5705,9 @@ function createAssignmentEditForm(assignment) {
     instructionsInput,
     createTextElement("label", "form-label small fw-bold mb-1", "Edit due date"),
     dueInput,
-    createTextElement("label", "form-label small fw-bold mb-1", "Add or replace attachments"),
-    fileInput,
-    existingAttachments,
+    attachmentLabel,
+    attachmentInput,
+    attachmentHint,
     actions
   );
 
@@ -5860,9 +5948,6 @@ function renderAssignmentCard(assignment, options = {}) {
   );
 
   const editForm = createAssignmentEditForm(assignment);
-  if (assignment.id === editingAssignmentId) {
-    editForm.hidden = false;
-  }
 
   const header = document.createElement("div");
   header.className = "assignment-card-header";
@@ -5979,10 +6064,45 @@ function renderAssignmentCard(assignment, options = {}) {
       fileInput.type = "file";
       fileInput.multiple = true;
       fileInput.required = true;
+      fileInput.setAttribute("data-multi-file-picker", "true");
+      fileInput.setAttribute("aria-label", "Select one or more files to upload");
+
+      const uploadSummary = document.createElement("div");
+      uploadSummary.className = "small text-secondary mt-1";
+      const uploadSummaryTitle = document.createElement("div");
+      uploadSummaryTitle.className = "fw-semibold";
+      uploadSummaryTitle.textContent = "No files selected yet.";
+      const uploadSummaryList = document.createElement("div");
+      uploadSummaryList.className = "mt-1";
+      uploadSummary.append(uploadSummaryTitle, uploadSummaryList);
+
+      const updateUploadSummary = () => {
+        const selectedFiles = Array.from(fileInput.files || []);
+        uploadSummaryTitle.textContent = selectedFiles.length
+          ? `Selected files (${selectedFiles.length})`
+          : "No files selected yet.";
+        uploadSummaryList.replaceChildren();
+
+        if (!selectedFiles.length) {
+          uploadSummaryList.textContent = "Choose one or more files to upload.";
+          return;
+        }
+
+        const filesList = document.createElement("ul");
+        filesList.className = "mb-0 ps-3";
+        selectedFiles.forEach((file) => {
+          const item = document.createElement("li");
+          item.textContent = file.name;
+          filesList.appendChild(item);
+        });
+        uploadSummaryList.appendChild(filesList);
+      };
+      fileInput.addEventListener("change", updateUploadSummary);
+      updateUploadSummary();
 
       submitButton.textContent = submission ? "Replace Upload" : "Upload";
       uploadLabel.appendChild(fileInput);
-      uploadForm.append(uploadLabel, submitButton);
+      uploadForm.append(uploadLabel, uploadSummary, submitButton);
     }
 
     if (isExpanded) details.appendChild(uploadForm);
@@ -6091,22 +6211,32 @@ async function saveAssignmentFromForm(form, courseId = "") {
   if (!confirmed) return;
 
   setFormStatus(form);
-  
-  console.log("Saving assignment for courseId:", courseId);
-  
-  if (!courseId) {
+
+  const resolvedCourseId = String(courseId || form.dataset.courseAssignmentForm || "").trim();
+  console.log("Saving assignment for courseId:", resolvedCourseId);
+
+  if (!resolvedCourseId) {
     setFormStatus(form, "Course ID is required.");
     console.error("No courseId provided");
     return;
   }
-  
-  const dueDate = form.elements.dueDate?.value || "";
-  const attachmentInput = form.elements.attachments;
 
-  console.log("Form data:", { title, instructions, dueDate });
+  const dueDate = form.elements.dueDate?.value || "";
+  const attachmentInput = form.elements.attachments || form.querySelector('input[name="attachments"]');
+  const attachments = Array.isArray(attachmentInput?.__selectedAttachmentFiles)
+    ? attachmentInput.__selectedAttachmentFiles.filter(Boolean)
+    : Array.from(attachmentInput?.files || []).filter(Boolean);
+
+  console.log("Form data:", { title, instructions, dueDate, attachmentCount: attachments.length });
 
   if (!title || !instructions || !dueDate) {
     setFormStatus(form, "Complete the assignment title, instructions, and due date before posting.");
+    return;
+  }
+
+  const parsedDueDate = new Date(dueDate);
+  if (Number.isNaN(parsedDueDate.getTime())) {
+    setFormStatus(form, "Please choose a valid due date.");
     return;
   }
 
@@ -6114,13 +6244,13 @@ async function saveAssignmentFromForm(form, courseId = "") {
     const formData = new FormData();
     formData.append("title", title);
     formData.append("instructions", instructions);
-    formData.append("dueDate", new Date(dueDate).toISOString());
-    formData.append("attachmentCount", String(Array.from(attachmentInput?.files || []).length));
-    Array.from(attachmentInput?.files || []).forEach((file) => {
+    formData.append("dueDate", parsedDueDate.toISOString());
+    formData.append("attachmentCount", String(attachments.length));
+    attachments.forEach((file) => {
       formData.append("attachments", file, file.name);
     });
 
-    const url = getApiUrl(`/courses/${courseId}/assignments`);
+    const url = getApiUrl(`/courses/${encodeURIComponent(resolvedCourseId)}/assignments`);
     console.log("Posting to URL:", url);
 
     const response = await fetch(url, {
@@ -6128,21 +6258,30 @@ async function saveAssignmentFromForm(form, courseId = "") {
       body: formData
     });
 
-    console.log("Response status:", response.status);
-    
-    const result = await response.json().catch(() => ({}));
-    console.log("Response result:", result);
-    
-    if (!response.ok) {
-      throw new Error(result.message || "Unable to create assignment.");
+    const responseText = await response.text();
+    let result = {};
+    try {
+      result = responseText ? JSON.parse(responseText) : {};
+    } catch (error) {
+      result = { message: responseText || `Request failed with status ${response.status}.` };
     }
 
-    // Reload assignments from server
-    await loadServerAssignments(courseId);
-    
+    console.log("Response status:", response.status);
+    console.log("Response result:", result);
+
+    if (!response.ok) {
+      throw new Error(result.message || result.error || `Unable to create assignment (${response.status}).`);
+    }
+
+    await loadServerAssignments(resolvedCourseId);
+
     form.reset();
+    if (form.elements.attachments) {
+      form.elements.attachments.value = "";
+      form.elements.attachments.__selectedAttachmentFiles = [];
+    }
     setFormStatus(form, "Assignment posted successfully!", "success");
-    await refreshOpenCourseWorkspace(courseId);
+    await refreshOpenCourseWorkspace(resolvedCourseId);
   } catch (error) {
     console.error("Assignment save error:", error);
     setFormStatus(form, error.message || "Failed to create assignment.");
@@ -6197,11 +6336,12 @@ document.addEventListener("click", async (event) => {
     const editForm = actionButton.closest(".assignment-card")?.querySelector(`[data-assignment-edit-form='${assignmentId}']`);
     if (!assignment || !editForm) return;
 
-    editingAssignmentId = assignmentId;
     editForm.hidden = false;
     editForm.querySelector('[name="title"]').value = assignment.title || "";
     editForm.querySelector('[name="instructions"]').value = assignment.instructions || "";
     editForm.querySelector('[name="dueDate"]').value = assignment.dueDate ? new Date(assignment.dueDate).toISOString().slice(0, 16) : "";
+    const attachmentInput = editForm.querySelector('input[name="attachments"]');
+    if (attachmentInput) attachmentInput.value = "";
     expandedAssignmentId = assignmentId;
     refreshAssignmentSurfaces(assignmentId);
     return;
@@ -6210,32 +6350,33 @@ document.addEventListener("click", async (event) => {
   if (actionButton.dataset.assignmentAction === "remove") {
     const assignmentId = actionButton.dataset.assignmentId;
     const assignment = getAssignmentById(assignmentId);
+    
     if (!assignment) return;
 
     const confirmed = await showQuizConfirmModal({
       modalId: `deleteAssignmentModal-${assignmentId}`,
       titleText: "Delete assignment?",
-      messageText: `This will remove ${assignment.title || "this assignment"} and all its submissions and attached files. This action cannot be undone.`,
-      confirmLabel: "Remove assignment",
+      messageText: `This will permanently remove “${assignment.title || "this assignment"}” and all of its attached content and information. This action cannot be undone.`,
+      confirmLabel: "Delete assignment",
       confirmClass: "btn btn-danger btn-sm"
     });
-
     if (!confirmed) return;
-
+    
     const courseId = assignment.courseId;
     if (expandedAssignmentId === assignmentId) expandedAssignmentId = null;
-
+    
     try {
       const response = await fetch(getApiUrl(`/courses/${courseId}/assignments/${assignmentId}`), {
         method: "DELETE"
       });
-
+      
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
         throw new Error(result.message || "Unable to delete assignment.");
       }
-
+      
       document.querySelectorAll(`[data-assignment-id="${assignmentId}"]`).forEach((wrapper) => wrapper.remove());
+
       await loadServerAssignments(courseId);
     } catch (error) {
       window.alert(error.message || "Failed to delete assignment.");
@@ -6259,26 +6400,33 @@ document.addEventListener("submit", async (event) => {
     if (!title || !instructions || !dueDate) return;
 
     try {
+      const attachmentInput = editForm.querySelector('input[name="attachments"]');
+      const attachmentFiles = Array.from(attachmentInput?.files || []).filter(Boolean);
       const formData = new FormData();
       formData.append("title", title);
       formData.append("instructions", instructions);
       formData.append("dueDate", new Date(dueDate).toISOString());
-      const attachmentFiles = Array.from(editForm.elements.attachments?.files || []);
+      formData.append("attachmentCount", String(attachmentFiles.length));
       attachmentFiles.forEach((file) => {
         formData.append("attachments", file, file.name);
       });
-      formData.append("existingAttachments", JSON.stringify(assignment.attachments || []));
 
       const response = await fetch(getApiUrl(`/courses/${assignment.courseId}/assignments/${assignment.id}`), {
         method: "PUT",
         body: formData
       });
 
-      const result = await response.json().catch(() => ({}));
+      const responseText = await response.text();
+      let result = {};
+      try {
+        result = responseText ? JSON.parse(responseText) : {};
+      } catch (error) {
+        result = { message: responseText || `Request failed with status ${response.status}.` };
+      }
+
       if (!response.ok) throw new Error(result.message || "Unable to update assignment.");
 
       await loadServerAssignments(assignment.courseId);
-      editingAssignmentId = null;
       editForm.hidden = true;
       await refreshAssignmentSurfaces(assignment.id);
     } catch (error) {
