@@ -937,6 +937,8 @@ function renderCourseQuizStack(courseId, options = {}) {
     quizList.className = "course-post-list";
     wrapper.appendChild(quizTitle);
     if (options.adminControls) wrapper.appendChild(renderCourseQuizForm(courseId));
+    // Render quiz manual grading right below the "Add test" form for admin convenience
+    if (options.adminControls) wrapper.appendChild(renderCourseManualGradingPanel(courseId));
 
     if (!options.adminControls && quizzes.length) {
       const scoreSummary = document.createElement("div");
@@ -955,7 +957,6 @@ function renderCourseQuizStack(courseId, options = {}) {
     }
 
     wrapper.appendChild(quizList);
-    if (options.adminControls) wrapper.appendChild(renderCourseManualGradingPanel(courseId));
   }
 
   if (course) {
@@ -968,6 +969,8 @@ function renderCourseQuizStack(courseId, options = {}) {
 
     wrapper.appendChild(assignmentTitle);
     if (options.adminControls) wrapper.appendChild(renderCourseAssignmentForm(courseId));
+    // Render assignment manual grading directly below the Add Assignment form
+    if (options.adminControls) wrapper.appendChild(renderCourseAssignmentManualGradingPanel(courseId));
 
     if (!courseAssignments.length) {
       assignmentList.appendChild(createTextElement("p", "text-secondary small mb-0", options.adminControls ? "No assignments posted yet." : "No assignments for this course yet."));
@@ -6382,92 +6385,130 @@ function renderCourseAssignmentManualGradingPanel(courseId) {
   const wrapper = document.createElement("div");
   wrapper.className = "assignment-manual-grading-panel mt-3";
 
-  const title = createTextElement("strong", "d-block mb-2", "Assignment grading");
-  wrapper.appendChild(title);
+  const panel = document.createElement("details");
+  panel.className = "course-add-quiz course-post-form";
+  panel.open = true;
+
+  const summary = document.createElement("summary");
+  summary.className = "course-quiz-summary";
+  summary.append(
+    createTextElement("strong", "", "Assignment grading"),
+    createTextElement("small", "text-secondary d-block", "Review submitted assignments and record manual scores and feedback")
+  );
+
+  const status = document.createElement("span");
+  status.className = "badge text-bg-info badge-admin";
+  status.textContent = "Admin";
+  summary.appendChild(status);
+
+  const content = document.createElement("div");
+  content.className = "course-quiz-form vstack gap-2";
 
   const submissions = getAssignmentSubmissionEntries(courseId);
   const courseAssignments = getAssignments().filter((assignment) => String(assignment.courseId) === String(courseId));
 
   if (!submissions.length) {
-    wrapper.appendChild(createTextElement("p", "text-secondary small mb-0", "No submissions have been received for this course yet."));
-    return wrapper;
+    content.appendChild(createTextElement("p", "text-secondary small mb-0", "No submissions have been received for this course yet."));
+  } else {
+    const list = document.createElement("div");
+    list.className = "vstack gap-2";
+
+    submissions.forEach((submission) => {
+      const assignment = courseAssignments.find((item) => String(item.id) === String(submission.assignmentId));
+      if (!assignment) return;
+
+      const row = document.createElement("div");
+      row.className = "assignment-review-row";
+
+      const info = document.createElement("div");
+      info.className = "assignment-review-info";
+      info.append(
+        createTextElement("strong", "", `${submission.studentName || "Student"} • ${assignment.title}`),
+        createTextElement("small", "text-secondary d-block mt-1", submission.essay ? "Essay response submitted" : "File submission received")
+      );
+
+      const submitted = createTextElement("small", "text-secondary d-block mt-1", `Submitted ${formatDate(submission.submittedAt)}`);
+      info.appendChild(submitted);
+
+      if (submission.essay) {
+        info.appendChild(createTextElement("strong", "d-block mt-3", "Student response"));
+        info.appendChild(createTextElement("p", "assignment-essay-preview text-secondary small mb-0 mt-2", submission.essay));
+      }
+
+      const attachments = Array.isArray(submission.attachments) ? submission.attachments : Array.isArray(submission.files) ? submission.files : [];
+      if (attachments.length) {
+        info.appendChild(createTextElement("strong", "d-block mt-3", "Submitted files"));
+        const files = renderAssignmentFiles(attachments);
+        files.classList.add("mt-2");
+        info.appendChild(files);
+      }
+
+      const form = document.createElement("form");
+      form.className = "assignment-grade-form";
+      form.dataset.assignmentGradeForm = assignment.id;
+      form.dataset.submissionId = submission.id;
+      form.dataset.courseId = courseId;
+
+      const scoreLabel = document.createElement("label");
+      scoreLabel.className = "form-label small fw-bold mb-0";
+      scoreLabel.textContent = "Score";
+      const scoreInput = document.createElement("input");
+      scoreInput.className = "form-control form-control-sm mt-1 assignment-score-input";
+      scoreInput.name = "assignmentScore";
+      scoreInput.type = "number";
+      scoreInput.min = "0";
+      scoreInput.max = String(getAssignmentPoints(assignment));
+      scoreInput.step = "0.5";
+      scoreInput.placeholder = `0-${getAssignmentPoints(assignment)}`;
+      scoreInput.value = hasAssignmentScore(submission) ? String(Number(submission.score)) : "";
+      scoreLabel.appendChild(scoreInput);
+
+      const feedbackInput = document.createElement("textarea");
+      feedbackInput.className = "form-control form-control-sm mt-1";
+      feedbackInput.name = "assignmentFeedback";
+      feedbackInput.rows = 3;
+      feedbackInput.value = submission.feedback || "";
+
+      const feedbackContainer = document.createElement("div");
+      feedbackContainer.className = "assignment-feedback-container mt-2";
+      feedbackContainer.hidden = true;
+      const feedbackLabel = document.createElement("label");
+      feedbackLabel.className = "form-label small fw-bold mb-0";
+      feedbackLabel.textContent = "Feedback";
+      feedbackLabel.appendChild(feedbackInput);
+      feedbackContainer.appendChild(feedbackLabel);
+
+      const toggleFeedback = document.createElement("button");
+      toggleFeedback.type = "button";
+      toggleFeedback.className = "btn btn-outline-secondary btn-sm feedback-toggle";
+      toggleFeedback.textContent = feedbackInput.value ? "Edit feedback" : "Add feedback";
+      toggleFeedback.addEventListener("click", () => {
+        feedbackContainer.hidden = !feedbackContainer.hidden;
+        toggleFeedback.textContent = feedbackContainer.hidden ? (feedbackInput.value ? "Edit feedback" : "Add feedback") : "Hide feedback";
+        if (!feedbackContainer.hidden) setTimeout(() => feedbackInput.focus(), 40);
+      });
+
+      const saveButton = document.createElement("button");
+      saveButton.className = "btn btn-primary btn-sm ml-auto";
+      saveButton.type = "submit";
+      saveButton.textContent = "Save grade";
+
+      const gradeRow = document.createElement("div");
+      gradeRow.className = "d-flex gap-2 align-items-start assignment-grade-row";
+      gradeRow.append(scoreLabel, toggleFeedback, saveButton);
+
+      form.append(gradeRow, feedbackContainer);
+      info.appendChild(form);
+      row.appendChild(info);
+      list.appendChild(row);
+    });
+
+    content.appendChild(list);
   }
 
-  const list = document.createElement("div");
-  list.className = "vstack gap-2";
-
-  submissions.forEach((submission) => {
-    const assignment = courseAssignments.find((item) => String(item.id) === String(submission.assignmentId));
-    if (!assignment) return;
-
-    const row = document.createElement("div");
-    row.className = "assignment-review-row";
-
-    const info = document.createElement("div");
-    info.className = "assignment-review-info";
-    info.append(
-      createTextElement("strong", "", `${submission.studentName || "Student"} • ${assignment.title}`),
-      createTextElement("small", "text-secondary d-block mt-1", submission.essay ? "Essay response submitted" : "File submission received")
-    );
-
-    const submitted = createTextElement("small", "text-secondary d-block mt-1", `Submitted ${formatDate(submission.submittedAt)}`);
-    info.appendChild(submitted);
-
-    if (submission.essay) {
-      info.appendChild(createTextElement("strong", "d-block mt-3", "Student response"));
-      info.appendChild(createTextElement("p", "assignment-essay-preview text-secondary small mb-0 mt-2", submission.essay));
-    }
-
-    const attachments = Array.isArray(submission.attachments) ? submission.attachments : Array.isArray(submission.files) ? submission.files : [];
-    if (attachments.length) {
-      info.appendChild(createTextElement("strong", "d-block mt-3", "Submitted files"));
-      const files = renderAssignmentFiles(attachments);
-      files.classList.add("mt-2");
-      info.appendChild(files);
-    }
-
-    const form = document.createElement("form");
-    form.className = "assignment-grade-form";
-    form.dataset.assignmentGradeForm = assignment.id;
-    form.dataset.submissionId = submission.id;
-    form.dataset.courseId = courseId;
-
-    const scoreLabel = document.createElement("label");
-    scoreLabel.className = "form-label small fw-bold mb-0";
-    scoreLabel.textContent = "Score";
-    const scoreInput = document.createElement("input");
-    scoreInput.className = "form-control form-control-sm mt-1";
-    scoreInput.name = "assignmentScore";
-    scoreInput.type = "number";
-    scoreInput.min = "0";
-    scoreInput.max = String(getAssignmentPoints(assignment));
-    scoreInput.step = "0.5";
-    scoreInput.placeholder = `0-${getAssignmentPoints(assignment)}`;
-    scoreInput.value = hasAssignmentScore(submission) ? String(Number(submission.score)) : "";
-    scoreLabel.appendChild(scoreInput);
-
-    const feedbackLabel = document.createElement("label");
-    feedbackLabel.className = "form-label small fw-bold mb-0";
-    feedbackLabel.textContent = "Feedback";
-    const feedbackInput = document.createElement("textarea");
-    feedbackInput.className = "form-control form-control-sm mt-1";
-    feedbackInput.name = "assignmentFeedback";
-    feedbackInput.rows = 3;
-    feedbackInput.value = submission.feedback || "";
-    feedbackLabel.appendChild(feedbackInput);
-
-    const saveButton = document.createElement("button");
-    saveButton.className = "btn btn-primary btn-sm";
-    saveButton.type = "submit";
-    saveButton.textContent = "Save grade";
-
-    form.append(scoreLabel, feedbackLabel, saveButton);
-    info.appendChild(form);
-    row.appendChild(info);
-    list.appendChild(row);
-  });
-
-  wrapper.appendChild(list);
+  panel.append(summary, content);
+  panel.dataset.courseAssignmentManualGrading = courseId;
+  wrapper.appendChild(panel);
   return wrapper;
 }
 
@@ -6704,7 +6745,6 @@ function renderAssignmentCard(assignment, options = {}) {
 
     if (isExpanded) {
       details.appendChild(renderAssignmentReview(assignment));
-      details.appendChild(renderCourseAssignmentManualGradingPanel(assignment.courseId));
     }
   } else {
     const submission = getStudentAssignmentSubmission(assignment.id, currentStudent._id || currentStudent.id);

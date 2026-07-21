@@ -197,12 +197,21 @@ test("admin assignment grading panel exposes score controls for submitted work",
     document.body.appendChild(panel);
     const scoreInput = panel.querySelector('input[name="assignmentScore"]');
     const feedbackField = panel.querySelector('textarea[name="assignmentFeedback"]');
-    return { hasPanel: Boolean(panel), hasScoreInput: Boolean(scoreInput), hasFeedbackField: Boolean(feedbackField) };
+    const summary = panel.querySelector('summary');
+    return {
+      hasPanel: Boolean(panel),
+      hasScoreInput: Boolean(scoreInput),
+      hasFeedbackField: Boolean(feedbackField),
+      hasSummary: Boolean(summary),
+      summaryText: summary?.textContent || ""
+    };
   });
 
   expect(panelState.hasPanel).toBe(true);
   expect(panelState.hasScoreInput).toBe(true);
   expect(panelState.hasFeedbackField).toBe(true);
+  expect(panelState.hasSummary).toBe(true);
+  expect(panelState.summaryText).toContain("Assignment grading");
 });
 
 test("student assignment cards display grade and feedback from shared submission data", async ({ page }) => {

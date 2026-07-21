@@ -398,6 +398,56 @@ body {
   grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr) auto auto auto;
 }
 
+/* Assignment manual grading improvements */
+.assignment-manual-grading-panel details[open] > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.assignment-manual-grading-panel .course-quiz-summary strong {
+  font-size: 1rem;
+}
+.assignment-manual-grading-panel .course-quiz-form {
+  padding: 0.85rem 1rem 1rem 1rem;
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,251,252,0.98));
+  border-radius: 0.5rem;
+  border: 1px solid var(--gth-line);
+}
+.assignment-review-row {
+  border-radius: 0.5rem;
+  padding: 0.9rem;
+  background: rgba(255,255,255,0.92);
+  border: 1px solid #e6f0f3;
+  display: flex;
+  gap: 1rem;
+}
+.assignment-review-info {
+  flex: 1 1 auto;
+}
+.assignment-grade-row .assignment-score-input {
+  width: 6.5rem;
+}
+.assignment-grade-row .feedback-toggle {
+  white-space: nowrap;
+  align-self: flex-start;
+}
+.assignment-feedback-container {
+  transition: max-height 0.18s ease, opacity 0.18s ease;
+}
+.assignment-feedback-container[hidden] {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+}
+.assignment-feedback-container:not([hidden]) {
+  max-height: 18rem;
+  opacity: 1;
+}
+.assignment-grade-form .btn.ml-auto {
+  margin-left: auto;
+}
+
 .course-workspace-hero > div {
   min-width: 0;
 }
