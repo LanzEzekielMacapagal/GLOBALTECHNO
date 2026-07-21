@@ -6743,9 +6743,8 @@ function renderAssignmentCard(assignment, options = {}) {
   if (options.admin) {
     body.appendChild(editForm);
 
-    if (isExpanded) {
-      details.appendChild(renderAssignmentReview(assignment));
-    }
+    // Admin view: do not show submitted work inside the assignment card.
+    // Admins will review and grade submissions from the dedicated Assignment grading panel.
   } else {
     const submission = getStudentAssignmentSubmission(assignment.id, currentStudent._id || currentStudent.id);
     const uploadForm = document.createElement("form");
