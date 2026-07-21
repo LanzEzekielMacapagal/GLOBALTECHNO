@@ -429,12 +429,16 @@ const gradeSchema = new mongoose.Schema({
 const assignmentSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true },
   courseId: { type: String, required: true, index: true },
+  classroom: { type: String, default: "all" },
+  subject: { type: String, default: "General Activity" },
   title: { type: String, required: true },
   instructions: { type: String, required: true },
   type: { type: String, enum: ["essay", "file"], default: "file" },
   points: { type: Number, default: 10, min: 0 },
   attachments: {
     type: Array,
+    
+
     default: []
   },
   dueDate: { type: Date, required: true },
@@ -503,6 +507,8 @@ const enrolledLearnerSummarySchema = new mongoose.Schema({
   email: { type: String, default: "" },
   quizTotal: { type: Number, default: 0 },
   quizAnswered: { type: Number, default: 0 },
+  assignmentTotal: { type: Number, default: 0 },
+  assignmentAnswered: { type: Number, default: 0 },
   updatedAt: { type: Date, default: Date.now },
 });
 
@@ -587,10 +593,17 @@ async function recalcEnrolledLearnerSummary(courseId, learnerId = null) {
   const quizIds = quizzes.map((quiz) => String(quiz.id));
   const quizTotal = quizIds.length;
 
+  const assignments = await Assignment.find({ courseId: courseIdString }).select("id");
+  const assignmentIds = assignments.map((assignment) => String(assignment.id));
+  const assignmentTotal = assignmentIds.length;
+
   const updateLearner = async (learner) => {
     const studentId = String(learner._id);
     const submissions = await QuizSubmission.find({ courseId: courseIdString, studentId, quizId: { $in: quizIds } }).select("quizId");
     const quizAnswered = new Set(submissions.map((submission) => String(submission.quizId))).size;
+
+    const assignmentSubmissions = await AssignmentSubmission.find({ courseId: courseIdString, studentId, assignmentId: { $in: assignmentIds } }).select("assignmentId");
+    const assignmentAnswered = new Set(assignmentSubmissions.map((submission) => String(submission.assignmentId))).size;
 
     await EnrolledLearnerSummary.findOneAndUpdate(
       { courseId: courseIdString, learnerId: studentId },
@@ -601,6 +614,8 @@ async function recalcEnrolledLearnerSummary(courseId, learnerId = null) {
         email: learner.email || "",
         quizTotal,
         quizAnswered,
+        assignmentTotal,
+        assignmentAnswered,
         updatedAt: new Date(),
       },
       { upsert: true }
@@ -1412,6 +1427,21 @@ server.get("/courses/:courseId/enrolled-students", async (req, res) => {
       return map;
     }, {});
 
+    const assignments = await Assignment.find({ courseId: courseIdString }).select("id");
+    const assignmentIds = assignments.map((assignment) => String(assignment.id));
+    const totalAssignments = assignmentIds.length;
+    const assignmentSubmissions = await AssignmentSubmission.find({ courseId: courseIdString }).select("studentId assignmentId");
+    const assignmentAnsweredPerStudent = assignmentSubmissions.reduce((map, submission) => {
+      const studentKey = String(submission.studentId);
+      if (!map[studentKey]) {
+        map[studentKey] = new Set();
+      }
+      if (submission.assignmentId && assignmentIds.includes(String(submission.assignmentId))) {
+        map[studentKey].add(String(submission.assignmentId));
+      }
+      return map;
+    }, {});
+
     const enrollmentCourseId = mongoose.Types.ObjectId.isValid(courseIdString) ? new mongoose.Types.ObjectId(courseIdString) : courseIdString;
     const learners = await User.find({
       isActive: { $ne: false },
@@ -1426,6 +1456,7 @@ server.get("/courses/:courseId/enrolled-students", async (req, res) => {
       const learnerName = learner.username || learner.fullName || "Student";
       const email = learner.email || "";
       const answeredSet = answeredPerStudent[studentKey] || new Set();
+      const assignmentSet = assignmentAnsweredPerStudent[studentKey] || new Set();
       return {
         updateOne: {
           filter: { courseId: courseIdString, learnerId: studentKey },
@@ -1436,6 +1467,8 @@ server.get("/courses/:courseId/enrolled-students", async (req, res) => {
             email,
             quizTotal: totalQuizzes,
             quizAnswered: answeredSet.size,
+            assignmentTotal: totalAssignments,
+            assignmentAnswered: assignmentSet.size,
             updatedAt: new Date(),
           },
           upsert: true,
@@ -1450,6 +1483,7 @@ server.get("/courses/:courseId/enrolled-students", async (req, res) => {
     const payload = learners.map((learner) => {
       const studentKey = String(learner._id);
       const answeredSet = answeredPerStudent[studentKey] || new Set();
+      const assignmentSet = assignmentAnsweredPerStudent[studentKey] || new Set();
       return {
         id: studentKey,
         _id: learner._id,
@@ -1460,6 +1494,8 @@ server.get("/courses/:courseId/enrolled-students", async (req, res) => {
         dateRegistered: learner.dateRegistered,
         quizAnswered: answeredSet.size,
         quizTotal: totalQuizzes,
+        assignmentAnswered: assignmentSet.size,
+        assignmentTotal: totalAssignments,
       };
     });
 
@@ -2040,8 +2076,17 @@ server.get("/courses/:courseId/assignments", async (req, res) => {
     const courseId = req.params.courseId;
     console.log(`GET /courses/${courseId}/assignments called`);
     const assignments = await Assignment.find({ courseId }).lean();
-    console.log(`Found ${Array.isArray(assignments) ? assignments.length : 0} assignments for course ${courseId}`);
-    res.status(200).send({ code: 200, data: assignments });
+    // Older assignment records may predate the points field. Keep the API
+    // contract stable so every client view receives a usable rubric total.
+    const normalizedAssignments = assignments.map((assignment) => {
+      const points = Number(assignment.points);
+      return {
+        ...assignment,
+        points: Number.isFinite(points) && points > 0 ? points : 10
+      };
+    });
+    console.log(`Found ${normalizedAssignments.length} assignments for course ${courseId}`);
+    res.status(200).send({ code: 200, data: normalizedAssignments });
   } catch (error) {
     res.status(500).send({ code: 500, message: "Error fetching assignments." });
   }
@@ -2056,6 +2101,8 @@ server.post("/courses/:courseId/assignments", upload.fields([{ name: "attachment
     const title = String(payload.title || body.title || "").trim();
     const instructions = String(payload.instructions || body.instructions || "").trim();
     const type = String(payload.type || body.type || "file").trim();
+    const classroom = String(payload.classroom || body.classroom || "all").trim() || "all";
+    const subject = String(payload.subject || body.subject || "General Activity").trim() || "General Activity";
     const dueDate = String(payload.dueDate || body.dueDate || "").trim();
     const pointsValue = Number(payload.points || body.points || 10);
     const points = Number.isFinite(pointsValue) && pointsValue > 0 ? pointsValue : 10;
@@ -2094,6 +2141,8 @@ server.post("/courses/:courseId/assignments", upload.fields([{ name: "attachment
     const assignment = await Assignment.create({
       id,
       courseId,
+      classroom,
+      subject,
       title,
       instructions,
       type,
@@ -2116,13 +2165,16 @@ server.put("/courses/:courseId/assignments/:assignmentId", upload.fields([{ name
     const payload = req.body && typeof req.body === "object" ? req.body : {};
     const title = String(payload.title || "").trim();
     const instructions = String(payload.instructions || "").trim();
-    const type = String(payload.type || "file").trim();
     const dueDate = String(payload.dueDate || "").trim();
 
     const existingAssignment = await Assignment.findOne({ courseId, id: assignmentId });
     if (!existingAssignment) {
       return res.status(404).send({ code: 404, message: "Assignment not found." });
     }
+
+    const type = String(payload.type || existingAssignment.type || "file").trim();
+    const classroom = String(payload.classroom || existingAssignment.classroom || "all").trim() || "all";
+    const subject = String(payload.subject || existingAssignment.subject || "General Activity").trim() || "General Activity";
 
     const pointsValue = Number(payload.points || 0);
     const points = Number.isFinite(pointsValue) && pointsValue > 0 ? pointsValue : existingAssignment.points || 10;
@@ -2158,6 +2210,8 @@ server.put("/courses/:courseId/assignments/:assignmentId", upload.fields([{ name
         title,
         instructions,
         type,
+        classroom,
+        subject,
         points,
         dueDate: dueDate ? new Date(dueDate) : existingAssignment.dueDate,
         attachments,
@@ -2243,6 +2297,24 @@ server.post("/courses/:courseId/assignments/:assignmentId/submit", upload.fields
         }))
       : [];
 
+    const hasEssay = Boolean(essay);
+    const hasFiles = uploadedFiles.length > 0;
+    const normalizedType = submissionType === "essay" ? "essay" : hasEssay && hasFiles ? "both" : hasEssay ? "essay" : "file";
+
+    if (normalizedType === "file" && !hasFiles) {
+      return res.status(400).send({
+        code: 400,
+        message: "Please upload at least one file."
+      });
+    }
+
+    if (normalizedType === "essay" && !hasEssay) {
+      return res.status(400).send({
+        code: 400,
+        message: "Please write your essay response."
+      });
+    }
+
     // Check if submission already exists
     const existingSubmission = await AssignmentSubmission.findOne({ assignmentId, studentId });
     
@@ -2259,13 +2331,19 @@ server.post("/courses/:courseId/assignments/:assignmentId/submit", upload.fields
       const updatedSubmission = await AssignmentSubmission.findOneAndUpdate(
         { assignmentId, studentId },
         {
-          submissionType,
-          essay: submissionType === "essay" ? essay : "",
+          submissionType: normalizedType,
+          essay: hasEssay ? essay : existingSubmission.essay || "",
           attachments: uploadedFiles.length > 0 ? uploadedFiles : currentAttachments,
           updatedAt: new Date()
         },
         { new: true }
       );
+
+      try {
+        await recalcEnrolledLearnerSummary(courseId, studentId);
+      } catch (err) {
+        console.warn("Failed to recalc enrolled learner summary after assignment submit update", err && err.message);
+      }
 
       return res.status(200).send({
         code: 200,
@@ -2273,31 +2351,24 @@ server.post("/courses/:courseId/assignments/:assignmentId/submit", upload.fields
         data: updatedSubmission
       });
     } else {
-      // Create new submission
-      if (submissionType === "file" && uploadedFiles.length === 0) {
-        return res.status(400).send({
-          code: 400,
-          message: "Please upload at least one file."
-        });
-      }
-
-      if (submissionType === "essay" && !essay) {
-        return res.status(400).send({
-          code: 400,
-          message: "Please write your essay response."
-        });
-      }
-
       const submission = await AssignmentSubmission.create({
         id: submissionId,
         assignmentId,
         courseId,
         studentId,
         studentName: studentName || user.username || user.fullName,
-        submissionType,
-        essay: submissionType === "essay" ? essay : "",
-        attachments: uploadedFiles
+        submissionType: normalizedType,
+        essay: hasEssay ? essay : "",
+        attachments: uploadedFiles,
+        score: null,
+        feedback: ""
       });
+
+      try {
+        await recalcEnrolledLearnerSummary(courseId, studentId);
+      } catch (err) {
+        console.warn("Failed to recalc enrolled learner summary after assignment submit", err && err.message);
+      }
 
       return res.status(201).send({
         code: 201,
@@ -2322,7 +2393,7 @@ server.get("/courses/:courseId/assignments/:assignmentId/submissions", async (re
 
     // If studentId provided, only get that student's submission
     if (studentId) {
-      const submission = await AssignmentSubmission.findOne({ assignmentId, studentId }).lean();
+      const submission = await AssignmentSubmission.findOne({ courseId, assignmentId, studentId }).lean();
       return res.status(200).send({
         code: 200,
         data: submission || null
@@ -2330,10 +2401,15 @@ server.get("/courses/:courseId/assignments/:assignmentId/submissions", async (re
     }
 
     // Otherwise get all submissions for this assignment (admin only)
-    const submissions = await AssignmentSubmission.find({ assignmentId }).lean();
+    const submissions = await AssignmentSubmission.find({ courseId, assignmentId }).lean();
+    const normalizedSubmissions = submissions.map((submission) => ({
+      ...submission,
+      score: submission.score === null || submission.score === undefined || submission.score === "" ? null : Number(submission.score),
+      feedback: typeof submission.feedback === "string" ? submission.feedback : ""
+    }));
     res.status(200).send({
       code: 200,
-      data: submissions
+      data: normalizedSubmissions
     });
   } catch (error) {
     res.status(500).send({
@@ -2349,9 +2425,14 @@ server.get("/courses/:courseId/student/:studentId/submissions", async (req, res)
     const { courseId, studentId } = req.params;
 
     const submissions = await AssignmentSubmission.find({ courseId, studentId }).lean();
+    const normalizedSubmissions = submissions.map((submission) => ({
+      ...submission,
+      score: submission.score === null || submission.score === undefined || submission.score === "" ? null : Number(submission.score),
+      feedback: typeof submission.feedback === "string" ? submission.feedback : ""
+    }));
     res.status(200).send({
       code: 200,
-      data: submissions
+      data: normalizedSubmissions
     });
   } catch (error) {
     res.status(500).send({
@@ -2371,6 +2452,11 @@ server.put("/courses/:courseId/assignments/:assignmentId/submissions/:submission
       return res.status(404).send({ code: 404, message: "Submission not found." });
     }
 
+    const assignment = await Assignment.findOne({ id: assignmentId, courseId }).lean();
+    if (!assignment) {
+      return res.status(404).send({ code: 404, message: "Assignment not found." });
+    }
+
     const score = req.body && Object.prototype.hasOwnProperty.call(req.body, "score")
       ? req.body.score
       : submission.score;
@@ -2378,7 +2464,15 @@ server.put("/courses/:courseId/assignments/:assignmentId/submissions/:submission
       ? String(req.body.feedback || "")
       : submission.feedback || "";
 
-    submission.score = score === null || score === "" ? null : Number(score);
+    const numericScore = score === null || score === "" ? null : Number(score);
+    const maxPoints = Number.isFinite(Number(assignment.points)) && Number(assignment.points) > 0
+      ? Number(assignment.points)
+      : 10;
+    if (numericScore !== null && (!Number.isFinite(numericScore) || numericScore < 0 || numericScore > maxPoints)) {
+      return res.status(400).send({ code: 400, message: `Score must be between 0 and ${maxPoints}.` });
+    }
+
+    submission.score = numericScore;
     submission.feedback = feedback;
     submission.gradedAt = req.body?.gradedAt ? new Date(req.body.gradedAt) : new Date();
     submission.updatedAt = new Date();
@@ -2405,6 +2499,12 @@ server.delete("/courses/:courseId/assignments/:assignmentId/submissions/:submiss
         code: 404,
         message: "Submission not found."
       });
+    }
+
+    try {
+      await recalcEnrolledLearnerSummary(courseId, String(submission.studentId));
+    } catch (err) {
+      console.warn("Failed to recalc enrolled learner summary after assignment submission delete", err && err.message);
     }
 
     res.status(200).send({

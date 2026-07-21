@@ -510,7 +510,8 @@ body {
   display: block;
 }
 
-.course-learner-meta .learner-quiz-progress {
+.course-learner-meta .learner-quiz-progress,
+.course-learner-meta .learner-assignment-progress {
   color: var(--gth-teal);
   background: rgba(8, 127, 155, 0.12);
   border-radius: 999px;
@@ -518,6 +519,10 @@ body {
   font-size: 0.75rem;
   font-weight: 700;
   width: fit-content;
+}
+
+.course-learner-meta .learner-assignment-progress {
+  margin-top: 0.15rem;
 }
 
 .course-learner-status {

@@ -205,6 +205,54 @@ test("admin assignment grading panel exposes score controls for submitted work",
   expect(panelState.hasFeedbackField).toBe(true);
 });
 
+test("student assignment cards display grade and feedback from shared submission data", async ({ page }) => {
+  await page.goto("http://127.0.0.1:3000/admin.html");
+
+  const renderedState = await page.evaluate(() => {
+    const assignment = {
+      id: "assignment-student-display-test-1",
+      courseId: "course-test-1",
+      title: "Reflection report",
+      instructions: "Write a short reflection.",
+      dueDate: "2025-12-31T23:59:00.000Z",
+      classroom: "all",
+      subject: "General Activity",
+      type: "essay",
+      points: 25,
+      attachments: [],
+      createdAt: new Date().toISOString()
+    };
+
+    window.currentStudent = { id: "student-test-2", _id: "student-test-2", name: "Jordan", enrolledCourses: ["course-test-1"] };
+    window.studentAssignmentSubmissions = {};
+    window.serverAssignmentSubmissions = [{
+      id: "submission-student-display-test-1",
+      assignmentId: assignment.id,
+      courseId: assignment.courseId,
+      studentId: "student-test-2",
+      studentName: "Jordan",
+      submissionType: "essay",
+      essay: "I learned a lot from the exercise.",
+      score: 18,
+      feedback: "Great work",
+      submittedAt: new Date().toISOString()
+    }];
+
+    const card = window.renderCourseAssignmentItem(assignment);
+    document.body.appendChild(card);
+    const text = card.textContent || "";
+    return {
+      hasScoreBadge: text.includes("18/25 pts"),
+      hasFeedbackText: text.includes("Feedback: Great work"),
+      hasPointsBadge: text.includes("25 pts")
+    };
+  });
+
+  expect(renderedState.hasScoreBadge).toBe(true);
+  expect(renderedState.hasFeedbackText).toBe(true);
+  expect(renderedState.hasPointsBadge).toBe(true);
+});
+
 test("student submissions are persisted to the shared assignment submission store", async ({ page }) => {
   await page.goto("http://127.0.0.1:3000/admin.html");
 
