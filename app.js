@@ -845,13 +845,16 @@ function renderCourseAssignmentItem(assignment) {
 
       form.append(essayLabel, essayInput);
 
-      // File upload section
-      const fileLabel = createTextElement("label", "form-label mb-1 mt-2", "Attach files");
+      // File upload section (admin-style multi-file picker)
+      const fileLabel = createTextElement("label", "form-label mb-1 mt-2", "Attach files (PDF, DOCX, images, text, ZIP, and more)");
       const fileInput = document.createElement("input");
       fileInput.className = "d-none";
       fileInput.name = "submissionFiles";
       fileInput.type = "file";
+      fileInput.accept = ".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.gif,.webp,.zip,.ppt,.pptx,.xls,.xlsx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/*,text/plain,application/zip,application/x-zip-compressed";
       fileInput.multiple = true;
+      fileInput.setAttribute("data-multi-file-picker", "true");
+      fileInput.setAttribute("aria-label", "Select one or more files to attach");
 
       const addButton = document.createElement("button");
       addButton.type = "button";
@@ -862,17 +865,59 @@ function renderCourseAssignmentItem(assignment) {
         fileInput.click();
       });
 
-      const fileList = document.createElement("div");
-      fileList.className = "small text-secondary mt-2";
-      const updateFileList = () => {
-        fileList.textContent = fileInput.files.length 
-          ? `${fileInput.files.length} file(s) selected` 
-          : "No files selected";
-      };
-      fileInput.addEventListener("change", updateFileList);
-      updateFileList();
+      const attachmentSummary = document.createElement("div");
+      attachmentSummary.className = "small text-secondary mt-2";
+      const attachmentSummaryTitle = document.createElement("div");
+      attachmentSummaryTitle.className = "fw-semibold";
+      attachmentSummaryTitle.textContent = "No files selected yet.";
+      const attachmentSummaryList = document.createElement("div");
+      attachmentSummaryList.className = "mt-1";
+      attachmentSummary.append(attachmentSummaryTitle, attachmentSummaryList);
 
-      form.append(fileLabel, addButton, fileInput, fileList);
+      const selectedStudentFiles = [];
+      const updateAttachmentSummary = () => {
+        const selectedFiles = selectedStudentFiles.slice();
+        attachmentSummaryTitle.textContent = selectedFiles.length
+          ? `Selected files (${selectedFiles.length})`
+          : "No files selected yet.";
+        attachmentSummaryList.replaceChildren();
+
+        if (!selectedFiles.length) {
+          const hint = document.createElement("span");
+          hint.textContent = "Use the button above to add files to this assignment.";
+          attachmentSummaryList.appendChild(hint);
+          return;
+        }
+
+        const filesList = document.createElement("ul");
+        filesList.className = "mb-0 ps-3";
+        selectedFiles.forEach((file) => {
+          const item = document.createElement("li");
+          item.textContent = file.name;
+          filesList.appendChild(item);
+        });
+        attachmentSummaryList.appendChild(filesList);
+      };
+
+      const addFilesToSelection = (incomingFiles = []) => {
+        incomingFiles.forEach((file) => {
+          const duplicate = selectedStudentFiles.some((selectedFile) => {
+            return selectedFile.name === file.name && selectedFile.size === file.size && selectedFile.lastModified === file.lastModified;
+          });
+          if (!duplicate) selectedStudentFiles.push(file);
+        });
+        fileInput.__selectedStudentFiles = selectedStudentFiles;
+        updateAttachmentSummary();
+      };
+
+      fileInput.addEventListener("change", () => {
+        const incomingFiles = Array.from(fileInput.files || []);
+        if (incomingFiles.length) addFilesToSelection(incomingFiles);
+        fileInput.value = "";
+      });
+      updateAttachmentSummary();
+
+      form.append(fileLabel, addButton, fileInput, attachmentSummary);
 
       const submitBtn = document.createElement("button");
       submitBtn.type = "submit";
@@ -7321,7 +7366,7 @@ document.addEventListener("submit", async (event) => {
 
   const fileInput = form.querySelector("input[type='file']");
   const essayInput = form.querySelector("[name='assignmentEssay']");
-  const files = Array.from(fileInput?.files || []);
+  const files = Array.from((fileInput && Array.isArray(fileInput.__selectedStudentFiles) ? fileInput.__selectedStudentFiles : Array.from(fileInput?.files || [])) || []);
   const essay = essayInput?.value.trim() || "";
   const hasEssay = Boolean(essay);
   const hasFiles = files.length > 0;
