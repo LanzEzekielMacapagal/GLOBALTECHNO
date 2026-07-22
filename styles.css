@@ -409,40 +409,139 @@ body {
   font-size: 1rem;
 }
 .assignment-manual-grading-panel .course-quiz-form {
-  padding: 0.85rem 1rem 1rem 1rem;
-  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,251,252,0.98));
-  border-radius: 0.5rem;
+  padding: 1rem;
+  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(232,246,250,0.55));
+  border-radius: 0.75rem;
   border: 1px solid var(--gth-line);
+  box-shadow: var(--gth-shadow-sm);
 }
 .assignment-review-row {
-  border-radius: 0.5rem;
-  padding: 0.9rem;
-  background: rgba(255,255,255,0.92);
-  border: 1px solid #e6f0f3;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 1rem;
+  padding: 1rem;
+  border: 1px solid #d8e7ec;
+  border-radius: 0.85rem;
+  background: rgba(248, 251, 252, 0.94);
+}
+.assignment-review-row strong {
+  color: var(--gth-ink);
 }
 .assignment-review-info {
-  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (min-width: 992px) {
+  .assignment-manual-grading-panel .assignment-review-row {
+    grid-template-columns: minmax(0, 1.2fr) minmax(20rem, 1fr);
+    align-items: start;
+    gap: 1.5rem;
+  }
+
+  .assignment-manual-grading-panel .assignment-review-grade {
+    min-width: 0;
+    display: grid;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 1rem;
+    border: 1px solid #d8e7ec;
+    border-radius: 0.85rem;
+    background: #fff;
+  }
+
+  .assignment-manual-grading-panel .assignment-grade-form {
+    padding-top: 1rem;
+    border-top: none;
+    width: 100%;
+  }
+}
+
+.assignment-grade-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+}
+.assignment-grade-row label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  width: 100%;
 }
 .assignment-grade-row .assignment-score-input {
-  width: 6.5rem;
+  width: 100%;
+  max-width: 6rem;
+  min-width: 0;
 }
-.assignment-grade-row .feedback-toggle {
-  white-space: nowrap;
-  align-self: flex-start;
+.assignment-grade-row .assignment-score-note {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--gth-muted);
+  font-size: 0.78rem;
+}
+.assignment-grade-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: flex-end;
+  justify-self: end;
+}
+.assignment-grade-actions .btn {
+  min-width: 6rem;
+  width: auto;
+}
+.assignment-grade-actions .assignment-save-button {
+  margin-left: 0;
+}
+
+/* Controls group: score + button aligned to the right */
+.assignment-grade-controls {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* Score input appearance - restore bordered input */
+.assignment-grade-row .assignment-score-input {
+  border: 1px solid var(--gth-line, #ced4da);
+  box-shadow: none;
+  background: #fff;
+  padding-left: 0.5rem;
+  border-radius: 0.25rem;
+}
+
+@media (max-width: 991.98px) {
+  .assignment-grade-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .assignment-grade-actions {
+    justify-self: stretch;
+    width: 100%;
+  }
+  .assignment-grade-actions .btn {
+    width: 100%;
+    min-width: 0;
+  }
 }
 .assignment-feedback-container {
-  transition: max-height 0.18s ease, opacity 0.18s ease;
+  transition: max-height 0.18s ease, opacity 0.18s ease, transform 0.18s ease;
+  border-top: 1px solid var(--gth-line);
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
 }
 .assignment-feedback-container[hidden] {
   max-height: 0;
   opacity: 0;
   overflow: hidden;
+  transform: translateY(-0.25rem);
 }
 .assignment-feedback-container:not([hidden]) {
-  max-height: 18rem;
+  max-height: 22rem;
   opacity: 1;
+  transform: translateY(0);
 }
 .assignment-grade-form .btn.ml-auto {
   margin-left: auto;
@@ -2115,6 +2214,11 @@ body {
   border-top: 1px solid #e4eef2;
 }
 
+.assignment-submitted-files {
+  padding-top: 0.5rem;
+  width: 100%;
+}
+
 .assignment-review-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -2504,7 +2608,7 @@ body {
 
 .file-preview-tile {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 1fr);
   gap: 0.75rem;
   align-items: center;
   min-width: 0;
@@ -2569,6 +2673,12 @@ body {
 
 .file-preview-actions .btn {
   white-space: nowrap;
+}
+
+/* Allow action buttons to expand to fill the actions column */
+.file-preview-actions .btn {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .notification-item.unread {
@@ -4782,6 +4892,23 @@ body {
   .assignment-grade-form {
     grid-template-columns: 1fr;
   }
+
+  .assignment-grade-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .assignment-grade-row .assignment-score-input {
+    max-width: 100%;
+  }
+
+/* Ensure save button stays on the right for assignment grade rows */
+.assignment-grade-form .assignment-grade-row {
+  grid-template-columns: 1fr auto !important;
+  align-items: center;
+}
+
 
   .video-announcement-item {
     flex-direction: column;

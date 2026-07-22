@@ -3570,15 +3570,6 @@ function renderCourseManualGradingPanel(courseId) {
     const hasAnyScore = Object.values(manualScores).some((v) => v !== null && v !== undefined && v !== "");
     return hasManualQuestions && !hasAnyScore ? count + 1 : count;
   }, 0);
-  
-  const totalChecked = submissions.reduce((count, submission) => {
-    const quiz = quizzes.find((q) => q.id === submission.quizId);
-    if (!quiz) return count;
-    const hasManualQuestions = getQuizQuestions(quiz).some((q) => isManualGradeType(getQuestionType(quiz, q)));
-    const manualScores = submission.manualScores || {};
-    const hasAnyScore = Object.values(manualScores).some((v) => v !== null && v !== undefined && v !== "");
-    return hasManualQuestions && hasAnyScore ? count + 1 : count;
-  }, 0);
 
   const wrapper = document.createElement("div");
   wrapper.className = "manual-grading-wrapper mt-3";
@@ -3606,8 +3597,7 @@ function renderCourseManualGradingPanel(courseId) {
   const countsSummary = document.createElement("div");
   countsSummary.className = "manual-grading-summary-badges";
   countsSummary.append(
-    createTextElement("span", "badge text-bg-warning", `Pending: ${totalPending}`),
-    createTextElement("span", "badge text-bg-success", `Checked: ${totalChecked}`)
+    createTextElement("span", "badge text-bg-warning", `Pending: ${totalPending}`)
   );
 
   summary.append(summaryText, countsSummary, createTextElement("span", "badge text-bg-info badge-admin", "Admin"));
@@ -3631,7 +3621,7 @@ function renderCourseManualGradingPanel(courseId) {
       header.className = "d-flex flex-wrap gap-2 align-items-center justify-content-between";
       header.append(
         createTextElement("strong", "", label),
-        createTextElement("small", "text-secondary", `Pending: ${task.pending} • Checked: ${task.graded}`)
+        createTextElement("small", "text-secondary", `Pending: ${task.pending}`)
       );
       taskForm.appendChild(header);
 
@@ -6389,12 +6379,18 @@ function renderCourseAssignmentManualGradingPanel(courseId) {
   panel.className = "course-add-quiz course-post-form";
   panel.open = true;
 
+  const submissions = getAssignmentSubmissionEntries(courseId);
+  const totalPending = submissions.filter((submission) => !hasAssignmentScore(submission)).length;
+  const courseAssignments = getAssignments().filter((assignment) => String(assignment.courseId) === String(courseId));
+
   const summary = document.createElement("summary");
   summary.className = "course-quiz-summary";
   summary.append(
     createTextElement("strong", "", "Assignment grading"),
     createTextElement("small", "text-secondary d-block", "Review submitted assignments and record manual scores and feedback")
   );
+
+  summary.appendChild(createTextElement("span", "badge text-bg-warning", `Pending: ${totalPending}`));
 
   const status = document.createElement("span");
   status.className = "badge text-bg-info badge-admin";
@@ -6403,9 +6399,6 @@ function renderCourseAssignmentManualGradingPanel(courseId) {
 
   const content = document.createElement("div");
   content.className = "course-quiz-form vstack gap-2";
-
-  const submissions = getAssignmentSubmissionEntries(courseId);
-  const courseAssignments = getAssignments().filter((assignment) => String(assignment.courseId) === String(courseId));
 
   if (!submissions.length) {
     content.appendChild(createTextElement("p", "text-secondary small mb-0", "No submissions have been received for this course yet."));
@@ -6436,12 +6429,21 @@ function renderCourseAssignmentManualGradingPanel(courseId) {
       }
 
       const attachments = Array.isArray(submission.attachments) ? submission.attachments : Array.isArray(submission.files) ? submission.files : [];
+      let filesWrapper = null;
       if (attachments.length) {
-        info.appendChild(createTextElement("strong", "d-block mt-3", "Submitted files"));
+        const filesHeader = createTextElement("strong", "d-block mt-3", "Submitted files");
         const files = renderAssignmentFiles(attachments);
         files.classList.add("mt-2");
-        info.appendChild(files);
+
+        filesWrapper = document.createElement("div");
+        filesWrapper.className = "assignment-submitted-files";
+        filesWrapper.append(filesHeader, files);
+        // make the files wrapper span across the row's grid so actions can use the right column
+        filesWrapper.style.gridColumn = "1 / -1";
       }
+
+      const gradeSide = document.createElement("div");
+      gradeSide.className = "assignment-review-grade";
 
       const form = document.createElement("form");
       form.className = "assignment-grade-form";
@@ -6449,6 +6451,7 @@ function renderCourseAssignmentManualGradingPanel(courseId) {
       form.dataset.submissionId = submission.id;
       form.dataset.courseId = courseId;
 
+      const maxPoints = getAssignmentPoints(assignment);
       const scoreLabel = document.createElement("label");
       scoreLabel.className = "form-label small fw-bold mb-0";
       scoreLabel.textContent = "Score";
@@ -6457,49 +6460,35 @@ function renderCourseAssignmentManualGradingPanel(courseId) {
       scoreInput.name = "assignmentScore";
       scoreInput.type = "number";
       scoreInput.min = "0";
-      scoreInput.max = String(getAssignmentPoints(assignment));
+      scoreInput.max = String(maxPoints);
       scoreInput.step = "0.5";
-      scoreInput.placeholder = `0-${getAssignmentPoints(assignment)}`;
+      scoreInput.placeholder = `0-${maxPoints}`;
       scoreInput.value = hasAssignmentScore(submission) ? String(Number(submission.score)) : "";
       scoreLabel.appendChild(scoreInput);
-
-      const feedbackInput = document.createElement("textarea");
-      feedbackInput.className = "form-control form-control-sm mt-1";
-      feedbackInput.name = "assignmentFeedback";
-      feedbackInput.rows = 3;
-      feedbackInput.value = submission.feedback || "";
-
-      const feedbackContainer = document.createElement("div");
-      feedbackContainer.className = "assignment-feedback-container mt-2";
-      feedbackContainer.hidden = true;
-      const feedbackLabel = document.createElement("label");
-      feedbackLabel.className = "form-label small fw-bold mb-0";
-      feedbackLabel.textContent = "Feedback";
-      feedbackLabel.appendChild(feedbackInput);
-      feedbackContainer.appendChild(feedbackLabel);
-
-      const toggleFeedback = document.createElement("button");
-      toggleFeedback.type = "button";
-      toggleFeedback.className = "btn btn-outline-secondary btn-sm feedback-toggle";
-      toggleFeedback.textContent = feedbackInput.value ? "Edit feedback" : "Add feedback";
-      toggleFeedback.addEventListener("click", () => {
-        feedbackContainer.hidden = !feedbackContainer.hidden;
-        toggleFeedback.textContent = feedbackContainer.hidden ? (feedbackInput.value ? "Edit feedback" : "Add feedback") : "Hide feedback";
-        if (!feedbackContainer.hidden) setTimeout(() => feedbackInput.focus(), 40);
-      });
+      scoreLabel.appendChild(createTextElement("small", "assignment-score-note", `Maximum ${maxPoints} points`));
 
       const saveButton = document.createElement("button");
-      saveButton.className = "btn btn-primary btn-sm ml-auto";
+      saveButton.className = "btn btn-primary btn-sm assignment-save-button";
       saveButton.type = "submit";
-      saveButton.textContent = "Save grade";
+      saveButton.textContent = "Save score";
+
+      const actionGroup = document.createElement("div");
+      actionGroup.className = "assignment-grade-actions";
+      actionGroup.append(saveButton);
 
       const gradeRow = document.createElement("div");
-      gradeRow.className = "d-flex gap-2 align-items-start assignment-grade-row";
-      gradeRow.append(scoreLabel, toggleFeedback, saveButton);
+      gradeRow.className = "assignment-grade-row";
+      // group score and actions together so both sit at the right
+      const controlsGroup = document.createElement("div");
+      controlsGroup.className = "assignment-grade-controls";
+      controlsGroup.append(scoreLabel, actionGroup);
 
-      form.append(gradeRow, feedbackContainer);
-      info.appendChild(form);
-      row.appendChild(info);
+      gradeRow.append(controlsGroup);
+
+      form.append(gradeRow);
+      gradeSide.appendChild(form);
+      row.append(info, gradeSide);
+      if (filesWrapper) row.append(filesWrapper);
       list.appendChild(row);
     });
 
@@ -6574,14 +6563,20 @@ function renderAssignmentReview(assignment) {
       info.appendChild(answer);
     }
 
+    let filesWrapper = null;
     if (attachments.length) {
-      info.appendChild(createTextElement("strong", "d-block mt-3", "Submitted files"));
+      const filesHeader = createTextElement("strong", "d-block mt-3", "Submitted files");
       const files = renderAssignmentFiles(attachments);
       files.classList.add("mt-2");
-      info.appendChild(files);
+
+      filesWrapper = document.createElement("div");
+      filesWrapper.className = "assignment-submitted-files";
+      filesWrapper.append(filesHeader, files);
+      filesWrapper.style.gridColumn = "1 / -1";
     }
 
     row.append(info);
+    if (filesWrapper) row.append(filesWrapper);
     list.appendChild(row);
   });
 
