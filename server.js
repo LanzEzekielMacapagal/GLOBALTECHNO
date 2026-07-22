@@ -2248,6 +2248,40 @@ server.delete("/courses/:courseId/assignments/:assignmentId", async (req, res) =
   }
 });
 
+// Get pending assignment submissions for a course (not graded yet)
+server.get("/courses/:courseId/assignments/pending", async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    // get existing assignments for the course
+    const assignments = await Assignment.find({ courseId }).select("id").lean();
+    const assignmentIds = assignments.map((a) => String(a.id));
+
+    if (!assignmentIds.length) {
+      return res.status(200).send({ code: 200, data: { totalPending: 0, byAssignment: [] } });
+    }
+
+    // find submissions for course where score is null and assignment still exists
+    const pendingSubs = await AssignmentSubmission.find({ courseId, assignmentId: { $in: assignmentIds }, score: null }).lean();
+
+    const byAssignment = pendingSubs.reduce((acc, sub) => {
+      acc[sub.assignmentId] = acc[sub.assignmentId] || [];
+      acc[sub.assignmentId].push(sub);
+      return acc;
+    }, {});
+
+    const payload = Object.keys(byAssignment).map((assignmentId) => ({
+      assignmentId,
+      count: byAssignment[assignmentId].length,
+      submissions: byAssignment[assignmentId].map((s) => ({ id: s.id, studentId: s.studentId, studentName: s.studentName, submittedAt: s.submittedAt }))
+    }));
+
+    res.status(200).send({ code: 200, data: { totalPending: pendingSubs.length, byAssignment: payload } });
+  } catch (error) {
+    console.error("Error fetching pending assignment submissions:", error && error.message);
+    res.status(500).send({ code: 500, message: "Error fetching pending assignment submissions." });
+  }
+});
+
 // =============================================
 // ASSIGNMENT SUBMISSION ROUTES — CRUD
 // =============================================
@@ -2283,9 +2317,13 @@ server.post("/courses/:courseId/assignments/:assignmentId/submit", upload.fields
       return res.status(404).send({ code: 404, message: "Assignment not found." });
     }
 
-    // Process uploaded files
-    const uploadedFiles = Array.isArray(req.files?.submissionFiles)
-      ? req.files.submissionFiles.map((file) => ({
+    // Process uploaded files (accept both `submissionFiles` and `submissionFiles[]` field names)
+    const submissionFileList = Array.isArray(req.files?.submissionFiles)
+      ? req.files.submissionFiles
+      : Array.isArray(req.files?.["submissionFiles[]"]) ? req.files["submissionFiles[]"] : [];
+
+    const uploadedFiles = Array.isArray(submissionFileList)
+      ? submissionFileList.map((file) => ({
           name: String(file.originalname || ""),
           filename: String(file.filename || ""),
           originalname: String(file.originalname || ""),

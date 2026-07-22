@@ -743,10 +743,7 @@ function renderCourseAssignmentItem(assignment) {
   const summary = document.createElement("summary");
   summary.className = "course-quiz-summary";
   const summaryText = document.createElement("span");
-  summaryText.append(
-    createTextElement("strong", "", assignment.title),
-    createTextElement("small", "text-secondary d-block", "Essay & File Upload")
-  );
+  summaryText.append(createTextElement("strong", "", assignment.title));
   if (assignment.dueDate) {
     summaryText.appendChild(createTextElement("small", assignmentExpired && !submission ? "text-danger d-block" : "text-secondary d-block", `Due ${formatDateTime(assignment.dueDate)}`));
   }
@@ -760,10 +757,6 @@ function renderCourseAssignmentItem(assignment) {
 
   const meta = document.createElement("div");
   meta.className = "d-flex flex-wrap gap-2 align-items-center mb-2";
-  meta.append(
-    createTextElement("span", "badge text-bg-info", "Essay & File Upload"),
-    createTextElement("small", "text-secondary", formatDate(assignment.createdAt))
-  );
   const assignmentPoints = getAssignmentPoints(assignment);
   meta.appendChild(createTextElement("span", "badge text-bg-secondary", `${assignmentPoints} pts`));
   if (assignment.dueDate) {
@@ -6380,8 +6373,11 @@ function renderCourseAssignmentManualGradingPanel(courseId) {
   panel.open = true;
 
   const submissions = getAssignmentSubmissionEntries(courseId);
-  const totalPending = submissions.filter((submission) => !hasAssignmentScore(submission)).length;
   const courseAssignments = getAssignments().filter((assignment) => String(assignment.courseId) === String(courseId));
+  const assignmentIds = new Set(courseAssignments.map((a) => String(a.id)));
+  // only count submissions that map to an existing assignment for this course
+  const relevantSubmissions = submissions.filter((submission) => assignmentIds.has(String(submission.assignmentId)));
+  const totalPending = relevantSubmissions.filter((submission) => !hasAssignmentScore(submission)).length;
 
   const summary = document.createElement("summary");
   summary.className = "course-quiz-summary";
@@ -6600,25 +6596,9 @@ function renderAssignmentCard(assignment, options = {}) {
   const meta = document.createElement("div");
   meta.className = "d-flex flex-wrap gap-2 align-items-center mb-2";
 
-  const classroom = document.createElement("span");
-  classroom.className = "badge text-bg-info";
-  classroom.textContent = getClassroomTitle(assignment.classroom);
-
-  const subject = document.createElement("span");
-  subject.className = "badge text-bg-light";
-  subject.textContent = assignment.subject || "General Activity";
-
   const dueDate = document.createElement("span");
   dueDate.className = "badge text-bg-warning";
   dueDate.textContent = `Due ${formatDueDate(assignment.dueDate)}`;
-
-  const type = document.createElement("span");
-  type.className = "badge text-bg-light";
-  type.textContent = assignment.type === "essay" ? "Essay" : "File upload";
-
-  const created = document.createElement("small");
-  created.className = "text-secondary";
-  created.textContent = formatDate(assignment.createdAt);
 
   const title = document.createElement("h3");
   title.className = "h6 mb-0";
@@ -6689,7 +6669,9 @@ function renderAssignmentCard(assignment, options = {}) {
   const details = document.createElement("div");
   details.className = "assignment-card-details";
 
-  meta.append(classroom, subject, type, dueDate, created);
+  const assignmentPoints = getAssignmentPoints(assignment);
+  meta.appendChild(createTextElement("span", "badge text-bg-secondary", `${assignmentPoints} pts`));
+  if (assignment.dueDate) meta.append(dueDate);
   body.append(meta, header);
 
   if (!isExpanded) {
@@ -6713,9 +6695,7 @@ function renderAssignmentCard(assignment, options = {}) {
     const detailQuickMeta = document.createElement("div");
     detailQuickMeta.className = "assignment-details-quickmeta";
     detailQuickMeta.append(
-      createTextElement("span", "assignment-details-field", `Due ${formatDueDate(assignment.dueDate)}`),
-      createTextElement("span", "assignment-details-field", assignment.classroom === "all" ? "All classrooms" : getClassroomTitle(assignment.classroom)),
-      createTextElement("span", "assignment-details-field", assignment.subject || "General Activity")
+      createTextElement("span", "assignment-details-field", `Due ${formatDueDate(assignment.dueDate)}`)
     );
     detailQuickMeta.appendChild(createTextElement("span", "assignment-details-field", `${getAssignmentPoints(assignment)} points`));
 
@@ -6773,7 +6753,8 @@ function renderAssignmentCard(assignment, options = {}) {
 
       const fileInput = document.createElement("input");
       fileInput.className = "d-none";
-      fileInput.name = "assignmentFiles";
+      // name matches server expected field for submissions
+      fileInput.name = "submissionFiles";
       fileInput.type = "file";
       fileInput.multiple = true;
       fileInput.required = true;
