@@ -748,16 +748,17 @@ function renderCourseAssignmentItem(assignment) {
     summaryText.appendChild(createTextElement("small", assignmentExpired && !submission ? "text-danger d-block" : "text-secondary d-block", `Due ${formatDateTime(assignment.dueDate)}`));
   }
   
+  const assignmentPoints = getAssignmentPoints(assignment);
+  const isGraded = hasAssignmentScore(submission);
   const summaryBadge = createTextElement(
     "span",
-    `badge ${submission ? "text-bg-success" : assignmentAvailable ? "text-bg-info" : "text-bg-warning"}`,
-    submission ? "Submitted" : assignmentExpired ? "Closed" : "Open"
+    `badge ${isGraded ? "text-bg-primary" : submission ? "text-bg-success" : assignmentAvailable ? "text-bg-info" : "text-bg-warning"}`,
+    isGraded ? `${Number(submission.score)}/${assignmentPoints} pts` : submission ? "Submitted" : assignmentExpired ? "Closed" : "Open"
   );
   summary.append(summaryText, summaryBadge);
 
   const meta = document.createElement("div");
   meta.className = "d-flex flex-wrap gap-2 align-items-center mb-2";
-  const assignmentPoints = getAssignmentPoints(assignment);
   meta.appendChild(createTextElement("span", "badge text-bg-secondary", `${assignmentPoints} pts`));
   if (assignment.dueDate) {
     meta.appendChild(createTextElement("span", assignmentExpired ? "badge text-bg-warning" : "badge text-bg-info", `Due ${formatDateTime(assignment.dueDate)}`));
@@ -785,13 +786,12 @@ function renderCourseAssignmentItem(assignment) {
   if (submission) {
     const submitted = document.createElement("div");
     submitted.className = "course-quiz-result";
+    const isGraded = hasAssignmentScore(submission);
     submitted.append(
-      createTextElement("span", "badge text-bg-success", "Submitted"),
-      createTextElement("small", "text-secondary", `Submitted on ${formatDateTime(submission.submittedAt)}`)
+      createTextElement("span", "badge text-bg-success", isGraded ? `${Number(submission.score)}/${getAssignmentPoints(assignment)} pts` : "Submitted"),
+      createTextElement("small", "text-secondary", `Submitted on ${formatDateTime(submission.submittedAt)}`),
+      createTextElement("small", "text-secondary d-block mt-1", isGraded ? "Graded by the admin" : "Admin will grade this")
     );
-    if (hasAssignmentScore(submission)) {
-      submitted.appendChild(createTextElement("span", "badge text-bg-primary", `${Number(submission.score)}/${getAssignmentPoints(assignment)} pts`));
-    }
     if (submission.feedback) {
       submitted.appendChild(createTextElement("p", "mt-2 mb-0 text-secondary", `Feedback: ${submission.feedback}`));
     }
@@ -977,16 +977,6 @@ function renderCourseQuizStack(courseId, options = {}) {
     if (options.adminControls) wrapper.appendChild(renderCourseQuizForm(courseId));
     // Render quiz manual grading right below the "Add test" form for admin convenience
     if (options.adminControls) wrapper.appendChild(renderCourseManualGradingPanel(courseId));
-
-    if (!options.adminControls && quizzes.length) {
-      const scoreSummary = document.createElement("div");
-      scoreSummary.className = "course-quiz-score";
-      scoreSummary.append(
-        createTextElement("span", "", "Quiz score"),
-        createTextElement("strong", "", `${formatQuizScore(quizScore.points)}/${quizScore.total} points`)
-      );
-      wrapper.appendChild(scoreSummary);
-    }
 
     if (!quizzes.length) {
       quizList.appendChild(createTextElement("p", "text-secondary small mb-0", options.adminControls ? "No tests posted yet." : "No tests for this course yet."));
@@ -1732,6 +1722,7 @@ function saveCourseResources(resources) {
 let serverQuizzes = [];
 let serverQuizSubmissions = [];
 let serverQuizExtraChances = [];
+let serverAssignmentExtraChances = [];
 let serverCourseEnrolledStudents = {};
 let serverAssignments = [];
 let serverAssignmentSubmissions = [];
@@ -1815,6 +1806,20 @@ async function loadServerQuizExtraChances(courseId = "") {
   } catch {
     serverQuizExtraChances = [];
     return serverQuizExtraChances;
+  }
+}
+
+async function loadServerAssignmentExtraChances(courseId = "") {
+  if (!courseId) return [];
+  try {
+    const response = await fetch(getApiUrl(`/courses/${courseId}/assignment-extra-chances`));
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to load extra assignment attempts.");
+    serverAssignmentExtraChances = Array.isArray(result.data) ? result.data : [];
+    return serverAssignmentExtraChances;
+  } catch {
+    serverAssignmentExtraChances = [];
+    return serverAssignmentExtraChances;
   }
 }
 
@@ -1983,12 +1988,29 @@ function saveQuizExtraChances(chances) {
   return true;
 }
 
+function getAssignmentExtraChances() {
+  return Array.isArray(serverAssignmentExtraChances) ? serverAssignmentExtraChances : [];
+}
+
+function saveAssignmentExtraChances(chances) {
+  serverAssignmentExtraChances = Array.isArray(chances) ? chances : [];
+  return true;
+}
+
 function getQuizExtraChance(quizId, studentId = currentStudent.id) {
   return getQuizExtraChances().find((chance) => chance.quizId === quizId && chance.studentId === studentId && !chance.usedAt);
 }
 
+function getAssignmentExtraChance(assignmentId, studentId = currentStudent.id) {
+  return getAssignmentExtraChances().find((chance) => chance.assignmentId === assignmentId && chance.studentId === studentId && !chance.usedAt);
+}
+
 function hasQuizExtraChance(quizId, studentId = currentStudent.id) {
   return Boolean(getQuizExtraChance(quizId, studentId));
+}
+
+function hasAssignmentExtraChance(assignmentId, studentId = currentStudent.id) {
+  return Boolean(getAssignmentExtraChance(assignmentId, studentId));
 }
 
 async function consumeQuizExtraChance(quizId, studentId = currentStudent.id) {
@@ -2961,8 +2983,9 @@ function renderQuizExtraChancePanel(quiz) {
     const grantedCount = students.filter((student) => hasQuizExtraChance(quiz.id, student.id)).length;
     const summary = document.createElement("summary");
     summary.className = "course-extra-chance-summary";
+    const groupTitle = classroom === "all" ? "" : getClassroomTitle(classroom);
     summary.append(
-      createTextElement("strong", "", getClassroomTitle(classroom)),
+      groupTitle ? createTextElement("strong", "", groupTitle) : document.createElement("span"),
       createTextElement("span", "badge text-bg-info", `${grantedCount}/${students.length} approved`)
     );
 
@@ -6422,13 +6445,14 @@ function renderCourseAssignmentManualGradingPanel(courseId) {
   const assignmentIds = new Set(courseAssignments.map((a) => String(a.id)));
   // only count submissions that map to an existing assignment for this course
   const relevantSubmissions = submissions.filter((submission) => assignmentIds.has(String(submission.assignmentId)));
-  const totalPending = relevantSubmissions.filter((submission) => !hasAssignmentScore(submission)).length;
+  const pendingSubmissions = relevantSubmissions.filter((submission) => !hasAssignmentScore(submission));
+  const totalPending = pendingSubmissions.length;
 
   const summary = document.createElement("summary");
   summary.className = "course-quiz-summary";
   summary.append(
-    createTextElement("strong", "", "Assignment grading"),
-    createTextElement("small", "text-secondary d-block", "Review submitted assignments and record manual scores and feedback")
+    createTextElement("strong", "", "Assignment Grading"),
+    createTextElement("small", "text-secondary d-block", "Review submitted assignments and record manual scores")
   );
 
   summary.appendChild(createTextElement("span", "badge text-bg-warning", `Pending: ${totalPending}`));
@@ -6441,13 +6465,13 @@ function renderCourseAssignmentManualGradingPanel(courseId) {
   const content = document.createElement("div");
   content.className = "course-quiz-form vstack gap-2";
 
-  if (!submissions.length) {
-    content.appendChild(createTextElement("p", "text-secondary small mb-0", "No submissions have been received for this course yet."));
+  if (!pendingSubmissions.length) {
+    content.appendChild(createTextElement("p", "text-secondary small mb-0", "No pending submissions need grading for this course yet."));
   } else {
     const list = document.createElement("div");
     list.className = "vstack gap-2";
 
-    submissions.forEach((submission) => {
+    pendingSubmissions.forEach((submission) => {
       const assignment = courseAssignments.find((item) => String(item.id) === String(submission.assignmentId));
       if (!assignment) return;
 
@@ -6867,7 +6891,14 @@ function renderAssignmentCard(assignment, options = {}) {
       submittedTime.className = "text-secondary d-block mb-2";
       submittedTime.textContent = formatDate(submission.submittedAt);
 
-      submitted.append(submittedTitle, submittedTime);
+      const gradingState = document.createElement("small");
+      gradingState.className = "text-secondary d-block mb-2";
+      gradingState.textContent = hasAssignmentScore(submission) ? "Graded by the admin" : "Admin will grade this";
+
+      submitted.append(submittedTitle, submittedTime, gradingState);
+      if (hasAssignmentScore(submission)) {
+        submitted.appendChild(createTextElement("span", "badge text-bg-primary mt-2", `${Number(submission.score)}/${getAssignmentPoints(assignment)} pts`));
+      }
       if (assignment.type === "essay") {
         submitted.appendChild(createTextElement("p", "assignment-essay-preview mb-0", submission.essay || ""));
       } else {
@@ -7233,7 +7264,6 @@ document.addEventListener("submit", async (event) => {
     const submissionId = gradeForm.dataset.submissionId;
     const courseId = gradeForm.dataset.courseId || "";
     const scoreValue = gradeForm.elements.assignmentScore?.value.trim() || "";
-    const feedback = gradeForm.elements.assignmentFeedback?.value.trim() || "";
     const score = scoreValue === "" ? null : Number(scoreValue);
     const assignment = getAssignmentById(assignmentId);
     const maxPoints = getAssignmentPoints(assignment);
@@ -7246,7 +7276,6 @@ document.addEventListener("submit", async (event) => {
 
     const updatedSubmission = {
       score: Number.isFinite(score) ? score : null,
-      feedback,
       gradedAt: new Date().toISOString()
     };
 

@@ -209,9 +209,157 @@ test("admin assignment grading panel exposes score controls for submitted work",
 
   expect(panelState.hasPanel).toBe(true);
   expect(panelState.hasScoreInput).toBe(true);
-  expect(panelState.hasFeedbackField).toBe(true);
+  expect(panelState.hasFeedbackField).toBe(false);
   expect(panelState.hasSummary).toBe(true);
-  expect(panelState.summaryText).toContain("Assignment grading");
+  expect(panelState.summaryText).toContain("Assignment Grading");
+});
+
+test("admin assignment grading panel hides already graded submissions", async ({ page }) => {
+  await page.goto("http://127.0.0.1:3000/admin.html");
+
+  const panelState = await page.evaluate(() => {
+    const assignment = {
+      id: "assignment-grading-test-2",
+      courseId: "course-test-1",
+      title: "Research summary",
+      instructions: "Summarize the article.",
+      dueDate: "2025-12-31T23:59:00.000Z",
+      classroom: "all",
+      subject: "General Activity",
+      type: "essay",
+      points: 20,
+      attachments: [],
+      createdAt: new Date().toISOString()
+    };
+
+    window.serverAssignments = [assignment];
+    window.serverAssignmentSubmissions = [
+      {
+        id: "submission-test-graded",
+        assignmentId: assignment.id,
+        courseId: assignment.courseId,
+        studentId: "student-test-graded",
+        studentName: "Alex Chen",
+        submissionType: "essay",
+        essay: "Already graded response.",
+        attachments: [],
+        submittedAt: new Date().toISOString(),
+        score: 18,
+        feedback: "Good work.",
+        gradedAt: new Date().toISOString()
+      },
+      {
+        id: "submission-test-pending",
+        assignmentId: assignment.id,
+        courseId: assignment.courseId,
+        studentId: "student-test-pending",
+        studentName: "Jordan Lee",
+        submissionType: "essay",
+        essay: "Needs grading.",
+        attachments: [],
+        submittedAt: new Date().toISOString()
+      }
+    ];
+
+    const panel = window.renderCourseAssignmentManualGradingPanel("course-test-1");
+    document.body.appendChild(panel);
+    const visibleRows = panel.querySelectorAll(".assignment-review-row").length;
+    const visibleNames = Array.from(panel.querySelectorAll(".assignment-review-info strong"))
+      .map((node) => node.textContent || "")
+      .filter(Boolean);
+
+    return {
+      visibleRows,
+      visibleNames,
+      pendingBadge: panel.querySelector("summary .badge")?.textContent || ""
+    };
+  });
+
+  expect(panelState.visibleRows).toBe(1);
+  expect(panelState.visibleNames).toContain("Jordan Lee • Research summary");
+  expect(panelState.visibleNames).not.toContain("Alex Chen • Research summary");
+});
+
+test("admin assignment cards expose extra attempt approvals for missed due dates", async ({ page }) => {
+  await page.goto("http://127.0.0.1:3000/admin.html");
+
+  const renderedState = await page.evaluate(() => {
+    const assignment = {
+      id: "assignment-extra-attempt-test-1",
+      courseId: "course-test-1",
+      title: "Reflection report",
+      instructions: "Write a short reflection.",
+      dueDate: "2025-12-31T23:59:00.000Z",
+      classroom: "all",
+      subject: "General Activity",
+      type: "essay",
+      points: 20,
+      attachments: [],
+      createdAt: new Date().toISOString()
+    };
+
+    window.serverAssignments = [assignment];
+    window.serverCourseEnrolledStudents = {
+      "course-test-1": [
+        { id: "student-extra-attempt-1", name: "Ava Reyes", classroom: "all" }
+      ]
+    };
+    window.serverAssignmentSubmissions = [];
+
+    const card = window.renderAssignmentCard(assignment, { admin: true });
+    document.body.appendChild(card);
+    const expanded = card.querySelector(".assignment-card-expanded") || card;
+    const approvalText = expanded.textContent || "";
+    const approvalPanel = expanded.querySelector(".course-extra-chance-panel");
+    return {
+      hasApprovalPanel: Boolean(approvalPanel),
+      approvalText: approvalText.trim()
+    };
+  });
+
+  expect(renderedState.hasApprovalPanel).toBe(true);
+  expect(renderedState.approvalText).toContain("Add attempt approvals");
+});
+
+test("admin assignment cards expose extra attempt approvals for missed assignment due dates", async ({ page }) => {
+  await page.goto("http://127.0.0.1:3000/admin.html");
+
+  const renderedState = await page.evaluate(() => {
+    const assignment = {
+      id: "assignment-extra-attempt-test-1",
+      courseId: "course-test-1",
+      title: "Reflection report",
+      instructions: "Write a short reflection.",
+      dueDate: "2025-12-31T23:59:00.000Z",
+      classroom: "all",
+      subject: "General Activity",
+      type: "essay",
+      points: 20,
+      attachments: [],
+      createdAt: new Date().toISOString()
+    };
+
+    window.serverAssignments = [assignment];
+    window.serverCourseEnrolledStudents = {
+      "course-test-1": [
+        { id: "student-extra-attempt-1", name: "Ava Reyes", classroom: "all" }
+      ]
+    };
+    window.serverAssignmentSubmissions = [];
+    window.setExpandedAssignmentId(assignment.id);
+
+    const card = window.renderAssignmentCard(assignment, { admin: true });
+    document.body.appendChild(card);
+    const approvalPanel = card.querySelector(".course-extra-chance-panel");
+    const approvalText = card.textContent || "";
+    return {
+      hasApprovalPanel: Boolean(approvalPanel),
+      approvalText: approvalText.trim()
+    };
+  });
+
+  expect(renderedState.hasApprovalPanel).toBe(true);
+  expect(renderedState.approvalText).toContain("Add attempt approvals");
 });
 
 test("student assignment cards display grade and feedback from shared submission data", async ({ page }) => {
