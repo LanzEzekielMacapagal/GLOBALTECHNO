@@ -278,6 +278,33 @@ const quizExtraChanceSchema = new mongoose.Schema({
   usedAt: Date,
 });
 
+// Assignment Extra Chance Schema
+const assignmentExtraChanceSchema = new mongoose.Schema({
+  id: {
+    type: String,
+    required: true,
+    unique: true,
+  },
+  courseId: {
+    type: String,
+    required: true,
+  },
+  assignmentId: {
+    type: String,
+    required: true,
+  },
+  studentId: {
+    type: String,
+    required: true,
+  },
+  studentName: String,
+  grantedAt: {
+    type: Date,
+    default: Date.now,
+  },
+  usedAt: Date,
+});
+
 // Announcement Schema
 const announcementSchema = new mongoose.Schema({
   classroom: {
@@ -476,6 +503,7 @@ const Course = mongoose.model("Course", courseSchema);
 const Quiz = mongoose.model("Quiz", quizSchema);
 const QuizSubmission = mongoose.model("QuizSubmission", quizSubmissionSchema);
 const QuizExtraChance = mongoose.model("QuizExtraChance", quizExtraChanceSchema);
+const AssignmentExtraChance = mongoose.model("AssignmentExtraChance", assignmentExtraChanceSchema);
 const Announcement = mongoose.model("Announcement", announcementSchema);
 const Video = mongoose.model("Video", videoSchema);
 const ChatMessage = mongoose.model("ChatMessage", chatMessageSchema);
@@ -1782,6 +1810,89 @@ server.put("/courses/:courseId/quiz-extra-chances/:chanceId", async (req, res) =
   }
 });
 
+server.get("/courses/:courseId/assignment-extra-chances", async (req, res) => {
+  try {
+    const chances = await AssignmentExtraChance.find({ courseId: req.params.courseId }).sort({ grantedAt: -1 });
+    res.status(200).send({ code: 200, data: chances });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "There is an error fetching extra assignment attempts." });
+  }
+});
+
+server.post("/courses/:courseId/assignment-extra-chances", async (req, res) => {
+  try {
+    const { assignmentId, studentId, studentName } = req.body;
+    if (!assignmentId || !studentId) {
+      return res.status(400).send({ code: 400, message: "Assignment and student are required." });
+    }
+
+    const course = await Course.findById(req.params.courseId);
+    if (!course) {
+      return res.status(404).send({ code: 404, message: "Course not found." });
+    }
+
+    const studentQuery = mongoose.Types.ObjectId.isValid(studentId)
+      ? { _id: new mongoose.Types.ObjectId(studentId) }
+      : { _id: studentId };
+
+    const student = await User.findOne({
+      ...studentQuery,
+      isActive: { $ne: false },
+      role: { $ne: "admin" },
+    }).select("_id enrolledCourses username fullName");
+
+    if (!student) {
+      return res.status(400).send({ code: 400, message: "Only students currently enrolled in this course can receive an extra attempt." });
+    }
+
+    const enrolledCourses = Array.isArray(student.enrolledCourses) ? student.enrolledCourses : [];
+    const isEnrolled = enrolledCourses.some((entry) => String(entry) === String(course._id));
+    if (!isEnrolled) {
+      return res.status(400).send({ code: 400, message: "Only students currently enrolled in this course can receive an extra attempt." });
+    }
+
+    const existing = await AssignmentExtraChance.findOne({
+      courseId: req.params.courseId,
+      assignmentId,
+      studentId,
+      usedAt: { $exists: false },
+    });
+
+    if (existing) {
+      return res.status(200).send({ code: 200, message: "Extra attempt already granted.", data: existing });
+    }
+
+    const chance = new AssignmentExtraChance({
+      id: `assignment-extra-chance-${Date.now()}`,
+      courseId: req.params.courseId,
+      assignmentId,
+      studentId,
+      studentName: studentName || student.fullName || student.username || "Student",
+      grantedAt: new Date(),
+    });
+
+    await chance.save();
+    res.status(201).send({ code: 201, message: "Extra attempt granted.", data: chance });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "There is an error granting the extra attempt." });
+  }
+});
+
+server.put("/courses/:courseId/assignment-extra-chances/:chanceId", async (req, res) => {
+  try {
+    const chance = await AssignmentExtraChance.findOne({ id: req.params.chanceId, courseId: req.params.courseId });
+    if (!chance) {
+      return res.status(404).send({ code: 404, message: "Extra attempt not found." });
+    }
+
+    chance.usedAt = req.body?.usedAt ? new Date(req.body.usedAt) : new Date();
+    await chance.save();
+    res.status(200).send({ code: 200, message: "Extra attempt consumed.", data: chance });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "There is an error updating the extra attempt." });
+  }
+});
+
 // Recalculate and persist manual grading summary for a course (and per-quiz)
 server.post("/courses/:courseId/manual-summary/recalculate", async (req, res) => {
   try {
@@ -2241,6 +2352,8 @@ server.delete("/courses/:courseId/assignments/:assignmentId", async (req, res) =
     if (!assignment) {
       return res.status(404).send({ code: 404, message: "Assignment not found." });
     }
+
+    await AssignmentExtraChance.deleteMany({ courseId, assignmentId });
     
     res.status(200).send({ code: 200, message: "Assignment deleted successfully." });
   } catch (error) {

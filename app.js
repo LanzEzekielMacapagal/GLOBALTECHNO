@@ -738,7 +738,8 @@ function renderCourseAssignmentItem(assignment) {
 
   const submission = getStudentAssignmentSubmission(assignment.id, currentStudent._id || currentStudent.id);
   const assignmentExpired = isPastDue(assignment.dueDate);
-  const assignmentAvailable = !assignmentExpired;
+  const extraChance = hasAssignmentExtraChance(assignment.id);
+  const assignmentAvailable = !assignmentExpired || extraChance;
   
   const summary = document.createElement("summary");
   summary.className = "course-quiz-summary";
@@ -753,7 +754,7 @@ function renderCourseAssignmentItem(assignment) {
   const summaryBadge = createTextElement(
     "span",
     `badge ${isGraded ? "text-bg-primary" : submission ? "text-bg-success" : assignmentAvailable ? "text-bg-info" : "text-bg-warning"}`,
-    isGraded ? `${Number(submission.score)}/${assignmentPoints} pts` : submission ? "Submitted" : assignmentExpired ? "Closed" : "Open"
+    isGraded ? `${Number(submission.score)}/${assignmentPoints} pts` : submission ? "Submitted" : extraChance ? "Extra attempt" : assignmentExpired ? "Closed" : "Open"
   );
   summary.append(summaryText, summaryBadge);
 
@@ -1032,6 +1033,7 @@ async function renderCourseWorkspace(courseId, triggerCard) {
   await loadServerEnrolledStudents(courseId);
   await loadServerQuizExtraChances(courseId);
   await loadServerAssignments(courseId);
+  await loadServerAssignmentExtraChances(courseId);
 
   if (currentStudent?._id || currentStudent?.id) {
     const studentId = currentStudent._id || currentStudent.id;
@@ -1815,11 +1817,15 @@ async function loadServerAssignmentExtraChances(courseId = "") {
     const response = await fetch(getApiUrl(`/courses/${courseId}/assignment-extra-chances`));
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.message || "Unable to load extra assignment attempts.");
-    serverAssignmentExtraChances = Array.isArray(result.data) ? result.data : [];
+    const newChances = Array.isArray(result.data) ? result.data : [];
+    // Merge with existing chances, avoiding duplicates by id
+    const chanceMap = new Map();
+    (serverAssignmentExtraChances || []).forEach((chance) => chanceMap.set(chance.id, chance));
+    newChances.forEach((chance) => chanceMap.set(chance.id, chance));
+    serverAssignmentExtraChances = Array.from(chanceMap.values());
     return serverAssignmentExtraChances;
   } catch {
-    serverAssignmentExtraChances = [];
-    return serverAssignmentExtraChances;
+    return getAssignmentExtraChances();
   }
 }
 
@@ -3007,6 +3013,97 @@ function renderQuizExtraChancePanel(quiz) {
       button.dataset.quizChanceAction = "grant";
       button.dataset.quizId = quiz.id;
       button.dataset.courseId = quiz.courseId;
+      button.dataset.studentId = student.id;
+      button.dataset.studentName = student.name;
+      button.disabled = granted;
+      button.textContent = granted ? "Approved" : "Approve attempt";
+      row.append(info, button);
+      rows.appendChild(row);
+    });
+
+    group.append(summary, rows);
+    list.appendChild(group);
+  });
+
+  panel.appendChild(list);
+  return panel;
+}
+
+function renderAssignmentExtraChancePanel(assignment) {
+  const panel = document.createElement("div");
+  panel.className = "course-extra-chance-panel";
+  panel.append(
+    createTextElement("h4", "h6 mb-1", "Add attempt approvals"),
+    createTextElement("p", "small text-secondary mb-2", "Approve one extra assignment attempt for each student currently enrolled in this course who missed the due date.")
+  );
+
+  if (!isPastDue(assignment.dueDate)) {
+    panel.appendChild(createTextElement("p", "text-secondary small mb-0", "Extra chances appear after the due time passes."));
+    return panel;
+  }
+
+  const submittedStudentIds = new Set([
+    ...getAssignmentSubmissions(),
+    ...serverAssignmentSubmissions
+  ]
+    .filter((submission) => String(submission.assignmentId || "") === String(assignment.id))
+    .map((submission) => String(submission.studentId || "").trim())
+    .filter(Boolean));
+
+  const enrolledStudents = getCourseEnrolledStudents(assignment.courseId)
+    .map((student) => ({
+      id: student.id || student._id || student.username,
+      name: student.fullName || student.username || student.name || "Student",
+      classroom: student.classroom || "all"
+    }))
+    .filter((student) => Boolean(student.id));
+  const missedStudents = enrolledStudents.filter((student) => !submittedStudentIds.has(student.id));
+
+  if (!missedStudents.length) {
+    panel.appendChild(createTextElement("p", "text-secondary small mb-0", "No missed students for this assignment."));
+    return panel;
+  }
+
+  const list = document.createElement("div");
+  list.className = "course-extra-chance-list";
+  const studentsByClassroom = missedStudents.reduce((groups, student) => {
+    const key = student.classroom || "all";
+    groups[key] = [...(groups[key] || []), student];
+    return groups;
+  }, {});
+
+  Object.entries(studentsByClassroom).forEach(([classroom, students], groupIndex) => {
+    const group = document.createElement("details");
+    group.className = "course-extra-chance-group";
+    if (groupIndex === 0) group.open = true;
+
+    const grantedCount = students.filter((student) => hasAssignmentExtraChance(assignment.id, student.id)).length;
+    const summary = document.createElement("summary");
+    summary.className = "course-extra-chance-summary";
+    const groupTitle = classroom === "all" ? "" : getClassroomTitle(classroom);
+    summary.append(
+      groupTitle ? createTextElement("strong", "", groupTitle) : document.createElement("span"),
+      createTextElement("span", "badge text-bg-info", `${grantedCount}/${students.length} approved`)
+    );
+
+    const rows = document.createElement("div");
+    rows.className = "course-extra-chance-students";
+    students.forEach((student) => {
+      const row = document.createElement("div");
+      row.className = "course-extra-chance-row";
+      const granted = hasAssignmentExtraChance(assignment.id, student.id);
+      const info = document.createElement("div");
+      info.append(
+        createTextElement("strong", "", student.name),
+        createTextElement("small", "text-secondary d-block", granted ? "Extra attempt approved" : "Waiting for approval")
+      );
+
+      const button = document.createElement("button");
+      button.className = `btn btn-sm ${granted ? "btn-outline-success" : "btn-outline-primary"}`;
+      button.type = "button";
+      button.dataset.assignmentChanceAction = "grant";
+      button.dataset.assignmentId = assignment.id;
+      button.dataset.courseId = assignment.courseId;
       button.dataset.studentId = student.id;
       button.dataset.studentName = student.name;
       button.disabled = granted;
@@ -4756,6 +4853,37 @@ document.addEventListener("click", async (event) => {
         .then((result) => {
           if (!result || !result.code || result.code >= 400) return;
           return loadServerQuizExtraChances(courseId);
+        })
+        .finally(() => {
+          refreshOpenCourseWorkspace(courseId);
+        });
+    }
+
+    return;
+  }
+
+  const assignmentChanceButton = event.target.closest("[data-assignment-chance-action='grant']");
+  if (assignmentChanceButton) {
+    const alreadyGranted = getAssignmentExtraChances().some((chance) => {
+      return chance.assignmentId === assignmentChanceButton.dataset.assignmentId
+        && chance.studentId === assignmentChanceButton.dataset.studentId
+        && !chance.usedAt;
+    });
+
+    if (!alreadyGranted) {
+      const courseId = assignmentChanceButton.dataset.courseId;
+      const assignmentId = assignmentChanceButton.dataset.assignmentId;
+      const studentId = assignmentChanceButton.dataset.studentId;
+      const studentName = assignmentChanceButton.dataset.studentName;
+      fetch(getApiUrl(`/courses/${courseId}/assignment-extra-chances`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignmentId, studentId, studentName })
+      })
+        .then((response) => response.json().catch(() => ({})))
+        .then((result) => {
+          if (!result || !result.code || result.code >= 400) return;
+          return loadServerAssignmentExtraChances(courseId);
         })
         .finally(() => {
           refreshOpenCourseWorkspace(courseId);
@@ -6737,6 +6865,7 @@ function renderAssignmentCard(assignment, options = {}) {
 
   const details = document.createElement("div");
   details.className = "assignment-card-details";
+  details.hidden = !isExpanded;
 
   const assignmentPoints = getAssignmentPoints(assignment);
   meta.appendChild(createTextElement("span", "badge text-bg-secondary", `${assignmentPoints} pts`));
@@ -6782,6 +6911,15 @@ function renderAssignmentCard(assignment, options = {}) {
       );
       details.appendChild(materials);
     }
+
+    if (options.admin) {
+      details.appendChild(renderAssignmentExtraChancePanel(assignment));
+    }
+
+  }
+
+  if (options.admin && !isExpanded) {
+    details.appendChild(renderAssignmentExtraChancePanel(assignment));
   }
 
   if (options.admin) {
@@ -6908,7 +7046,7 @@ function renderAssignmentCard(assignment, options = {}) {
     }
   }
 
-  if (isExpanded) body.appendChild(details);
+  body.appendChild(details);
   card.appendChild(body);
   wrapper.appendChild(card);
   return wrapper;
@@ -6931,6 +7069,9 @@ async function renderStudentAssignmentsByCourse() {
 
   // Load assignments for all enrolled courses
   await loadStudentAssignmentsByAllCourses(courseIds);
+  
+  // Load assignment extra chances for all enrolled courses
+  await Promise.all(courseIds.map((courseId) => loadServerAssignmentExtraChances(courseId)));
 
   let hasAssignments = false;
   const container = document.createElement("div");
