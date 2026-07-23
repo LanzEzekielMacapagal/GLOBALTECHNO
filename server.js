@@ -335,13 +335,23 @@ const videoSchema = new mongoose.Schema({
     type: String,
     default: "all",
   },
+  courseId: {
+    type: String,
+    default: null,
+  },
   title: {
     type: String,
     required: true,
   },
-  videoUrl: String,
-  videoFile: String,
+  gdriveLinkUrl: {
+    type: String,
+    required: true,
+  },
   createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+  updatedAt: {
     type: Date,
     default: Date.now,
   },
@@ -2785,13 +2795,25 @@ server.patch("/announcements/pin/:announcementId", (req, res) => {
 // VIDEO ROUTES — CRUD
 // =============================================
 
-// Post a video
+// Post a video (recorded lesson)
 server.post("/videos/add", (req, res) => {
+  const title = String(req.body.title || "").trim();
+  const gdriveLinkUrl = String(req.body.gdriveLinkUrl || "").trim();
+  const classroom = String(req.body.classroom || "all").trim() || "all";
+
+  if (!title || !gdriveLinkUrl) {
+    return res.status(400).send({
+      code: 400,
+      message: "Video title and Google Drive link are required.",
+    });
+  }
+
   let newVideo = new Video({
-    classroom: req.body.classroom || "all",
-    title: req.body.title,
-    videoUrl: req.body.videoUrl,
-    videoFile: req.body.videoFile,
+    classroom,
+    title,
+    gdriveLinkUrl,
+    createdAt: new Date(),
+    updatedAt: new Date(),
   });
 
   newVideo
@@ -2799,7 +2821,7 @@ server.post("/videos/add", (req, res) => {
     .then((savedVideo) => {
       res.status(201).send({
         code: 201,
-        message: "Video posted successfully!",
+        message: "Recorded lesson posted successfully!",
         data: savedVideo,
       });
     })
@@ -2813,11 +2835,70 @@ server.post("/videos/add", (req, res) => {
 
 // Get all videos
 server.get("/videos/all", (req, res) => {
-  Video.find({}).sort({ createdAt: -1 })
+  const classroom = String(req.query.classroom || "").trim();
+  const query = classroom
+    ? { $or: [{ classroom }, { classroom: "all" }] }
+    : {};
+
+  Video.find(query).sort({ createdAt: -1 })
     .then((result) => {
       res.status(200).send({
         code: 200,
-        message: "Here are all videos.",
+        message: "Here are all recorded lessons.",
+        count: result.length,
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error fetching videos.",
+      });
+    });
+});
+
+// Get a single video
+server.get("/videos/:videoId", (req, res) => {
+  Video.findById(req.params.videoId)
+    .then((result) => {
+      if (!result) {
+        return res.status(404).send({
+          code: 404,
+          message: "Video not found.",
+        });
+      }
+
+      res.status(200).send({
+        code: 200,
+        message: "Recorded lesson loaded.",
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error fetching the video.",
+      });
+    });
+});
+
+// Get videos for specific course
+server.get("/courses/:courseId/videos", (req, res) => {
+  const courseId = String(req.params.courseId || "").trim();
+  
+  if (!courseId) {
+    return res.status(400).send({
+      code: 400,
+      message: "Course ID is required.",
+    });
+  }
+
+  Video.find({ $or: [{ classroom: courseId }, { classroom: "all" }] })
+    .sort({ createdAt: -1 })
+    .then((result) => {
+      res.status(200).send({
+        code: 200,
+        message: "Here are all recorded lessons for this course.",
         count: result.length,
         data: result,
       });
@@ -2843,7 +2924,7 @@ server.delete("/videos/delete/:videoId", (req, res) => {
 
       res.status(200).send({
         code: 200,
-        message: "Video is now deleted!",
+        message: "Recorded lesson deleted successfully!",
         data: result,
       });
     })

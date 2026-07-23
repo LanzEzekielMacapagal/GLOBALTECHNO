@@ -70,9 +70,12 @@ const notificationCount = document.querySelector("[data-notification-count]");
 const notificationClear = document.querySelector("[data-notification-clear]");
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const mobileSectionQuery = window.matchMedia("(max-width: 991.98px)");
-const apiBaseUrl = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-  ? window.location.origin
-  : (window.location.protocol === "file:") ? "http://localhost:3000" : "";
+const apiBaseUrl = (() => {
+  if (window.location.protocol === "file:") return "http://localhost:3000";
+  if (window.location.port === "3000") return window.location.origin;
+  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") return "http://localhost:3000";
+  return "";
+})();
 let serverCourses = [];
 
 function getApiUrl(path) {
@@ -1028,6 +1031,7 @@ async function renderCourseWorkspace(courseId, triggerCard) {
   const courseList = triggerCard.closest("#courseList");
   if (!course || !courseList) return;
 
+  await loadServerVideos();
   await loadServerQuizzes(courseId);
   await loadServerQuizSubmissions(courseId);
   await loadServerEnrolledStudents(courseId);
@@ -1245,6 +1249,8 @@ function showStudentSection(sectionId, options = {}) {
     renderChatMessages();
   } else if (targetId === "private-messages") {
     renderPrivateMessages();
+  } else if (targetId === "videos") {
+    loadServerVideos().then(() => renderVideos());
   } else {
     markNotificationsReadBySection(targetId, { render: false });
   }
@@ -5313,6 +5319,19 @@ function getVideoSource(url) {
 
 function getSavedVideoSource(video) {
   if (!video) return null;
+  
+  // Handle MongoDB video with Google Drive link
+  if (video.gdriveLinkUrl) {
+    return {
+      ...video,
+      provider: "gdrive",
+      providerLabel: "Google Drive",
+      embedUrl: video.gdriveLinkUrl,
+      thumbnailUrl: ""
+    };
+  }
+  
+  // Legacy support for file uploads
   if (video.file?.data) {
     return {
       ...video,
@@ -5322,6 +5341,7 @@ function getSavedVideoSource(video) {
       thumbnailUrl: ""
     };
   }
+  
   if (video.provider && video.embedUrl) return video;
 
   const source = getVideoSource(video.url);
@@ -5331,7 +5351,7 @@ function getSavedVideoSource(video) {
 }
 
 function getCourseVideos(courseId) {
-  return getVideos()
+  return serverVideos
     .filter((video) => video.classroom === "all" || video.classroom === courseId)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
@@ -5510,17 +5530,48 @@ function openResourceModal(resource) {
   return false;
 }
 
+async function copyVideoLink(videoId) {
+  const response = await fetch(getApiUrl(`/videos/${encodeURIComponent(videoId)}`));
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(result.message || "Unable to load the video link.");
+  }
+
+  const video = result.data;
+  const link = video?.gdriveLinkUrl || video?.embedUrl || video?.url || "";
+  if (!link) {
+    throw new Error("No video link is available for this post.");
+  }
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(link);
+  } else {
+    const textarea = document.createElement("textarea");
+    textarea.value = link;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.top = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+  }
+
+  return link;
+}
+
 function renderCourseVideoItem(video) {
   const source = getSavedVideoSource(video);
   const item = document.createElement("article");
   item.className = "course-resource-item course-video-item";
-  item.dataset.videoId = video.id;
+  item.dataset.videoId = video._id || video.id;
 
   const thumbnailWrap = document.createElement("button");
   thumbnailWrap.className = "course-video-thumb-button";
   thumbnailWrap.type = "button";
   thumbnailWrap.dataset.videoAction = "watch";
-  thumbnailWrap.dataset.videoId = video.id;
+  thumbnailWrap.dataset.videoId = video._id || video.id;
   thumbnailWrap.setAttribute("aria-label", `Watch ${video.title}`);
 
   let thumbnail;
@@ -5557,16 +5608,24 @@ function renderCourseVideoItem(video) {
   watchButton.className = "btn btn-primary btn-sm";
   watchButton.type = "button";
   watchButton.dataset.videoAction = "watch";
-  watchButton.dataset.videoId = video.id;
+  watchButton.dataset.videoId = video._id || video.id;
   watchButton.textContent = "Watch";
   actions.appendChild(watchButton);
+
+  const copyButton = document.createElement("button");
+  copyButton.className = "btn btn-outline-secondary btn-sm";
+  copyButton.type = "button";
+  copyButton.dataset.videoAction = "copy";
+  copyButton.dataset.videoId = video._id || video.id;
+  copyButton.textContent = "Copy";
+  actions.appendChild(copyButton);
 
   if (adminApp) {
     const removeButton = document.createElement("button");
     removeButton.className = "btn btn-outline-danger btn-sm";
     removeButton.type = "button";
     removeButton.dataset.videoAction = "remove";
-    removeButton.dataset.videoId = video.id;
+    removeButton.dataset.videoId = video._id || video.id;
     removeButton.textContent = "Remove";
     actions.appendChild(removeButton);
   }
@@ -5604,7 +5663,7 @@ function renderVideoCard(video, options = {}) {
     const card = document.createElement("button");
     card.className = "announcement-item video-announcement-item";
     card.dataset.videoAction = "watch";
-    card.dataset.videoId = video.id;
+    card.dataset.videoId = video._id || video.id;
     card.type = "button";
 
     let thumbnail;
@@ -5703,16 +5762,24 @@ function renderVideoCard(video, options = {}) {
   watchButton.className = "btn btn-primary btn-sm";
   watchButton.type = "button";
   watchButton.dataset.videoAction = "watch";
-  watchButton.dataset.videoId = video.id;
+  watchButton.dataset.videoId = video._id || video.id;
   watchButton.textContent = "Watch";
   actions.appendChild(watchButton);
+
+  const copyButton = document.createElement("button");
+  copyButton.className = "btn btn-outline-secondary btn-sm";
+  copyButton.type = "button";
+  copyButton.dataset.videoAction = "copy";
+  copyButton.dataset.videoId = video._id || video.id;
+  copyButton.textContent = "Copy";
+  actions.appendChild(copyButton);
 
   if (options.admin) {
     const removeButton = document.createElement("button");
     removeButton.className = "btn btn-outline-danger btn-sm";
     removeButton.type = "button";
     removeButton.dataset.videoAction = "remove";
-    removeButton.dataset.videoId = video.id;
+    removeButton.dataset.videoId = video._id || video.id;
     removeButton.textContent = "Remove";
     actions.appendChild(removeButton);
   }
@@ -5725,7 +5792,7 @@ function renderVideoCard(video, options = {}) {
 }
 
 function renderVideos() {
-  const videos = getVideos().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const videos = serverVideos.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
   if (adminVideos) {
     adminVideos.replaceChildren();
@@ -5745,98 +5812,153 @@ function renderVideos() {
   }
 }
 
+let serverVideos = [];
+
+async function loadServerVideos() {
+  try {
+    const response = await fetch(getApiUrl("/videos/all"));
+    const result = await response.json();
+    if (response.ok && result.data) {
+      serverVideos = Array.isArray(result.data) ? result.data : [];
+    }
+  } catch (error) {
+    console.error("Error loading videos from server:", error);
+  }
+}
+
+async function loadCourseVideos(courseId) {
+  try {
+    const response = await fetch(getApiUrl(`/courses/${encodeURIComponent(courseId)}/videos`));
+    const result = await response.json();
+    if (response.ok && result.data) {
+      return Array.isArray(result.data) ? result.data : [];
+    }
+  } catch (error) {
+    console.error("Error loading videos for course:", error);
+  }
+  return [];
+}
+
 videoForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  const url = document.querySelector("#videoUrl")?.value.trim() || "";
-  const file = await readStorageFile(document.querySelector("#videoFile")?.files?.[0]);
-  const source = file ? {
-    provider: "upload",
-    providerLabel: "Uploaded Video",
-    sourceId: file.name,
-    embedUrl: file.data,
-    thumbnailUrl: ""
-  } : getVideoSource(url);
+  const title = document.querySelector("#videoTitle")?.value.trim() || "";
+  const gdriveLinkUrl = document.querySelector("#videoUrl")?.value.trim() || "";
+  const classroom = document.querySelector("#videoClassroom")?.value || "all";
 
-  if (!source) {
+  if (!title || !gdriveLinkUrl) {
     videoError?.classList.remove("d-none");
     return;
   }
 
-  const videos = getVideos();
-  const video = {
-    id: `video-${Date.now()}`,
-    classroom: document.querySelector("#videoClassroom").value,
-    title: document.querySelector("#videoTitle").value.trim(),
-    url,
-    file,
-    ...source,
-    createdAt: new Date().toISOString()
-  };
-  videos.unshift(video);
+  try {
+    const response = await fetch(getApiUrl("/videos/add"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        title,
+        gdriveLinkUrl,
+        classroom,
+      }),
+    });
 
-  saveStoredItems("gthVideos", videos);
-  addNotification({
-    type: "video",
-    section: "courses",
-    courseId: video.classroom,
-    classroom: video.classroom,
-    audience: { role: "student", classroom: video.classroom },
-    title: `New video: ${video.title}`,
-    message: source.providerLabel || "Recorded lesson",
-    createdAt: video.createdAt
-  });
-  videoError?.classList.add("d-none");
-  videoForm.reset();
-  renderVideos();
-  if (video.classroom === "all") {
-    refreshActiveCourseWorkspace();
-  } else {
-    refreshOpenCourseWorkspace(video.classroom);
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to post video");
+    }
+
+    videoError?.classList.add("d-none");
+    videoForm.reset();
+
+    await loadServerVideos();
+    renderVideos();
+
+    if (classroom === "all") {
+      refreshActiveCourseWorkspace();
+    } else {
+      refreshOpenCourseWorkspace(classroom);
+    }
+  } catch (error) {
+    console.error("Video submission error:", error);
+    videoError?.classList.remove("d-none");
   }
 });
 
-document.addEventListener("click", (event) => {
+document.addEventListener("click", async (event) => {
   const actionButton = event.target.closest("[data-video-action]");
   if (!actionButton) return;
 
-  const videos = getVideos();
-  const video = getSavedVideoSource(videos.find((item) => item.id === actionButton.dataset.videoId));
+  const videoId = actionButton.dataset.videoId;
+  const video = serverVideos.find((item) => String(item._id || item.id) === String(videoId));
   if (!video) return;
 
   if (actionButton.dataset.videoAction === "remove") {
-    saveStoredItems("gthVideos", videos.filter((item) => item.id !== video.id));
-    renderVideos();
-    if (video.classroom === "all") {
-      refreshActiveCourseWorkspace();
-    } else {
-      refreshOpenCourseWorkspace(video.classroom);
+    if (!adminApp) return;
+
+    try {
+      const response = await fetch(getApiUrl(`/videos/delete/${videoId}`), {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to delete video");
+      }
+
+      await loadServerVideos();
+      renderVideos();
+
+      if (video.classroom === "all") {
+        refreshActiveCourseWorkspace();
+      } else {
+        refreshOpenCourseWorkspace(video.classroom);
+      }
+    } catch (error) {
+      console.error("Error deleting video:", error);
+      window.alert("Failed to delete video: " + error.message);
     }
     return;
   }
 
-  if (actionButton.dataset.videoAction === "watch" && video.provider === "upload" && video.embedUrl && videoModal && videoModalPlayer) {
-    clearVideoModalMedia();
-    videoModalPlayer.src = video.embedUrl;
-    videoModalPlayer.classList.remove("d-none");
-    videoModalFrame?.classList.add("d-none");
-    if (videoModalLabel) videoModalLabel.textContent = video.title;
-    showVideoModal();
-    return;
-  }
-
-  if (actionButton.dataset.videoAction === "watch" && video.embedUrl && videoModal && videoModalFrame) {
-    clearVideoModalMedia();
-    videoModalFrame.src = video.embedUrl;
-    videoModalFrame.classList.remove("d-none");
-    videoModalPlayer?.classList.add("d-none");
-    if (videoModalLabel) videoModalLabel.textContent = video.title;
-    showVideoModal();
-    return;
-  }
-
   if (actionButton.dataset.videoAction === "watch") {
-    window.open(video.url, "_blank", "noopener");
+    const source = getSavedVideoSource(video);
+    if (source.gdriveLinkUrl || source.embedUrl || source.url) {
+      const targetUrl = source.gdriveLinkUrl || source.embedUrl || source.url;
+      window.open(targetUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    if (videoModal && videoModalFrame) {
+      clearVideoModalMedia();
+      videoModalFrame.src = video.embedUrl || video.gdriveLinkUrl || video.url || "";
+      videoModalFrame.classList.remove("d-none");
+      videoModalPlayer?.classList.add("d-none");
+      if (videoModalLabel) videoModalLabel.textContent = video.title;
+      showVideoModal();
+    }
+    return;
+  }
+
+  if (actionButton.dataset.videoAction === "copy") {
+    try {
+      const link = await copyVideoLink(videoId);
+      actionButton.textContent = "Copied";
+      actionButton.classList.remove("btn-outline-secondary");
+      actionButton.classList.add("btn-success");
+      window.setTimeout(() => {
+        actionButton.textContent = "Copy";
+        actionButton.classList.remove("btn-success");
+        actionButton.classList.add("btn-outline-secondary");
+      }, 1400);
+      if (link) {
+        console.info("Video link copied", link);
+      }
+    } catch (error) {
+      console.error("Unable to copy video link:", error);
+      window.alert(error.message || "Unable to copy the video link.");
+    }
   }
 });
 

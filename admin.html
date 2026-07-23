@@ -168,15 +168,14 @@
               <h2 class="h5 mb-3">Publish Recorded Lesson</h2>
               <form class="vstack gap-3" id="videoForm">
                 <label class="form-label mb-0">
-                  Classroom
+                  Post Video To
                   <select class="form-select mt-1" id="videoClassroom" required>
                     <option value="all">All Subjects</option>
                   </select>
                 </label>
-                <label class="form-label mb-0">Title<input class="form-control mt-1" id="videoTitle" type="text" placeholder="Video title" required></label>
-                <label class="form-label mb-0">Upload video file<input class="form-control mt-1" id="videoFile" type="file" accept="video/*"></label>
-                <label class="form-label mb-0">Gmail or Google Drive link<input class="form-control mt-1" id="videoUrl" type="url" placeholder="https://drive.google.com/..."></label>
-                <p class="alert alert-danger d-none mb-0" id="videoError">Upload a video file or enter a Gmail/Google Drive link.</p>
+                <label class="form-label mb-0">Video Title<input class="form-control mt-1" id="videoTitle" type="text" placeholder="Enter video title" required></label>
+                <label class="form-label mb-0">Google Drive Link<input class="form-control mt-1" id="videoUrl" type="url" placeholder="https://drive.google.com/file/d/..." required></label>
+                <p class="alert alert-danger d-none mb-0" id="videoError">Please enter a valid video title and Google Drive link.</p>
                 <button class="btn btn-primary" type="submit">Post Video</button>
               </form>
             </div>

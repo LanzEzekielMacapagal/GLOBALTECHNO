@@ -1,0 +1,656 @@
+{
+  "info": {
+    "_postman_id": "gth-assignment-api-collection",
+    "name": "Global Techno Hub - Assignment API",
+    "description": "Complete Assignment CRUD and Submission API with MongoDB Integration\n\nBase URL: http://localhost:3000 (or your domain)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "ASSIGNMENTS - CREATE, READ, UPDATE, DELETE",
+      "item": [
+        {
+          "name": "1. CREATE ASSIGNMENT (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.environment.set('assignmentId', jsonData.data.id);",
+                  "    pm.environment.set('assignmentResponseData', JSON.stringify(jsonData.data));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "title",
+                  "value": "Introduction to JavaScript Basics",
+                  "type": "text"
+                },
+                {
+                  "key": "instructions",
+                  "value": "Write a program that demonstrates the use of variables, functions, and loops in JavaScript.",
+                  "type": "text"
+                },
+                {
+                  "key": "type",
+                  "value": "file",
+                  "type": "text"
+                },
+                {
+                  "key": "points",
+                  "value": "50",
+                  "type": "text"
+                },
+                {
+                  "key": "classroom",
+                  "value": "all",
+                  "type": "text"
+                },
+                {
+                  "key": "subject",
+                  "value": "Programming",
+                  "type": "text"
+                },
+                {
+                  "key": "dueDate",
+                  "value": "2025-02-15T23:59:59Z",
+                  "type": "text"
+                },
+                {
+                  "key": "attachments",
+                  "value": "",
+                  "type": "file",
+                  "disabled": true,
+                  "description": "Optional: Add assignment rubric or sample solution files"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/assignments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "assignments"
+              ]
+            },
+            "description": "Create a new assignment with optional attachments.\n\n**Database:** Stores in `assignments` collection\n\n**Required Fields:**\n- title\n- instructions\n- dueDate\n- courseId (from URL)\n\n**Optional Fields:**\n- type (default: 'file')\n- points (default: 10)\n- classroom (default: 'all')\n- subject (default: 'General Activity')\n- attachments (up to 10 files)"
+          }
+        },
+        {
+          "name": "2. GET ALL ASSIGNMENTS FOR COURSE",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    console.log('Found ' + jsonData.data.length + ' assignments');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/assignments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "assignments"
+              ]
+            },
+            "description": "Retrieve all assignments for a specific course.\n\n**Database:** Queries `assignments` collection with filter `{ courseId }`\n\n**Response:** Array of assignment objects with metadata"
+          }
+        },
+        {
+          "name": "3. UPDATE ASSIGNMENT",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "title",
+                  "value": "Introduction to JavaScript Basics (Updated)",
+                  "type": "text"
+                },
+                {
+                  "key": "instructions",
+                  "value": "Write a program that demonstrates the use of variables, functions, and loops in JavaScript. Extended deadline provided.",
+                  "type": "text"
+                },
+                {
+                  "key": "dueDate",
+                  "value": "2025-02-20T23:59:59Z",
+                  "type": "text"
+                },
+                {
+                  "key": "points",
+                  "value": "60",
+                  "type": "text"
+                },
+                {
+                  "key": "removedAttachments",
+                  "value": "",
+                  "type": "text",
+                  "disabled": true,
+                  "description": "Optional: JSON array of filenames to remove e.g. [\"old-file.pdf\", \"sample.doc\"]"
+                },
+                {
+                  "key": "attachments",
+                  "value": "",
+                  "type": "file",
+                  "disabled": true,
+                  "description": "Optional: New files to add"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/assignments/{{assignmentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "assignments",
+                "{{assignmentId}}"
+              ]
+            },
+            "description": "Update an existing assignment.\n\n**Database:** Updates `assignments` collection\n\n**Features:**\n- Update any field (title, instructions, dueDate, points, etc.)\n- Add new files (they are appended to existing attachments)\n- Remove specific files via `removedAttachments` parameter\n- Maintains submission integrity\n\n**File Removal:**\nTo remove files, add the `removedAttachments` field with JSON array of filenames to remove."
+          }
+        },
+        {
+          "name": "4. DELETE ASSIGNMENT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    console.log('Assignment deleted - all associated extra chances removed');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/assignments/{{assignmentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "assignments",
+                "{{assignmentId}}"
+              ]
+            },
+            "description": "Delete an assignment permanently.\n\n**Database Impact:**\n- Removes from `assignments` collection\n- Deletes all `assignmentextrachanges` associated with this assignment\n- Submissions are preserved (can be queried separately)\n\n**Note:** This operation cannot be undone"
+          }
+        }
+      ]
+    },
+    {
+      "name": "SUBMISSIONS - STUDENT & ADMIN",
+      "item": [
+        {
+          "name": "1. SUBMIT ASSIGNMENT (Student - Multiple Files)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201 || pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.environment.set('submissionId', jsonData.data.id);",
+                  "    console.log('Submission saved. ID: ' + jsonData.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "studentId",
+                  "value": "{{studentId}}",
+                  "type": "text",
+                  "description": "MongoDB ObjectId of student"
+                },
+                {
+                  "key": "studentName",
+                  "value": "John Doe",
+                  "type": "text"
+                },
+                {
+                  "key": "submissionType",
+                  "value": "file",
+                  "type": "text",
+                  "description": "Options: 'file', 'essay', or 'both'"
+                },
+                {
+                  "key": "submissionFiles",
+                  "value": "",
+                  "type": "file",
+                  "disabled": true,
+                  "description": "Upload 1-10 files. Supports PDFs, documents, code files, etc."
+                },
+                {
+                  "key": "essay",
+                  "value": "",
+                  "type": "text",
+                  "disabled": true,
+                  "description": "Optional: If submitting essay content"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/assignments/{{assignmentId}}/submit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "assignments",
+                "{{assignmentId}}",
+                "submit"
+              ]
+            },
+            "description": "Student submits assignment with file(s).\n\n**Database:** Saves to `assignmentsubmissions` collection\n\n**Validation:**\n- Student must be enrolled in the course\n- If submissionType='file': At least 1 file required\n- If submissionType='essay': Essay text required\n- Maximum 10 files per submission\n- Maximum 20MB per file\n\n**Behavior:**\n- If first submission: Creates new record (201)\n- If resubmitting: Updates existing record (200)\n- Only one active submission per student/assignment combo"
+          }
+        },
+        {
+          "name": "2. GET SUBMISSION FOR A STUDENT",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/assignments/{{assignmentId}}/submissions?studentId={{studentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "assignments",
+                "{{assignmentId}}",
+                "submissions"
+              ],
+              "query": [
+                {
+                  "key": "studentId",
+                  "value": "{{studentId}}"
+                }
+              ]
+            },
+            "description": "Get a specific student's submission for an assignment.\n\n**Database:** Queries `assignmentsubmissions` with filter `{ assignmentId, studentId, courseId }`\n\n**Response:** Single submission object or null if not submitted yet\n\n**Includes:**\n- All uploaded files with URLs\n- Score and feedback (if graded)\n- Submission timestamp\n- Grading timestamp (if graded)"
+          }
+        },
+        {
+          "name": "3. GET ALL SUBMISSIONS FOR ASSIGNMENT (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/assignments/{{assignmentId}}/submissions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "assignments",
+                "{{assignmentId}}",
+                "submissions"
+              ]
+            },
+            "description": "Retrieve all submissions for an assignment (Admin only).\n\n**Database:** Queries `assignmentsubmissions` with filter `{ assignmentId, courseId }`\n\n**Response:** Array of all submissions\n\n**Use Cases:**\n- Admin grading dashboard\n- Batch review of submissions\n- Progress tracking\n- Identifying ungraded work"
+          }
+        },
+        {
+          "name": "4. GRADE SUBMISSION (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    console.log('Submission graded: ' + jsonData.data.score + '/' + pm.environment.get('maxPoints'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"score\": 45,\n  \"feedback\": \"Great work! Minor issues with edge case handling. Consider reviewing the error handling section.\",\n  \"gradedAt\": \"{{now}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/assignments/{{assignmentId}}/submissions/{{submissionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "assignments",
+                "{{assignmentId}}",
+                "submissions",
+                "{{submissionId}}"
+              ]
+            },
+            "description": "Grade a student's submission with score and feedback.\n\n**Database:** Updates `assignmentsubmissions` document\n\n**Validation:**\n- Score must be between 0 and assignment max points\n- score: null = ungraded\n- score: number = graded\n\n**Fields:**\n- `score`: Numeric score (required)\n- `feedback`: Text feedback for student (optional)\n- `gradedAt`: Timestamp (auto-set to now if not provided)\n\n**Triggers:**\n- Recalculates enrolled learner summary\n- Updates student dashboard\n- Logs grading event"
+          }
+        },
+        {
+          "name": "5. GET ALL SUBMISSIONS FOR STUDENT IN COURSE",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/student/{{studentId}}/submissions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "student",
+                "{{studentId}}",
+                "submissions"
+              ]
+            },
+            "description": "Get all submissions from a specific student in a course.\n\n**Database:** Queries `assignmentsubmissions` with filter `{ courseId, studentId }`\n\n**Response:** Array of all submissions for the student\n\n**Use Cases:**\n- Student progress report\n- Individual student dashboard\n- Grade calculation\n- Completion tracking"
+          }
+        },
+        {
+          "name": "6. DELETE SUBMISSION",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    console.log('Submission deleted - enrolled learner summary recalculated');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/assignments/{{assignmentId}}/submissions/{{submissionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "assignments",
+                "{{assignmentId}}",
+                "submissions",
+                "{{submissionId}}"
+              ]
+            },
+            "description": "Delete a submission permanently.\n\n**Database Impact:**\n- Removes from `assignmentsubmissions` collection\n- Triggers recalculation of enrolled learner summary\n- Updates student progress metrics\n\n**Use Cases:**\n- Removing invalid submissions\n- Cleaning up test data\n- Handling submission errors"
+          }
+        }
+      ]
+    },
+    {
+      "name": "EXTRA ATTEMPTS - GRANT & MANAGE",
+      "item": [
+        {
+          "name": "1. GRANT EXTRA ATTEMPT (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201 || pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.environment.set('extraChanceId', jsonData.data.id);",
+                  "    console.log('Extra attempt granted to ' + jsonData.data.studentName);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"assignmentId\": \"{{assignmentId}}\",\n  \"studentId\": \"{{studentId}}\",\n  \"studentName\": \"John Doe\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/assignment-extra-chances",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "assignment-extra-chances"
+              ]
+            },
+            "description": "Grant a student an extra attempt to resubmit an assignment.\n\n**Database:** Saves to `assignmentextrachanges` collection\n\n**Validation:**\n- Student must be enrolled in course\n- Only one unused grant per student/assignment\n- Duplicate requests return existing grant (idempotent)\n\n**Response:**\n- 201: New extra attempt created\n- 200: Extra attempt already granted (duplicate request)\n\n**Fields:**\n- `assignmentId`: Required\n- `studentId`: Required (MongoDB ObjectId)\n- `studentName`: Optional (auto-filled from user record)\n- `grantedAt`: Auto-set to current timestamp\n- `usedAt`: null until student uses it"
+          }
+        },
+        {
+          "name": "2. GET ALL EXTRA ATTEMPTS FOR COURSE",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/assignment-extra-chances",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "assignment-extra-chances"
+              ]
+            },
+            "description": "Retrieve all extra attempts granted in a course.\n\n**Database:** Queries `assignmentextrachanges` with filter `{ courseId }`\n\n**Response:** Sorted by grantedAt (newest first)\n\n**Use Cases:**\n- Admin dashboard: Track granted extra attempts\n- Identify which students have active attempts\n- Monitor which attempts have been used"
+          }
+        },
+        {
+          "name": "3. MARK EXTRA ATTEMPT AS USED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    var usedAt = jsonData.data.usedAt ? 'Used at ' + jsonData.data.usedAt : 'Not yet used';",
+                  "    console.log('Extra attempt status: ' + usedAt);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usedAt\": \"{{now}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/assignment-extra-chances/{{extraChanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "assignment-extra-chances",
+                "{{extraChanceId}}"
+              ]
+            },
+            "description": "Mark an extra attempt as consumed/used.\n\n**Database:** Updates `assignmentextrachanges` document\n\n**Field:**\n- `usedAt`: ISO 8601 timestamp (required)\n- If omitted, defaults to current time\n\n**Business Logic:**\n- Once marked as used, student cannot use another extra attempt for this assignment\n- Multiple grants can exist but only one can be unused per student/assignment"
+          }
+        }
+      ]
+    },
+    {
+      "name": "ADMIN DASHBOARD - PENDING SUBMISSIONS",
+      "item": [
+        {
+          "name": "GET PENDING SUBMISSIONS (To Grade)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    console.log('Total pending: ' + jsonData.data.totalPending);",
+                  "    console.log('Assignments with pending: ' + jsonData.data.byAssignment.length);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/courses/{{courseId}}/assignments/pending",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "courses",
+                "{{courseId}}",
+                "assignments",
+                "pending"
+              ]
+            },
+            "description": "Get all ungraded (pending) submissions in a course.\n\n**Database:** Queries `assignmentsubmissions` where `score: null`\n\n**Response Format:**\n```json\n{\n  \"totalPending\": 5,\n  \"byAssignment\": [\n    {\n      \"assignmentId\": \"assignment-xxx\",\n      \"count\": 2,\n      \"submissions\": [\n        {\n          \"id\": \"submission-yyy\",\n          \"studentId\": \"student-id\",\n          \"studentName\": \"Student Name\",\n          \"submittedAt\": \"2025-01-28T15:30:00.000Z\"\n        }\n      ]\n    }\n  ]\n}\n```\n\n**Use Cases:**\n- Admin dashboard widget\n- Grading priority queue\n- Course completion tracking\n- Identifying overdue submissions"
+          }
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Set environment variables if not already set",
+          "if (!pm.environment.get('baseUrl')) {",
+          "    pm.environment.set('baseUrl', 'http://localhost:3000');",
+          "}",
+          "",
+          "if (!pm.environment.get('courseId')) {",
+          "    pm.environment.set('courseId', 'YOUR_COURSE_ID_HERE');",
+          "}",
+          "",
+          "if (!pm.environment.get('studentId')) {",
+          "    pm.environment.set('studentId', 'YOUR_STUDENT_ID_HERE');",
+          "}",
+          "",
+          "// Generate current timestamp",
+          "pm.environment.set('now', new Date().toISOString());"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "courseId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "assignmentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "studentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "submissionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "extraChanceId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "maxPoints",
+      "value": "50",
+      "type": "string"
+    },
+    {
+      "key": "now",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}
