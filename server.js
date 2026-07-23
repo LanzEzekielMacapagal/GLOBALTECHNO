@@ -8,6 +8,11 @@ const fs = require("fs");
 const multer = require("multer");
 // provide name for the server
 const server = express();
+
+// Early test POST endpoint
+server.post('/__test-post', (req, res) => {
+  res.status(200).send({ code: 200, message: 'Test POST received' });
+});
 // Declare server port
 const port = process.env.PORT || 3000;
 
@@ -319,6 +324,34 @@ const announcementSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  author: {
+    type: String,
+    default: "Admin",
+  },
+  pinned: {
+    type: Boolean,
+    default: false,
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+// Announcement Comment Schema
+const announcementCommentSchema = new mongoose.Schema({
+  announcementId: {
+    type: String,
+    required: true,
+  },
+  author: {
+    type: String,
+    default: "Student",
+  },
+  text: {
+    type: String,
+    required: true,
+  },
   pinned: {
     type: Boolean,
     default: false,
@@ -515,6 +548,7 @@ const QuizSubmission = mongoose.model("QuizSubmission", quizSubmissionSchema);
 const QuizExtraChance = mongoose.model("QuizExtraChance", quizExtraChanceSchema);
 const AssignmentExtraChance = mongoose.model("AssignmentExtraChance", assignmentExtraChanceSchema);
 const Announcement = mongoose.model("Announcement", announcementSchema);
+const AnnouncementComment = mongoose.model("AnnouncementComment", announcementCommentSchema);
 const Video = mongoose.model("Video", videoSchema);
 const ChatMessage = mongoose.model("ChatMessage", chatMessageSchema);
 const PrivateMessage = mongoose.model("PrivateMessage", privateMessageSchema);
@@ -822,6 +856,12 @@ if (db.readyState === 1) {
 
 server.use(express.json({ limit: "50mb" }));
 server.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+// Simple request logger for debugging incoming API calls
+server.use((req, res, next) => {
+  console.log("INCOMING", req.method, req.path);
+  next();
+});
 
 const escapeHtml = (value = "") => String(value)
   .replace(/&/g, "&amp;")
@@ -2213,7 +2253,7 @@ server.get("/courses/:courseId/reviewers", async (req, res) => {
   }
 });
 
-server.post("/courses/:courseId/reviewers", upload.fields([{ name: "attachments", maxCount: 10 }]), async (req, res) => {
+server.post("/courses/:courseId/reviewers", upload.fields([{ name: "attachments", maxCount: 20 }]), async (req, res) => {
   try {
     const { courseId } = req.params;
     const payload = req.body && typeof req.body === "object" ? req.body : {};
@@ -2772,11 +2812,18 @@ server.delete("/courses/:courseId/assignments/:assignmentId/submissions/:submiss
 // ANNOUNCEMENT ROUTES — CRUD
 // =============================================
 
+// Debug endpoint to verify POST reachability
+server.post("/__debug/comments-test", (req, res) => {
+  console.log("REACHED /__debug/comments-test", { method: req.method, path: req.path, headers: req.headers });
+  res.status(200).send({ code: 200, message: "Debug endpoint received POST", data: { received: true } });
+});
+
 // Post an announcement
 server.post("/announcements/add", (req, res) => {
   let newAnnouncement = new Announcement({
     classroom: req.body.classroom || "all",
     subject: req.body.subject,
+    author: req.body.author || "Admin",
     message: req.body.message,
     pinned: req.body.pinned || false,
   });
@@ -2796,6 +2843,82 @@ server.post("/announcements/add", (req, res) => {
         message: "There is an error posting the announcement.",
       });
     });
+});
+
+// Post a comment to an announcement
+server.post("/announcements/:announcementId/comments", async (req, res) => {
+  try {
+    console.log("POST /announcements/:announcementId/comments called", { params: req.params, contentType: req.headers["content-type"] });
+    const announcementId = req.params.announcementId;
+    const text = String(req.body.text || "").trim();
+    const author = String(req.body.author || "Student").trim();
+
+    if (!text) {
+      return res.status(400).send({ code: 400, message: "Comment text is required." });
+    }
+
+    // Support lookup by Mongo _id or legacy `id` field
+    const announcement = await Announcement.findOne({ $or: [{ _id: announcementId }, { id: announcementId }] });
+    if (!announcement) {
+      return res.status(404).send({ code: 404, message: "Announcement not found." });
+    }
+
+    const comment = new AnnouncementComment({
+      announcementId,
+      author: author || "Student",
+      text,
+    });
+
+    const savedComment = await comment.save();
+    res.status(201).send({ code: 201, message: "Comment posted successfully!", data: savedComment });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "There is an error posting the comment." });
+  }
+});
+
+// Get comments for an announcement
+server.get("/announcements/:announcementId/comments", async (req, res) => {
+  try {
+    const announcementId = req.params.announcementId;
+    const comments = await AnnouncementComment.find({ announcementId }).sort({ createdAt: 1 });
+    res.status(200).send({ code: 200, message: "Announcement comments fetched successfully.", data: comments });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "There is an error fetching announcement comments." });
+  }
+});
+
+// Alternative comment listing endpoint using query param (works around route param issues)
+server.get("/announcements/comments", async (req, res) => {
+  try {
+    const announcementId = String(req.query.announcementId || "");
+    if (!announcementId) return res.status(400).send({ code: 400, message: "announcementId query is required" });
+    const comments = await AnnouncementComment.find({ announcementId }).sort({ createdAt: 1 });
+    res.status(200).send({ code: 200, message: "Announcement comments fetched successfully.", data: comments });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "There is an error fetching announcement comments." });
+  }
+});
+
+// Note: comment pin/unpin feature removed. Comments are created and listed only.
+
+// Alternative comment create endpoint (accepts announcementId in body)
+server.post("/announcements/comments/add", async (req, res) => {
+  try {
+    const announcementId = String(req.body.announcementId || "").trim();
+    const text = String(req.body.text || "").trim();
+    const author = String(req.body.author || "Student").trim();
+
+    if (!announcementId || !text) return res.status(400).send({ code: 400, message: "announcementId and text are required." });
+
+    const announcement = await Announcement.findOne({ $or: [{ _id: announcementId }, { id: announcementId }] });
+    if (!announcement) return res.status(404).send({ code: 404, message: "Announcement not found." });
+
+    const comment = new AnnouncementComment({ announcementId, author: author || "Student", text });
+    const saved = await comment.save();
+    res.status(201).send({ code: 201, message: "Comment posted successfully!", data: saved });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "There is an error posting the comment." });
+  }
 });
 
 // Get all announcements
@@ -2828,11 +2951,22 @@ server.delete("/announcements/delete/:announcementId", (req, res) => {
         });
       }
 
-      res.status(200).send({
-        code: 200,
-        message: "Announcement is now deleted!",
-        data: result,
-      });
+      // also remove related comments
+      AnnouncementComment.deleteMany({ announcementId: req.params.announcementId })
+        .then(() => {
+          res.status(200).send({
+            code: 200,
+            message: "Announcement and related comments deleted.",
+            data: result,
+          });
+        })
+        .catch(() => {
+          res.status(200).send({
+            code: 200,
+            message: "Announcement deleted (failed to remove some comments).",
+            data: result,
+          });
+        });
     })
     .catch((err) => {
       res.status(500).send({

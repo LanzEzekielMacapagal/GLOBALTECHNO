@@ -578,6 +578,20 @@ body {
   gap: 1rem;
 }
 
+@media (max-width: 991.98px) {
+  .course-workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .course-workspace-panel {
+    order: 0;
+  }
+
+  .course-recorded-lessons-section .course-learner-tracker-mobile-bottom {
+    display: none;
+  }
+}
+
 .course-workspace-panel {
   padding: 1rem;
   border: 1px solid var(--gth-line);
@@ -882,6 +896,31 @@ body {
   padding: 0.75rem;
   cursor: pointer;
   list-style: none;
+}
+
+.course-resource-summary-tile {
+  border: 1px solid #dfeef2;
+  border-radius: 0.7rem;
+  background: linear-gradient(135deg, #f9fdfe 0%, #eef8fb 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.course-resource-summary-tile:hover {
+  border-color: #b8dce4;
+  background: linear-gradient(135deg, #f4fbfd 0%, #e8f6fa 100%);
+}
+
+.course-resource-summary-text {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.course-resource-summary-text strong,
+.course-resource-summary-text small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .course-resource-summary::-webkit-details-marker {
@@ -4892,6 +4931,12 @@ body {
   .file-preview-meta {
     width: 100%;
     min-width: 0;
+  }
+
+  .course-recorded-lessons-section .course-learner-tracker-mobile-bottom {
+    display: grid;
+    margin-top: 0.5rem;
+    padding-top: 0.75rem;
   }
 
   .course-resource-content {

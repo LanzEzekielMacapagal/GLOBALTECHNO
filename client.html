@@ -93,27 +93,13 @@
     <div class="student-dashboard-shell">
       <div class="section-menu-backdrop" id="sectionMenuBackdrop"></div>
       <aside class="student-section-nav" id="sectionNav" aria-label="Student sections">
-        <a href="#announcements" class="active" data-student-section-link="announcements">Announcements</a>
-        <a href="#courses" data-student-section-link="courses">Courses</a>
+        <a href="#courses" class="active" data-student-section-link="courses">Courses</a>
         <a href="#student-chat" data-student-section-link="student-chat">Class Chat</a>
         <a href="#private-messages" data-student-section-link="private-messages">Private Messages</a>
       </aside>
 
       <div class="student-section-content">
-        <section class="card student-section-card active" id="announcements" data-student-section="announcements">
-          <div class="card-body">
-            <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3">
-              <div>
-                <p class="section-label mb-1">Class updates</p>
-                <h2 class="h5 mb-0">Announcements</h2>
-              </div>
-              <span class="badge text-bg-info align-self-start" id="studentAnnouncementClass">Current classroom</span>
-            </div>
-            <div class="announcement-list vstack gap-3" id="studentAnnouncements"></div>
-          </div>
-        </section>
-
-        <section class="card student-section-card" id="courses" data-student-section="courses">
+        <section class="card student-section-card active" id="courses" data-student-section="courses">
           <div class="card-body">
             <form class="course-search course-search-wide d-flex gap-2 mb-3" role="search">
               <label class="visually-hidden" for="clientCourseSearch">Search courses</label>

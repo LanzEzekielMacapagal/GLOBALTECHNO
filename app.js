@@ -198,6 +198,114 @@ function getClassroomTitle(classroom = "") {
   return classroomTitles[classroom] || "Subject";
 }
 
+function sanitizeAnnouncementSubject(subject = "") {
+  const value = String(subject || "").trim();
+  if (!value) return "Announcement";
+  const normalized = value.toLowerCase();
+  const isIdOnly = /^[a-fA-F0-9]{16,32}$/.test(value);
+  const isAllLabel = normalized === "all" || normalized === "all subjects" || normalized === "all subject";
+  const isCourseId = getCustomCourses().some((course) => String(course._id || course.id) === value);
+  return isIdOnly || isAllLabel || isCourseId ? "Announcement" : value;
+}
+
+function getAnnouncementDisplaySubject(subject = "") {
+  return sanitizeAnnouncementSubject(subject);
+}
+
+let announcementsCache = [];
+const announcementCommentsCache = {};
+
+async function fetchAnnouncements() {
+  try {
+    const response = await fetch(getApiUrl("/announcements/all"));
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to load announcements.");
+    return Array.isArray(result.data)
+      ? result.data.map((item) => ({ ...item, id: item._id || item.id }))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+async function postAnnouncement(announcement) {
+  try {
+    const response = await fetch(getApiUrl("/announcements/add"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(announcement)
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.data) throw new Error(result.message || "Unable to save announcement.");
+    return { ...result.data, id: result.data._id || result.data.id };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchAnnouncementComments(announcementId) {
+  try {
+    const response = await fetch(getApiUrl(`/announcements/comments?announcementId=${encodeURIComponent(announcementId)}`));
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to load announcement comments.");
+    return Array.isArray(result.data)
+      ? result.data.map((item) => ({ ...item, id: item._id || item.id }))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+async function postAnnouncementComment(announcementId, text) {
+  try {
+    const response = await fetch(getApiUrl(`/announcements/comments/add`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ announcementId, author: getCurrentAuthor(), text })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.data) throw new Error(result.message || "Unable to save comment.");
+    return { ...result.data, id: result.data._id || result.data.id };
+  } catch {
+    return null;
+  }
+}
+
+async function deleteAnnouncementById(announcementId) {
+  try {
+    const response = await fetch(getApiUrl(`/announcements/delete/${encodeURIComponent(announcementId)}`), { method: "DELETE" });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function toggleAnnouncementPinById(announcementId) {
+  try {
+    const response = await fetch(getApiUrl(`/announcements/pin/${encodeURIComponent(announcementId)}`), { method: "PATCH" });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.data) throw new Error(result.message || "Unable to update pin status.");
+    return { ...result.data, id: result.data._id || result.data.id };
+  } catch {
+    return null;
+  }
+}
+
+async function loadAnnouncements() {
+  announcementsCache = await fetchAnnouncements();
+  return announcementsCache;
+}
+
+async function loadAnnouncementComments(announcementId) {
+  const comments = await fetchAnnouncementComments(announcementId);
+  announcementCommentsCache[announcementId] = comments;
+  return comments;
+}
+
+function getAnnouncementComments(announcementId) {
+  return announcementCommentsCache[announcementId] || [];
+}
+
 function getSubjectTargets(options = {}) {
   const { includeAll = true } = options;
   const targets = getCustomCourses().map((course) => ({
@@ -467,7 +575,17 @@ function renderCourseResourcesPanel(course, courseId) {
     });
   }
 
-  panel.append(videoTitle, videoList);
+  const videoSection = document.createElement("section");
+  videoSection.className = "course-recorded-lessons-section";
+  videoSection.append(videoTitle, videoList);
+
+  if (adminApp) {
+    const trackerPanel = renderCourseLearnerTracker(course, courseId);
+    trackerPanel.classList.add("course-learner-tracker-mobile-bottom");
+    videoSection.appendChild(trackerPanel);
+  }
+
+  panel.appendChild(videoSection);
   return panel;
 }
 
@@ -958,19 +1076,7 @@ function renderCourseQuizStack(courseId, options = {}) {
   }
 
   if (options.includeNext && course) {
-    const nextPanel = document.createElement("div");
-    nextPanel.className = "course-next-panel";
-    nextPanel.append(
-      createTextElement("p", "section-label mb-1", "Next up"),
-      createTextElement("h4", "h6 mb-2", nextTitle || "No upcoming task yet")
-    );
-
-    if (nextMessage) {
-      nextPanel.appendChild(createTextElement("p", "text-secondary small mb-0", nextMessage));
-    }
-
-    if (options.adminControls) nextPanel.appendChild(renderCourseNextForm(courseId, { title: nextTitle, message: nextMessage }));
-    wrapper.appendChild(nextPanel);
+    wrapper.appendChild(renderCourseAnnouncementsPanel(course, courseId));
   }
 
   if (options.includeQuizzes !== false) {
@@ -1161,10 +1267,36 @@ async function renderCourseWorkspace(courseId, triggerCard) {
   }));
 
   const resourcePanel = renderCourseResourcesPanel(course, courseId);
-  if (adminApp) resourcePanel.appendChild(renderCourseLearnerTracker(course, courseId));
   body.append(stream, resourcePanel);
   workspace.append(hero, progress, body);
   courseList.insertAdjacentElement("afterend", workspace);
+
+  // Relocate the learning tracker into the recorded lessons section on mobile.
+  // This handles the case where the tracker is rendered in a different panel
+  // (e.g., quizzes area) but should appear below recorded lessons only for small screens.
+  const relocateTrackerForMobile = () => {
+    try {
+      const videoSection = workspace.querySelector('.course-recorded-lessons-section');
+      const tracker = workspace.querySelector('.course-learner-tracker');
+      const resourcePanel = workspace.querySelector('.course-workspace-resources-panel');
+      const isMobile = window.matchMedia && window.matchMedia('(max-width: 991.98px)').matches;
+      if (!videoSection || !tracker) return;
+
+      if (isMobile) {
+        if (!videoSection.contains(tracker)) videoSection.appendChild(tracker);
+      } else {
+        // On larger screens move tracker back into the resources panel if needed
+        if (resourcePanel && !resourcePanel.contains(tracker)) resourcePanel.appendChild(tracker);
+      }
+    } catch (err) {
+      // fail silently — relocation is cosmetic
+    }
+  };
+
+  relocateTrackerForMobile();
+  const _resizeRelocateTracker = () => relocateTrackerForMobile();
+  window.addEventListener('resize', _resizeRelocateTracker);
+
   observeMotionElements(workspace);
   workspace.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "nearest" });
 }
@@ -1267,7 +1399,7 @@ function showStudentSection(sectionId, options = {}) {
 }
 
 if (studentSections.length) {
-  const initialSection = window.location.hash.replace("#", "") || "announcements";
+  const initialSection = window.location.hash.replace("#", "") || (adminApp ? "announcements" : "courses");
   showStudentSection(initialSection);
 
   studentSectionLinks.forEach((link) => {
@@ -1677,30 +1809,10 @@ function syncPostTargetSelectors() {
 
   if (!announcementSubject) return;
 
-  const currentValue = announcementSubject.value;
-  announcementSubject.replaceChildren();
-
-  const courses = getCustomCourses();
-  if (!courses.length) {
-    const option = document.createElement("option");
-    option.value = "General Reminder";
-    option.textContent = "General Reminder";
-    announcementSubject.appendChild(option);
-    return;
-  }
-
-  courses.forEach((course) => {
-    const option = document.createElement("option");
-    option.value = String(course._id || course.id);
-    option.textContent = course.title;
-    announcementSubject.appendChild(option);
-  });
-
-  if (courses.some((course) => String(course._id || course.id) === currentValue)) {
-    announcementSubject.value = currentValue;
-  } else if (courses.some((course) => course.title === currentValue)) {
-    announcementSubject.value = String(courses.find((course) => course.title === currentValue)?._id || courses.find((course) => course.title === currentValue)?.id || "");
-  }
+  const currentValue = String(announcementSubject.value || "").trim();
+  const isUnknownCourseId = /^[a-fA-F0-9]{16,32}$/.test(currentValue) || getCustomCourses().some((course) => String(course._id || course.id) === currentValue);
+  announcementSubject.value = isUnknownCourseId ? "" : currentValue;
+  announcementSubject.placeholder = "Announcement subject";
 }
 
 function normalizeSubjectCode(value = "") {
@@ -2161,13 +2273,22 @@ function renderCourseResourceItem(resource) {
   item.dataset.resourceId = resource.id;
 
   const summary = document.createElement("summary");
-  summary.className = "course-resource-summary";
-  const summaryText = document.createElement("span");
+  summary.className = "course-resource-summary course-resource-summary-tile";
+
+  const summaryText = document.createElement("div");
+  summaryText.className = "course-resource-summary-text";
   summaryText.append(
-    createTextElement("strong", "", resource.title),
-    createTextElement("small", "text-secondary d-block", resource.description || "Open to view details")
+    createTextElement("strong", "d-block", resource.title || "Reviewer item"),
+    createTextElement("small", "text-secondary", resource.description || "Open to view the uploaded files")
   );
-  summary.append(summaryText, createTextElement("span", "badge text-bg-info", "View"));
+
+  const attachmentCount = Array.isArray(resource.attachments) ? resource.attachments.length : 0;
+  const badgeText = attachmentCount > 0 ? `${attachmentCount} file${attachmentCount > 1 ? "s" : ""}` : "Open";
+  const summaryBadge = document.createElement("span");
+  summaryBadge.className = "badge text-bg-info";
+  summaryBadge.textContent = badgeText;
+
+  summary.append(summaryText, summaryBadge);
 
   const content = document.createElement("div");
   content.className = "course-resource-content";
@@ -4509,7 +4630,7 @@ document.addEventListener("submit", async (event) => {
     setFormStatus(resourceForm, "Add a reviewer title and choose at least one file.");
     return;
   }
- x
+
   const formData = new FormData();
   formData.append("title", title);
   formData.append("description", "");
@@ -5148,15 +5269,6 @@ function formatDateTime(value) {
 function isPastDue(value) {
   return Boolean(value) && new Date(value).getTime() <= Date.now();
 }
-
-function getAllAnnouncementComments() {
-  return getStoredItems("gthAnnouncementComments", []);
-}
-
-function getAnnouncementComments(announcementId) {
-  return getAllAnnouncementComments().filter((comment) => comment.announcementId === announcementId);
-}
-
 function renderAnnouncementCard(announcement, options = {}) {
   const article = document.createElement("article");
   article.className = "announcement-item";
@@ -5172,10 +5284,12 @@ function renderAnnouncementCard(announcement, options = {}) {
     meta.appendChild(pinned);
   }
 
-  const classroom = document.createElement("span");
-  classroom.className = "badge text-bg-info";
-  classroom.textContent = getClassroomTitle(announcement.classroom);
-  meta.appendChild(classroom);
+  if (options.admin) {
+    const classroom = document.createElement("span");
+    classroom.className = "badge text-bg-info";
+    classroom.textContent = getClassroomTitle(announcement.classroom);
+    meta.appendChild(classroom);
+  }
 
   const time = document.createElement("small");
   time.className = "text-secondary";
@@ -5197,7 +5311,7 @@ function renderAnnouncementCard(announcement, options = {}) {
 
   const subject = document.createElement("h3");
   subject.className = "h6 mb-1";
-  subject.textContent = announcement.subject;
+  subject.textContent = getAnnouncementDisplaySubject(announcement.subject);
 
   const message = document.createElement("p");
   message.className = "mb-0 text-secondary";
@@ -5222,21 +5336,35 @@ function renderAnnouncementCard(announcement, options = {}) {
     empty.textContent = "No comments yet.";
     commentsList.appendChild(empty);
   } else {
-    comments.forEach((comment) => {
-      const commentItem = document.createElement("div");
-      commentItem.className = "announcement-comment";
+    // pinned comments first
+    comments
+      .slice()
+      .sort((a, b) => (b.pinned === true) - (a.pinned === true) || new Date(a.createdAt) - new Date(b.createdAt))
+      .forEach((comment) => {
+        const commentItem = document.createElement("div");
+        commentItem.className = "announcement-comment d-flex justify-content-between align-items-start";
 
-      const commentMeta = document.createElement("small");
-      commentMeta.className = "text-secondary d-block";
-      commentMeta.textContent = `${comment.author} - ${formatDate(comment.createdAt)}`;
+        const left = document.createElement("div");
+        left.className = "flex-grow-1 me-2";
 
-      const commentText = document.createElement("p");
-      commentText.className = "mb-0";
-      commentText.textContent = comment.text;
+        const commentMeta = document.createElement("small");
+        commentMeta.className = "text-secondary d-block";
+        commentMeta.textContent = `${comment.author} - ${formatDate(comment.createdAt)}`;
 
-      commentItem.append(commentMeta, commentText);
-      commentsList.appendChild(commentItem);
-    });
+        const commentText = document.createElement("p");
+        commentText.className = "mb-0";
+        commentText.textContent = comment.text;
+
+        left.append(commentMeta, commentText);
+
+        const right = document.createElement("div");
+        right.className = "d-flex flex-column align-items-end gap-1";
+
+        // No pin controls for comments (feature removed)
+
+        commentItem.append(left, right);
+        commentsList.appendChild(commentItem);
+      });
   }
 
   const commentForm = document.createElement("form");
@@ -5291,86 +5419,95 @@ function renderAnnouncementCard(announcement, options = {}) {
   return article;
 }
 
-function getAnnouncements() {
-  const stored = getStoredItems("gthAnnouncements", null);
-  if (stored) {
-    const cleaned = removeDeprecatedSubjectItems(stored);
-    if (cleaned.length !== stored.length) saveStoredItems("gthAnnouncements", cleaned);
-    return cleaned;
+function renderCourseAnnouncementsPanel(course, courseId) {
+  const panel = document.createElement("div");
+  panel.className = "course-next-panel course-announcements-panel";
+  panel.append(
+    createTextElement("p", "section-label mb-1", "Announcements"),
+    createTextElement("h4", "h6 mb-2", "Course updates")
+  );
+
+  const announcements = getAnnouncements()
+    .filter((announcement) => announcement.classroom === "all" || String(announcement.classroom) === String(courseId))
+    .sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+
+  if (!announcements.length) {
+    panel.appendChild(createTextElement("p", "text-secondary small mb-0", "No announcements posted for this course yet."));
+    return panel;
   }
 
-  saveStoredItems("gthAnnouncements", demoAnnouncements);
-  return demoAnnouncements;
+  announcements.forEach((announcement) => {
+    panel.appendChild(renderAnnouncementCard(announcement, { admin: Boolean(adminApp) }));
+  });
+  return panel;
 }
 
-function renderAnnouncements() {
-  const announcements = getAnnouncements().sort((a, b) => {
+async function renderAnnouncements() {
+  const announcements = (await loadAnnouncements()).sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     return new Date(b.createdAt) - new Date(a.createdAt);
   });
 
+  await Promise.all(announcements.map((announcement) => loadAnnouncementComments(announcement.id)));
+
   if (adminAnnouncements) {
     adminAnnouncements.replaceChildren();
-    announcements.forEach((announcement) => {
-      adminAnnouncements.appendChild(renderAnnouncementCard(announcement, { admin: true }));
-    });
-
+    const announcementCards = announcements.map((announcement) => renderAnnouncementCard(announcement, { admin: true }));
+    announcementCards.forEach((card) => adminAnnouncements.appendChild(card));
     observeMotionElements(adminAnnouncements);
   }
 
   if (studentAnnouncements) {
-    const classroomAnnouncements = announcements.filter(isVisibleForSelectedClassroom);
-
     studentAnnouncements.replaceChildren();
     if (studentAnnouncementClass) studentAnnouncementClass.textContent = selectedClassroomTitle;
 
-    if (!classroomAnnouncements.length) {
-      const empty = document.createElement("p");
-      empty.className = "text-secondary mb-0";
-      empty.textContent = "No announcements for this classroom yet.";
-      studentAnnouncements.appendChild(empty);
-      return;
-    }
-
-    classroomAnnouncements.forEach((announcement) => {
-      studentAnnouncements.appendChild(renderAnnouncementCard(announcement));
-    });
-
-    observeMotionElements(studentAnnouncements);
+    const notice = document.createElement("p");
+    notice.className = "text-secondary mb-0";
+    notice.textContent = "Course announcements are now shown inside the course workspace.";
+    studentAnnouncements.appendChild(notice);
   }
 }
 
-announcementForm?.addEventListener("submit", (event) => {
+function getAnnouncements() {
+  return announcementsCache;
+}
+
+announcementForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  const announcements = getAnnouncements();
   const announcement = {
-    id: `announcement-${Date.now()}`,
     classroom: document.querySelector("#announcementClassroom").value,
-    subject: document.querySelector("#announcementSubject").value,
+    subject: sanitizeAnnouncementSubject(String(document.querySelector("#announcementSubject").value || "").trim() || "Announcement"),
     message: document.querySelector("#announcementMessage").value.trim(),
-    pinned: document.querySelector("#announcementPinned").checked,
-    createdAt: new Date().toISOString()
+    pinned: document.querySelector("#announcementPinned").checked
   };
+
+  // include author so server can record who posted
+  announcement.author = getCurrentAuthor();
 
   if (!announcement.message) return;
 
-  announcements.unshift(announcement);
-  saveStoredItems("gthAnnouncements", announcements);
+  const savedAnnouncement = await postAnnouncement(announcement);
+  if (!savedAnnouncement) return;
+
   addNotification({
     type: "announcement",
     section: "announcements",
-    classroom: announcement.classroom,
-    audience: { role: "student", classroom: announcement.classroom },
-    title: `New announcement: ${announcement.subject}`,
-    message: announcement.message,
-    createdAt: announcement.createdAt
+    classroom: savedAnnouncement.classroom,
+    audience: { role: "student", classroom: savedAnnouncement.classroom },
+    title: `New announcement: ${savedAnnouncement.subject}`,
+    message: savedAnnouncement.message,
+    createdAt: savedAnnouncement.createdAt
   });
+
   announcementForm.reset();
-  renderAnnouncements();
+  await renderAnnouncements();
 });
 
-document.addEventListener("submit", (event) => {
+document.addEventListener("submit", async (event) => {
   const form = event.target.closest("[data-announcement-comment-form]");
   if (!form) return;
 
@@ -5380,21 +5517,22 @@ document.addEventListener("submit", (event) => {
   const text = input.value.trim();
   if (!text) return;
 
-  const comments = getAllAnnouncementComments();
-  comments.push({
-    id: `announcement-comment-${Date.now()}`,
-    announcementId: form.dataset.announcementCommentForm,
-    author: getCurrentAuthor(),
-    text,
-    createdAt: new Date().toISOString()
-  });
+  const announcementId = form.dataset.announcementCommentForm;
+  const savedComment = await postAnnouncementComment(announcementId, text);
+  if (!savedComment) return;
 
-  saveStoredItems("gthAnnouncementComments", comments);
+  announcementCommentsCache[announcementId] = [
+    ...(announcementCommentsCache[announcementId] || []),
+    savedComment
+  ];
+
   input.value = "";
-  renderAnnouncements();
+  await renderAnnouncements();
 });
 
-document.addEventListener("click", (event) => {
+document.addEventListener("click", async (event) => {
+  // comment-action buttons removed (pin feature disabled)
+
   const actionButton = event.target.closest("[data-announcement-action]");
   if (!actionButton) return;
 
@@ -5411,20 +5549,14 @@ document.addEventListener("click", (event) => {
   const announcementId = actionButton.dataset.announcementId;
 
   if (actionButton.dataset.announcementAction === "remove") {
-    saveStoredItems("gthAnnouncements", announcements.filter((item) => item.id !== announcementId));
-    saveStoredItems("gthAnnouncementComments", getAllAnnouncementComments().filter((item) => item.announcementId !== announcementId));
-    renderAnnouncements();
+    await deleteAnnouncementById(announcementId);
+    await renderAnnouncements();
     return;
   }
 
   if (actionButton.dataset.announcementAction === "toggle-pin") {
-    const updatedAnnouncements = announcements.map((item) => {
-      if (item.id !== announcementId) return item;
-      return { ...item, pinned: !item.pinned };
-    });
-
-    saveStoredItems("gthAnnouncements", updatedAnnouncements);
-    renderAnnouncements();
+    await toggleAnnouncementPinById(announcementId);
+    await renderAnnouncements();
   }
 });
 
