@@ -1032,6 +1032,7 @@ async function renderCourseWorkspace(courseId, triggerCard) {
   if (!course || !courseList) return;
 
   await loadServerVideos();
+  await loadServerCourseResources(courseId);
   await loadServerQuizzes(courseId);
   await loadServerQuizSubmissions(courseId);
   await loadServerEnrolledStudents(courseId);
@@ -1719,12 +1720,37 @@ function isCourseJoined(course) {
   return Boolean(course?.isJoined);
 }
 
+let serverCourseResources = [];
+
 function getCourseResources() {
-  return getStoredItems("gthCourseResources", []);
+  return Array.isArray(serverCourseResources) && serverCourseResources.length
+    ? serverCourseResources
+    : getStoredItems("gthCourseResources", []);
 }
 
 function saveCourseResources(resources) {
-  return saveStoredItems("gthCourseResources", resources);
+  serverCourseResources = Array.isArray(resources) ? resources : [];
+  saveStoredItems("gthCourseResources", serverCourseResources);
+  return true;
+}
+
+async function loadServerCourseResources(courseId = "") {
+  if (!courseId) {
+    serverCourseResources = [];
+    return serverCourseResources;
+  }
+
+  try {
+    const response = await fetch(getApiUrl(`/courses/${encodeURIComponent(courseId)}/reviewers`));
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to load reviewers.");
+    serverCourseResources = Array.isArray(result.data) ? result.data : [];
+    return serverCourseResources;
+  } catch (error) {
+    console.error("Error loading reviewers from server:", error);
+    serverCourseResources = [];
+    return serverCourseResources;
+  }
 }
 
 let serverQuizzes = [];
@@ -2147,10 +2173,16 @@ function renderCourseResourceItem(resource) {
   content.className = "course-resource-content";
   if (resource.description) content.appendChild(createTextElement("p", "text-secondary small mb-2", resource.description));
 
-  if (resource.file?.name || resource.link) {
-    if (resource.file?.name) {
-      content.appendChild(renderFileTile(resource.file, { className: "course-resource-file file-preview-tile" }));
-    }
+  const attachments = Array.isArray(resource.attachments) && resource.attachments.length
+    ? resource.attachments
+    : (resource.file ? [resource.file] : []);
+
+  if (attachments.length || resource.link) {
+    attachments.forEach((file) => {
+      if (file?.name || file?.filename || file?.originalname || file?.path || file?.url) {
+        content.appendChild(renderFileTile(file, { className: "course-resource-file file-preview-tile" }));
+      }
+    });
 
     if (resource.link) {
       const linkTile = document.createElement("div");
@@ -2413,12 +2445,82 @@ function renderCourseResourceForm(courseId) {
   title.placeholder = "Reviewer title";
   title.required = true;
 
+  const fileLabel = document.createElement("label");
+  fileLabel.className = "form-label small fw-bold mb-0";
+  fileLabel.textContent = "Attach reviewer files";
+
   const file = document.createElement("input");
-  file.className = "form-control form-control-sm";
-  file.name = "file";
+  file.className = "d-none";
+  file.name = "attachments";
   file.type = "file";
-  file.accept = ".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-  file.required = true;
+  file.accept = ".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.gif,.webp,.ppt,.pptx,.xls,.xlsx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/*,text/plain";
+  file.multiple = true;
+  file.setAttribute("data-multi-file-picker", "true");
+  file.setAttribute("aria-label", "Select one or more reviewer files");
+
+  const addFileButton = document.createElement("button");
+  addFileButton.type = "button";
+  addFileButton.className = "btn btn-outline-primary btn-sm align-self-start";
+  addFileButton.textContent = "Add files";
+  addFileButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    file.click();
+  });
+
+  const fileSummary = document.createElement("div");
+  fileSummary.className = "small text-secondary mt-1";
+  const fileSummaryTitle = document.createElement("div");
+  fileSummaryTitle.className = "fw-semibold";
+  fileSummaryTitle.textContent = "No files selected yet.";
+  const fileSummaryList = document.createElement("div");
+  fileSummaryList.className = "mt-1";
+  fileSummary.append(fileSummaryTitle, fileSummaryList);
+
+  const selectedReviewerFiles = [];
+  const updateFileSummary = () => {
+    const selectedFiles = selectedReviewerFiles.slice();
+    fileSummaryTitle.textContent = selectedFiles.length ? `Selected files (${selectedFiles.length})` : "No files selected yet.";
+    fileSummaryList.replaceChildren();
+
+    if (!selectedFiles.length) {
+      const hint = document.createElement("span");
+      hint.textContent = "Use the button above to add files to this reviewer post.";
+      fileSummaryList.appendChild(hint);
+      return;
+    }
+
+    const filesList = document.createElement("ul");
+    filesList.className = "mb-0 ps-3";
+    selectedFiles.forEach((selectedFile) => {
+      const item = document.createElement("li");
+      item.textContent = selectedFile.name;
+      filesList.appendChild(item);
+    });
+    fileSummaryList.appendChild(filesList);
+  };
+
+  const addFilesToSelection = (incomingFiles = []) => {
+    incomingFiles.forEach((incomingFile) => {
+      const duplicate = selectedReviewerFiles.some((selectedFile) => {
+        return selectedFile.name === incomingFile.name && selectedFile.size === incomingFile.size && selectedFile.lastModified === incomingFile.lastModified;
+      });
+      if (!duplicate) {
+        selectedReviewerFiles.push(incomingFile);
+      }
+    });
+    file.__selectedReviewerFiles = selectedReviewerFiles;
+    form.__selectedReviewerFiles = selectedReviewerFiles;
+    updateFileSummary();
+  };
+
+  file.addEventListener("change", () => {
+    const incomingFiles = Array.from(file.files || []);
+    if (incomingFiles.length) {
+      addFilesToSelection(incomingFiles);
+    }
+    file.value = "";
+  });
+  updateFileSummary();
 
   const button = document.createElement("button");
   button.className = "btn btn-primary btn-sm align-self-start";
@@ -2432,7 +2534,10 @@ function renderCourseResourceForm(courseId) {
   form.append(
     createTextElement("strong", "small", "Upload reviewer"),
     title,
+    fileLabel,
+    addFileButton,
     file,
+    fileSummary,
     button,
     status
   );
@@ -4274,6 +4379,40 @@ async function showQuizConfirmModal({ modalId, titleText, messageText, confirmLa
   });
 }
 
+function showGthToast({ title = "Success", message = "Done.", variant = "success" }) {
+  document.querySelectorAll(".gth-toast").forEach((toast) => toast.remove());
+
+  const toast = document.createElement("div");
+  toast.className = `gth-toast gth-toast-${variant}`;
+  toast.setAttribute("role", "status");
+  toast.setAttribute("aria-live", "polite");
+  toast.innerHTML = `
+    <div class="gth-toast-icon">${variant === "warning" ? "!" : "✓"}</div>
+    <div class="gth-toast-content">
+      <div class="gth-toast-title">${title}</div>
+      <div class="gth-toast-message">${message}</div>
+    </div>
+  `;
+
+  document.body.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("show"));
+
+  window.setTimeout(() => {
+    toast.classList.remove("show");
+    window.setTimeout(() => toast.remove(), 220);
+  }, 2200);
+}
+
+async function showDeleteVideoModal(video) {
+  return showQuizConfirmModal({
+    modalId: "deleteVideoModal",
+    titleText: "Delete video?",
+    messageText: `This will remove "${video.title}" from the database and from the course view. This action cannot be undone.`,
+    confirmLabel: "Delete video",
+    confirmClass: "btn btn-danger btn-sm"
+  });
+}
+
 async function showDeleteQuizModal(quiz) {
   return showQuizConfirmModal({
     modalId: "deleteQuizModal",
@@ -4359,42 +4498,55 @@ document.addEventListener("submit", async (event) => {
   event.preventDefault();
   setFormStatus(resourceForm);
   const courseId = resourceForm.dataset.courseResourceForm;
-  const selectedFile = resourceForm.elements.file.files?.[0];
   const title = resourceForm.elements.title.value.trim();
-  const file = await readStorageFile(selectedFile);
-  if (!title || !file) {
-    setFormStatus(resourceForm, "Add a reviewer title and choose a PDF or DOCX file.");
+  const selectedFiles = Array.isArray(resourceForm.__selectedReviewerFiles) && resourceForm.__selectedReviewerFiles.length
+    ? resourceForm.__selectedReviewerFiles.slice()
+    : (Array.isArray(resourceForm.elements.attachments.__selectedReviewerFiles) && resourceForm.elements.attachments.__selectedReviewerFiles.length
+      ? resourceForm.elements.attachments.__selectedReviewerFiles.slice()
+      : Array.from(resourceForm.elements.attachments.files || []));
+
+  if (!title || !selectedFiles.length) {
+    setFormStatus(resourceForm, "Add a reviewer title and choose at least one file.");
     return;
   }
+ x
+  const formData = new FormData();
+  formData.append("title", title);
+  formData.append("description", "");
+  selectedFiles.forEach((file) => formData.append("attachments", file));
 
-  const resources = getCourseResources();
-  const resource = {
-    id: `course-resource-${Date.now()}`,
-    courseId,
-    title,
-    description: "",
-    link: "",
-    file,
-    createdAt: new Date().toISOString()
-  };
-  resources.unshift(resource);
+  try {
+    const response = await fetch(getApiUrl(`/courses/${encodeURIComponent(courseId)}/reviewers`), {
+      method: "POST",
+      body: formData
+    });
+    const result = await response.json().catch(() => ({}));
 
-  if (!saveCourseResources(resources)) {
-    setFormStatus(resourceForm, "This reviewer file could not be saved. Try a smaller PDF/DOCX or remove older uploaded files first.");
-    return;
+    if (!response.ok) {
+      throw new Error(result.message || "Unable to upload reviewer files.");
+    }
+
+    addNotification({
+      type: "resource",
+      section: "courses",
+      courseId,
+      audience: { role: "student" },
+      title: `New reviewer: ${title}`,
+      message: getCourseTitle(courseId),
+      createdAt: new Date().toISOString()
+    });
+
+    resourceForm.reset();
+    resourceForm.__selectedReviewerFiles = [];
+    if (resourceForm.elements.attachments.__selectedReviewerFiles) {
+      resourceForm.elements.attachments.__selectedReviewerFiles.splice(0, resourceForm.elements.attachments.__selectedReviewerFiles.length);
+    }
+    setFormStatus(resourceForm, "Reviewer uploaded for students.", "success");
+    await loadServerCourseResources(courseId);
+    refreshOpenCourseWorkspace(courseId);
+  } catch (error) {
+    setFormStatus(resourceForm, error.message || "This reviewer upload could not be completed.");
   }
-  addNotification({
-    type: "resource",
-    section: "courses",
-    courseId,
-    audience: { role: "student" },
-    title: `New reviewer: ${title}`,
-    message: getCourseTitle(courseId),
-    createdAt: resource.createdAt
-  });
-  resourceForm.reset();
-  setFormStatus(resourceForm, "Reviewer uploaded for students.", "success");
-  refreshOpenCourseWorkspace(courseId);
 });
 
 document.addEventListener("submit", async (event) => {
@@ -4786,8 +4938,14 @@ document.addEventListener("click", async (event) => {
 
   const copyInvite = event.target.closest("[data-copy-invite-code]");
   if (copyInvite) {
-    navigator.clipboard?.writeText(copyInvite.dataset.copyInviteCode || "");
+    const inviteValue = copyInvite.dataset.copyInviteCode || "";
+    navigator.clipboard?.writeText(inviteValue);
     copyInvite.textContent = "Copied";
+    showGthToast({
+      title: "Invitation code copied",
+      message: "Successfully copied the invitation code.",
+      variant: "success"
+    });
     window.setTimeout(() => {
       copyInvite.textContent = "Copy";
     }, 1400);
@@ -4796,8 +4954,14 @@ document.addEventListener("click", async (event) => {
 
   const copyLiveSession = event.target.closest("[data-copy-live-session-link]");
   if (copyLiveSession) {
-    navigator.clipboard?.writeText(copyLiveSession.dataset.copyLiveSessionLink || "");
+    const liveValue = copyLiveSession.dataset.copyLiveSessionLink || "";
+    navigator.clipboard?.writeText(liveValue);
     copyLiveSession.textContent = "Copied";
+    showGthToast({
+      title: "Live link copied",
+      message: "Successfully copied the live session link.",
+      variant: "success"
+    });
     window.setTimeout(() => {
       copyLiveSession.textContent = "Copy";
     }, 1400);
@@ -4807,8 +4971,20 @@ document.addEventListener("click", async (event) => {
   const resourceButton = event.target.closest("[data-course-resource-action='remove']");
   if (resourceButton) {
     const resource = getCourseResources().find((item) => item.id === resourceButton.dataset.resourceId);
-    saveCourseResources(getCourseResources().filter((item) => item.id !== resourceButton.dataset.resourceId));
-    if (resource) refreshOpenCourseWorkspace(resource.courseId);
+    if (!resource) return;
+
+    try {
+      const response = await fetch(getApiUrl(`/courses/${encodeURIComponent(resource.courseId)}/reviewers/${encodeURIComponent(resource.id)}`), {
+        method: "DELETE"
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "Unable to remove reviewer.");
+      await loadServerCourseResources(resource.courseId);
+      refreshOpenCourseWorkspace(resource.courseId);
+    } catch (error) {
+      console.error("Unable to remove reviewer:", error);
+      window.alert(error.message || "Unable to remove reviewer.");
+    }
     return;
   }
 
@@ -5613,11 +5789,12 @@ function renderCourseVideoItem(video) {
   actions.appendChild(watchButton);
 
   const copyButton = document.createElement("button");
-  copyButton.className = "btn btn-outline-secondary btn-sm";
+  copyButton.className = adminApp ? "btn btn-outline-primary btn-sm" : "btn btn-outline-secondary btn-sm";
   copyButton.type = "button";
   copyButton.dataset.videoAction = "copy";
   copyButton.dataset.videoId = video._id || video.id;
   copyButton.textContent = "Copy";
+  copyButton.setAttribute("aria-label", `Copy link for ${video.title}`);
   actions.appendChild(copyButton);
 
   if (adminApp) {
@@ -5767,11 +5944,12 @@ function renderVideoCard(video, options = {}) {
   actions.appendChild(watchButton);
 
   const copyButton = document.createElement("button");
-  copyButton.className = "btn btn-outline-secondary btn-sm";
+  copyButton.className = options.admin ? "btn btn-outline-primary btn-sm" : "btn btn-outline-secondary btn-sm";
   copyButton.type = "button";
   copyButton.dataset.videoAction = "copy";
   copyButton.dataset.videoId = video._id || video.id;
   copyButton.textContent = "Copy";
+  copyButton.setAttribute("aria-label", `Copy link for ${video.title}`);
   actions.appendChild(copyButton);
 
   if (options.admin) {
@@ -5898,6 +6076,9 @@ document.addEventListener("click", async (event) => {
   if (actionButton.dataset.videoAction === "remove") {
     if (!adminApp) return;
 
+    const confirmed = await showDeleteVideoModal(video);
+    if (!confirmed) return;
+
     try {
       const response = await fetch(getApiUrl(`/videos/delete/${videoId}`), {
         method: "DELETE",
@@ -5915,9 +6096,19 @@ document.addEventListener("click", async (event) => {
       } else {
         refreshOpenCourseWorkspace(video.classroom);
       }
+
+      showGthToast({
+        title: "Video removed",
+        message: "The video post was deleted successfully.",
+        variant: "warning"
+      });
     } catch (error) {
       console.error("Error deleting video:", error);
-      window.alert("Failed to delete video: " + error.message);
+      showGthToast({
+        title: "Delete failed",
+        message: error.message || "Unable to remove the video right now.",
+        variant: "warning"
+      });
     }
     return;
   }
@@ -5953,11 +6144,20 @@ document.addEventListener("click", async (event) => {
         actionButton.classList.add("btn-outline-secondary");
       }, 1400);
       if (link) {
+        showGthToast({
+          title: "Video link copied",
+          message: "Successfully copied video link.",
+          variant: "success"
+        });
         console.info("Video link copied", link);
       }
     } catch (error) {
       console.error("Unable to copy video link:", error);
-      window.alert(error.message || "Unable to copy the video link.");
+      showGthToast({
+        title: "Copy failed",
+        message: error.message || "Unable to copy the video link.",
+        variant: "warning"
+      });
     }
   }
 });

@@ -2188,6 +2188,94 @@ server.delete("/courses/delete/:courseId", async (req, res) => {
 });
 
 // =============================================
+// REVIEWER ROUTES — CRUD
+// =============================================
+
+const reviewerSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  courseId: { type: String, required: true, index: true },
+  title: { type: String, required: true },
+  description: { type: String, default: "" },
+  attachments: { type: Array, default: [] },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+const Reviewer = mongoose.model("Reviewer", reviewerSchema);
+
+server.get("/courses/:courseId/reviewers", async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const reviewers = await Reviewer.find({ courseId }).sort({ createdAt: -1 }).lean();
+    res.status(200).send({ code: 200, data: reviewers });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "Error fetching reviewers." });
+  }
+});
+
+server.post("/courses/:courseId/reviewers", upload.fields([{ name: "attachments", maxCount: 10 }]), async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const payload = req.body && typeof req.body === "object" ? req.body : {};
+    const title = String(payload.title || "").trim();
+    const description = String(payload.description || "").trim();
+
+    if (!courseId) {
+      return res.status(400).send({ code: 400, message: "Course ID is required." });
+    }
+    if (!title) {
+      return res.status(400).send({ code: 400, message: "Reviewer title is required." });
+    }
+
+    const uploadedFiles = Array.isArray(req.files?.attachments)
+      ? req.files.attachments.map((file) => ({
+          name: String(file.originalname || ""),
+          filename: String(file.filename || ""),
+          originalname: String(file.originalname || ""),
+          mimetype: String(file.mimetype || ""),
+          type: String(file.mimetype || ""),
+          size: Number(file.size || 0),
+          path: `/uploads/assignments/${String(file.filename || "")}`,
+          url: `/uploads/assignments/${String(file.filename || "")}`
+        }))
+      : [];
+
+    if (!uploadedFiles.length) {
+      return res.status(400).send({ code: 400, message: "Please attach at least one file." });
+    }
+
+    const reviewer = await Reviewer.create({
+      id: `reviewer-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      courseId,
+      title,
+      description,
+      attachments: uploadedFiles,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    res.status(201).send({ code: 201, message: "Reviewer uploaded successfully.", data: reviewer });
+  } catch (error) {
+    console.error("Reviewer creation error:", error.message);
+    res.status(500).send({ code: 500, message: "Error uploading reviewer." });
+  }
+});
+
+server.delete("/courses/:courseId/reviewers/:reviewerId", async (req, res) => {
+  try {
+    const { courseId, reviewerId } = req.params;
+    const reviewer = await Reviewer.findOneAndDelete({ courseId, id: reviewerId });
+    if (!reviewer) {
+      return res.status(404).send({ code: 404, message: "Reviewer not found." });
+    }
+
+    res.status(200).send({ code: 200, message: "Reviewer deleted successfully." });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "Error deleting reviewer." });
+  }
+});
+
+// =============================================
 // ASSIGNMENT ROUTES — CRUD
 // =============================================
 
