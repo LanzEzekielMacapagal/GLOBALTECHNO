@@ -8,11 +8,6 @@ const fs = require("fs");
 const multer = require("multer");
 // provide name for the server
 const server = express();
-
-// Early test POST endpoint
-server.post('/__test-post', (req, res) => {
-  res.status(200).send({ code: 200, message: 'Test POST received' });
-});
 // Declare server port
 const port = process.env.PORT || 3000;
 
@@ -355,6 +350,15 @@ const announcementCommentSchema = new mongoose.Schema({
   pinned: {
     type: Boolean,
     default: false,
+  },
+  replies: {
+    type: [{
+      _id: { type: mongoose.Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
+      author: { type: String, default: "Student" },
+      text: { type: String, required: true },
+      createdAt: { type: Date, default: Date.now }
+    }],
+    default: []
   },
   createdAt: {
     type: Date,
@@ -856,12 +860,6 @@ if (db.readyState === 1) {
 
 server.use(express.json({ limit: "50mb" }));
 server.use(express.urlencoded({ extended: true, limit: "50mb" }));
-
-// Simple request logger for debugging incoming API calls
-server.use((req, res, next) => {
-  console.log("INCOMING", req.method, req.path);
-  next();
-});
 
 const escapeHtml = (value = "") => String(value)
   .replace(/&/g, "&amp;")
@@ -2812,12 +2810,6 @@ server.delete("/courses/:courseId/assignments/:assignmentId/submissions/:submiss
 // ANNOUNCEMENT ROUTES — CRUD
 // =============================================
 
-// Debug endpoint to verify POST reachability
-server.post("/__debug/comments-test", (req, res) => {
-  console.log("REACHED /__debug/comments-test", { method: req.method, path: req.path, headers: req.headers });
-  res.status(200).send({ code: 200, message: "Debug endpoint received POST", data: { received: true } });
-});
-
 // Post an announcement
 server.post("/announcements/add", (req, res) => {
   let newAnnouncement = new Announcement({
@@ -2848,7 +2840,6 @@ server.post("/announcements/add", (req, res) => {
 // Post a comment to an announcement
 server.post("/announcements/:announcementId/comments", async (req, res) => {
   try {
-    console.log("POST /announcements/:announcementId/comments called", { params: req.params, contentType: req.headers["content-type"] });
     const announcementId = req.params.announcementId;
     const text = String(req.body.text || "").trim();
     const author = String(req.body.author || "Student").trim();
@@ -2857,8 +2848,7 @@ server.post("/announcements/:announcementId/comments", async (req, res) => {
       return res.status(400).send({ code: 400, message: "Comment text is required." });
     }
 
-    // Support lookup by Mongo _id or legacy `id` field
-    const announcement = await Announcement.findOne({ $or: [{ _id: announcementId }, { id: announcementId }] });
+    const announcement = await Announcement.findOne({ _id: announcementId });
     if (!announcement) {
       return res.status(404).send({ code: 404, message: "Announcement not found." });
     }
@@ -2887,37 +2877,51 @@ server.get("/announcements/:announcementId/comments", async (req, res) => {
   }
 });
 
-// Alternative comment listing endpoint using query param (works around route param issues)
-server.get("/announcements/comments", async (req, res) => {
+// Toggle pin on a comment
+server.patch("/announcements/comments/:commentId/pin", async (req, res) => {
   try {
-    const announcementId = String(req.query.announcementId || "");
-    if (!announcementId) return res.status(400).send({ code: 400, message: "announcementId query is required" });
-    const comments = await AnnouncementComment.find({ announcementId }).sort({ createdAt: 1 });
-    res.status(200).send({ code: 200, message: "Announcement comments fetched successfully.", data: comments });
+    const commentId = req.params.commentId;
+    const comment = await AnnouncementComment.findOne({ _id: commentId });
+    if (!comment) return res.status(404).send({ code: 404, message: "Comment not found." });
+
+    comment.pinned = !comment.pinned;
+    const updated = await comment.save();
+    res.status(200).send({ code: 200, message: "Comment pin status updated.", data: updated });
   } catch (error) {
-    res.status(500).send({ code: 500, message: "There is an error fetching announcement comments." });
+    res.status(500).send({ code: 500, message: "Error updating comment pin status." });
   }
 });
 
-// Note: comment pin/unpin feature removed. Comments are created and listed only.
-
-// Alternative comment create endpoint (accepts announcementId in body)
-server.post("/announcements/comments/add", async (req, res) => {
+// Add a reply to a comment
+server.post("/announcements/comments/:commentId/replies", async (req, res) => {
   try {
-    const announcementId = String(req.body.announcementId || "").trim();
-    const text = String(req.body.text || "").trim();
+    const commentId = req.params.commentId;
+    const text = String(req.body.text || req.body.reply || "").trim();
     const author = String(req.body.author || "Student").trim();
 
-    if (!announcementId || !text) return res.status(400).send({ code: 400, message: "announcementId and text are required." });
+    if (!text) {
+      return res.status(400).send({ code: 400, message: "Reply text is required." });
+    }
 
-    const announcement = await Announcement.findOne({ $or: [{ _id: announcementId }, { id: announcementId }] });
-    if (!announcement) return res.status(404).send({ code: 404, message: "Announcement not found." });
+    const comment = await AnnouncementComment.findOne({ _id: commentId });
+    if (!comment) {
+      return res.status(404).send({ code: 404, message: "Comment not found." });
+    }
 
-    const comment = new AnnouncementComment({ announcementId, author: author || "Student", text });
-    const saved = await comment.save();
-    res.status(201).send({ code: 201, message: "Comment posted successfully!", data: saved });
+    const reply = {
+      _id: new mongoose.Types.ObjectId(),
+      author: author || "Student",
+      text,
+      createdAt: new Date()
+    };
+
+    comment.replies = Array.isArray(comment.replies) ? comment.replies : [];
+    comment.replies.push(reply);
+    const updatedComment = await comment.save();
+
+    res.status(201).send({ code: 201, message: "Reply posted successfully!", data: updatedComment });
   } catch (error) {
-    res.status(500).send({ code: 500, message: "There is an error posting the comment." });
+    res.status(500).send({ code: 500, message: "There is an error posting the reply." });
   }
 });
 

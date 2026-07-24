@@ -245,7 +245,7 @@ async function postAnnouncement(announcement) {
 
 async function fetchAnnouncementComments(announcementId) {
   try {
-    const response = await fetch(getApiUrl(`/announcements/comments?announcementId=${encodeURIComponent(announcementId)}`));
+    const response = await fetch(getApiUrl(`/announcements/${encodeURIComponent(announcementId)}/comments`));
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.message || "Unable to load announcement comments.");
     return Array.isArray(result.data)
@@ -258,13 +258,39 @@ async function fetchAnnouncementComments(announcementId) {
 
 async function postAnnouncementComment(announcementId, text) {
   try {
-    const response = await fetch(getApiUrl(`/announcements/comments/add`), {
+    const response = await fetch(getApiUrl(`/announcements/${encodeURIComponent(announcementId)}/comments`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ announcementId, author: getCurrentAuthor(), text })
+      body: JSON.stringify({ author: getCurrentAuthor(), text })
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.data) throw new Error(result.message || "Unable to save comment.");
+    return { ...result.data, id: result.data._id || result.data.id };
+  } catch {
+    return null;
+  }
+}
+
+async function postCommentReply(commentId, text) {
+  try {
+    const response = await fetch(getApiUrl(`/announcements/comments/${encodeURIComponent(commentId)}/replies`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ author: getCurrentAuthor(), text })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.data) throw new Error(result.message || "Unable to save reply.");
+    return { ...result.data, id: result.data._id || result.data.id };
+  } catch {
+    return null;
+  }
+}
+
+async function toggleCommentPinById(commentId) {
+  try {
+    const response = await fetch(getApiUrl(`/announcements/comments/${encodeURIComponent(commentId)}/pin`), { method: "PATCH" });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.data) throw new Error(result.message || "Unable to update comment pin status.");
     return { ...result.data, id: result.data._id || result.data.id };
   } catch {
     return null;
@@ -5360,8 +5386,63 @@ function renderAnnouncementCard(announcement, options = {}) {
         const right = document.createElement("div");
         right.className = "d-flex flex-column align-items-end gap-1";
 
-        // No pin controls for comments (feature removed)
+        if (comment.pinned) {
+          const pinnedBadge = document.createElement("span");
+          pinnedBadge.className = "badge text-bg-warning";
+          pinnedBadge.textContent = "Pinned";
+          right.appendChild(pinnedBadge);
+        }
 
+        const replyButton = document.createElement("button");
+        replyButton.type = "button";
+        replyButton.className = "btn btn-link btn-sm p-0";
+        replyButton.dataset.announcementReplyToggle = "true";
+        replyButton.dataset.commentId = comment.id;
+        replyButton.textContent = "Reply";
+        right.appendChild(replyButton);
+
+        if (options.admin) {
+          const pinBtn = document.createElement("button");
+          pinBtn.type = "button";
+          pinBtn.className = "btn btn-outline-secondary btn-sm";
+          pinBtn.dataset.announcementCommentAction = "toggle-pin";
+          pinBtn.dataset.commentId = comment.id;
+          pinBtn.textContent = comment.pinned ? "Unpin" : "Pin";
+          right.appendChild(pinBtn);
+        }
+
+        const replyList = document.createElement("div");
+        replyList.className = "mt-2 ps-3 border-start";
+        const replies = Array.isArray(comment.replies) ? comment.replies : [];
+        if (replies.length) {
+          replies.forEach((reply) => {
+            const replyItem = document.createElement("div");
+            replyItem.className = "small text-secondary mb-2";
+            replyItem.innerHTML = `<strong>${escapeHtml(reply.author || "Student")}</strong> — ${escapeHtml(reply.text || "")}`;
+            replyList.appendChild(replyItem);
+          });
+        }
+
+        const replyForm = document.createElement("form");
+        replyForm.className = "announcement-reply-form d-flex gap-2 mt-2 d-none";
+        replyForm.dataset.announcementReplyForm = comment.id;
+        replyForm.dataset.announcementId = announcement.id;
+
+        const replyInput = document.createElement("input");
+        replyInput.className = "form-control form-control-sm";
+        replyInput.name = "reply";
+        replyInput.type = "text";
+        replyInput.placeholder = "Write a reply";
+        replyInput.required = true;
+
+        const replySubmit = document.createElement("button");
+        replySubmit.className = "btn btn-primary btn-sm";
+        replySubmit.type = "submit";
+        replySubmit.textContent = "Send";
+
+        replyForm.append(replyInput, replySubmit);
+
+        left.append(replyList, replyForm);
         commentItem.append(left, right);
         commentsList.appendChild(commentItem);
       });
@@ -5508,6 +5589,30 @@ announcementForm?.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("submit", async (event) => {
+  const replyForm = event.target.closest("[data-announcement-reply-form]");
+  if (replyForm) {
+    event.preventDefault();
+
+    const input = replyForm.querySelector("input[name='reply']");
+    const text = input.value.trim();
+    if (!text) return;
+
+    const commentId = replyForm.dataset.announcementReplyForm;
+    const announcementId = replyForm.dataset.announcementId;
+    const savedReply = await postCommentReply(commentId, text);
+    if (!savedReply) return;
+
+    const list = announcementCommentsCache[announcementId] || [];
+    announcementCommentsCache[announcementId] = list.map((comment) => {
+      if (String(comment.id) !== String(commentId)) return comment;
+      return { ...comment, replies: [...(Array.isArray(comment.replies) ? comment.replies : []), savedReply] };
+    });
+
+    input.value = "";
+    await renderAnnouncements();
+    return;
+  }
+
   const form = event.target.closest("[data-announcement-comment-form]");
   if (!form) return;
 
@@ -5531,7 +5636,33 @@ document.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("click", async (event) => {
-  // comment-action buttons removed (pin feature disabled)
+  const replyToggle = event.target.closest("[data-announcement-reply-toggle]");
+  if (replyToggle) {
+    const form = replyToggle.closest(".announcement-comment")?.querySelector(".announcement-reply-form");
+    if (form) {
+      form.classList.toggle("d-none");
+      if (!form.classList.contains("d-none")) {
+        form.querySelector("input[name='reply']")?.focus();
+      }
+    }
+    return;
+  }
+  const commentActionButton = event.target.closest("[data-announcement-comment-action]");
+  if (commentActionButton) {
+    const action = commentActionButton.dataset.announcementCommentAction;
+    const commentId = commentActionButton.dataset.commentId;
+    if (action === "toggle-pin" && commentId) {
+      const updated = await toggleCommentPinById(commentId);
+      if (updated) {
+        const annId = updated.announcementId || updated.announcementId || updated.announcement || updated.announcementId;
+        const list = announcementCommentsCache[annId] || [];
+        const replaced = list.map((c) => (String(c.id) === String(updated._id || updated.id) ? { ...c, pinned: updated.pinned } : c));
+        announcementCommentsCache[annId] = replaced;
+        await renderAnnouncements();
+      }
+    }
+    return;
+  }
 
   const actionButton = event.target.closest("[data-announcement-action]");
   if (!actionButton) return;
