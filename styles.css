@@ -1,3 +1,29 @@
+.course-grade-card.stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 12px;
+}
+.course-grade-card.stacked .course-grade-card-title {
+  position: static;
+  display: block;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  text-align: left;
+}
+.course-grade-card.stacked .course-grade-card-score {
+  position: static;
+  transform: none;
+  left: auto;
+  top: auto;
+  align-self: center;
+  margin-top: 12px;
+  font-size: 0.82rem;
+  width: 100%;
+  text-align: center;
+}
+
 :root {
   --gth-ink: #0c2a33;
   --gth-teal: #087f9b;
@@ -2332,23 +2358,25 @@ body {
 /* Admin student-grade card layout */
 .admin-grade-cards {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .admin-grade-card {
-  width: 130px;
-  height: 88px;
+  width: 160px;
+  height: 110px;
   background: linear-gradient(180deg, rgba(255,255,255,0.98), #fbfdfe);
   border: 1px solid rgba(216,231,236,0.9);
-  box-shadow: 0 6px 12px rgba(12,42,51,0.045);
-  border-radius: 6px;
+  box-shadow: 0 6px 12px rgba(12,42,51,0.05);
+  border-radius: 10px;
   position: relative;
-  padding: 8px;
+  padding: 12px 10px;
   box-sizing: border-box;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-start;
+  justify-content: flex-start;
 }
 
 .admin-grade-card::before {
@@ -2361,62 +2389,158 @@ body {
 
 .admin-grade-card-title {
   position: absolute;
-  top: 6px;
-  left: 8px;
+  top: 10px;
+  left: 12px;
+  right: 64px;
   font-weight: 700;
   color: var(--gth-ink);
-  font-size: 0.75rem;
-  max-width: calc(100% - 20px);
+  font-size: 0.72rem;
+  max-width: calc(100% - 24px - 44px);
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
+  z-index: 3;
+  /* prevent breaking each character onto its own line */
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
 }
 
 .admin-grade-card-score {
   font-size: 0.95rem;
   font-weight: 800;
   color: var(--gth-teal);
+  position: absolute;
+  top: 54%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  line-height: 1.05;
+  word-break: break-word;
+  padding: 2px 4px;
+}
+
+.admin-grade-card-type {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--gth-ink);
+  background: rgba(255,255,255,0.6);
+  padding: 2px 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(216,231,236,0.6);
+}
+
+/* stacked layout: title at top-left, badge top-right, status text below title centered */
+.admin-grade-card.stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 10px 12px;
+}
+.admin-grade-card.stacked .admin-grade-card-title {
+  position: static;
+  display: block;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  text-align: left;
+}
+.admin-grade-card.stacked .admin-grade-card-type {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+.admin-grade-card.stacked .admin-grade-card-score {
+  position: static;
+  transform: none;
+  left: auto;
+  top: auto;
+  align-self: center;
+  margin-top: 12px;
+  font-size: 0.85rem;
+  width: 100%;
+  text-align: center;
 }
 
 /* student per-item cards (smaller) */
 .course-grade-items {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
   margin-top: 6px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .course-grade-card {
-  width: 120px;
-  height: 72px;
-  padding: 6px;
-  border-radius: 6px;
+  width: 150px;
+  height: 96px;
+  padding: 10px;
+  border-radius: 9px;
   border: 1px solid rgba(216,231,236,0.9);
   background: #ffffff;
   box-shadow: 0 4px 10px rgba(12,42,51,0.035);
   position: relative;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-start;
+  justify-content: flex-start;
 }
 
 .course-grade-card-title {
   position: absolute;
-  top: 6px;
-  left: 6px;
-  font-size: 0.72rem;
+  top: 8px;
+  left: 10px;
+  right: 54px;
+  font-size: 0.70rem;
   font-weight: 700;
   color: var(--gth-ink);
-  max-width: calc(100% - 16px);
+  max-width: calc(100% - 20px - 40px);
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
+}
+.course-grade-card-title {
+  /* prevent breaking each character onto its own line */
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
 }
 
 .course-grade-card-score {
-  font-size: 0.92rem;
+  font-size: 0.9rem;
   font-weight: 800;
   color: var(--gth-teal);
+  position: absolute;
+  top: 54%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  line-height: 1.05;
+  word-break: break-word;
+}
+
+.course-grade-card-type {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--gth-ink);
+  background: rgba(255,255,255,0.6);
+  padding: 2px 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(216,231,236,0.6);
 }
 
 .admin-grade-controls {
@@ -2536,6 +2660,18 @@ body {
   grid-template-columns: repeat(3, minmax(4.75rem, 1fr)) minmax(7rem, auto) auto;
   padding-top: 0;
   border-top: 0;
+}
+
+/* Ensure card containers span the full grade form area and stay horizontal */
+.gradebook-grade-form > .admin-grade-cards,
+.gradebook-grade-form > .course-grade-items {
+  grid-column: 1 / -1;
+  width: 100%;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .student-dashboard-shell {

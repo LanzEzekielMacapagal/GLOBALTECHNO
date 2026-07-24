@@ -7052,7 +7052,16 @@ function createGradeForm(courseId, student, options = {}) {
       type: "quiz",
       id: quiz.id,
       name: quiz.title || quiz.name || "Untitled quiz",
-      score: getQuizScore(quiz, getQuizSubmission(quiz.id, student)),
+      score: (() => {
+        const submission = getQuizSubmission(quiz.id, student);
+        if (!submission) return null;
+        const manualQuestions = getQuizQuestions(quiz).filter((q) => isManualGradeType(getQuestionType(quiz, q)));
+        if (manualQuestions.length) {
+          const allManualScored = manualQuestions.every((q) => getManualQuestionScore(submission, q) !== null);
+          if (!allManualScored) return "NOT_GRADED";
+        }
+        return getQuizScore(quiz, submission);
+      })(),
       total: getQuizTotalPoints(quiz)
     })),
     ...assignments.map((assignment) => ({
@@ -7061,8 +7070,10 @@ function createGradeForm(courseId, student, options = {}) {
       name: assignment.title || assignment.name || "Untitled assignment",
       score: (() => {
         const submission = getStudentAssignmentSubmission(assignment.id, student._id || student.id || student.studentId || "");
+        if (!submission) return null;
+        if (!hasAssignmentScore(submission)) return "NOT_GRADED";
         const scoreValue = Number(submission?.score);
-        return Number.isFinite(scoreValue) && scoreValue >= 0 ? scoreValue : null;
+        return Number.isFinite(scoreValue) ? scoreValue : null;
       })(),
       total: getAssignmentPoints(assignment)
     }))
@@ -7084,11 +7095,26 @@ function createGradeForm(courseId, student, options = {}) {
       title.className = "admin-grade-card-title";
       title.textContent = item.name;
 
+      const typeBadge = document.createElement("div");
+      typeBadge.className = "admin-grade-card-type";
+      typeBadge.textContent = item.type === "quiz" ? "Quiz" : "Assignment";
+
       const score = document.createElement("div");
       score.className = "admin-grade-card-score";
-      score.textContent = item.score === null || item.score === undefined ? "Not submitted" : `${item.score}/${item.total}`;
+      let scoreText = "";
+      if (item.score === null || item.score === undefined) scoreText = "Not Yet Answered";
+      else if (item.score === "NOT_GRADED") scoreText = "Not Yet Graded";
+      else scoreText = `${item.score}/${item.total}`;
+      score.textContent = scoreText;
 
-      card.append(title, score);
+      // If the item is not yet answered/graded, use stacked layout so the text appears below the title
+      if (/Not Yet/i.test(scoreText)) {
+        card.classList.add("stacked");
+      } else {
+        card.classList.remove("stacked");
+      }
+
+      card.append(title, typeBadge, score);
       cardsWrap.appendChild(card);
     });
   }
@@ -7170,8 +7196,7 @@ async function renderGradebook() {
 
         info.append(
           createTextElement("span", "avatar", initials || "ST"),
-          createTextElement("strong", "", student.name || student.fullName || student.username || "Student"),
-          createTextElement("small", "text-secondary", getClassroomTitle(student.classroom))
+          createTextElement("strong", "", student.name || student.fullName || student.username || "Student")
         );
 
         row.append(info, createGradeForm(courseId, student, { compact: true }));
@@ -7203,6 +7228,49 @@ function getAssignmentSubmissionEntries(courseId = "") {
     return String(submission.courseId || "") === String(courseId);
   });
 }
+
+// Responsive card scaling: scale cards down as a whole so box+text shrink proportionally
+function adjustGradeCardScaling() {
+  const containers = Array.from(document.querySelectorAll('.admin-grade-cards, .course-grade-items'));
+  containers.forEach((container) => {
+    const cards = Array.from(container.children).filter((c) => c.nodeType === 1);
+    if (!cards.length) return;
+
+    // ensure we measure cards at natural size (remove any previous transform)
+    cards.forEach((c) => { c.style.transform = ''; c.style.transformOrigin = 'top left'; });
+
+    const style = window.getComputedStyle(container);
+    const gap = parseFloat(style.columnGap || style.gap || 12) || 12;
+    const totalWidth = cards.reduce((sum, c) => sum + c.offsetWidth, 0) + gap * Math.max(0, cards.length - 1);
+    const available = container.clientWidth || container.parentElement.clientWidth || window.innerWidth;
+
+    const scale = totalWidth > 0 ? Math.min(1, available / totalWidth) : 1;
+
+    // apply scale to each card and adjust container height to match scaled height
+    let maxCardHeight = 0;
+    cards.forEach((c) => {
+      c.style.transform = `scale(${scale})`;
+      c.style.transformOrigin = 'top left';
+      const h = c.offsetHeight * scale;
+      if (h > maxCardHeight) maxCardHeight = h;
+    });
+
+    // Set container height to accommodate scaled cards (plus a bit of gap)
+    if (maxCardHeight) container.style.height = `${Math.ceil(maxCardHeight)}px`;
+  });
+}
+
+// Run on load and resize, and observe DOM changes to cards
+window.addEventListener('load', () => setTimeout(adjustGradeCardScaling, 50));
+window.addEventListener('resize', () => adjustGradeCardScaling());
+
+const gradeCardObserver = new MutationObserver((mutations) => {
+  // debounce
+  if (gradeCardObserver._timer) clearTimeout(gradeCardObserver._timer);
+  gradeCardObserver._timer = setTimeout(() => adjustGradeCardScaling(), 80);
+});
+gradeCardObserver.observe(document.body, { childList: true, subtree: true });
+
 
 function renderCourseAssignmentManualGradingPanel(courseId) {
   const wrapper = document.createElement("div");
