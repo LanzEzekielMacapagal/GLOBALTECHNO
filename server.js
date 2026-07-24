@@ -6,6 +6,7 @@ const mongoose = require("mongoose");
 const path = require("path");
 const fs = require("fs");
 const multer = require("multer");
+const { normalizeAnnouncementComment, normalizeAnnouncementReply } = require("./announcement-utils");
 // provide name for the server
 const server = express();
 // Declare server port
@@ -2860,7 +2861,8 @@ server.post("/announcements/:announcementId/comments", async (req, res) => {
     });
 
     const savedComment = await comment.save();
-    res.status(201).send({ code: 201, message: "Comment posted successfully!", data: savedComment });
+    const normalizedComment = normalizeAnnouncementComment(savedComment.toObject ? savedComment.toObject() : savedComment);
+    res.status(201).send({ code: 201, message: "Comment posted successfully!", data: normalizedComment });
   } catch (error) {
     res.status(500).send({ code: 500, message: "There is an error posting the comment." });
   }
@@ -2871,7 +2873,8 @@ server.get("/announcements/:announcementId/comments", async (req, res) => {
   try {
     const announcementId = req.params.announcementId;
     const comments = await AnnouncementComment.find({ announcementId }).sort({ createdAt: 1 });
-    res.status(200).send({ code: 200, message: "Announcement comments fetched successfully.", data: comments });
+    const normalizedComments = comments.map((item) => normalizeAnnouncementComment(item.toObject ? item.toObject() : item));
+    res.status(200).send({ code: 200, message: "Announcement comments fetched successfully.", data: normalizedComments });
   } catch (error) {
     res.status(500).send({ code: 500, message: "There is an error fetching announcement comments." });
   }
@@ -2917,9 +2920,10 @@ server.post("/announcements/comments/:commentId/replies", async (req, res) => {
 
     comment.replies = Array.isArray(comment.replies) ? comment.replies : [];
     comment.replies.push(reply);
-    const updatedComment = await comment.save();
+    await comment.save();
 
-    res.status(201).send({ code: 201, message: "Reply posted successfully!", data: updatedComment });
+    const normalizedReply = normalizeAnnouncementReply(reply);
+    res.status(201).send({ code: 201, message: "Reply posted successfully!", data: normalizedReply });
   } catch (error) {
     res.status(500).send({ code: 500, message: "There is an error posting the reply." });
   }

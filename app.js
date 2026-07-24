@@ -5259,7 +5259,20 @@ document.addEventListener("click", async (event) => {
 });
 
 function getCurrentAuthor() {
-  return adminApp ? "Admin" : "Student";
+  const sessionUser = (() => {
+    try {
+      return JSON.parse(sessionStorage.getItem("gthCurrentUser") || "null");
+    } catch {
+      return null;
+    }
+  })();
+  const fallbackName = adminApp ? "Admin" : "Student";
+
+  if (adminApp) {
+    return sessionUser?.fullName || sessionUser?.username || sessionUser?.name || fallbackName;
+  }
+
+  return currentStudent?.fullName || currentStudent?.username || currentStudent?.name || sessionUser?.fullName || sessionUser?.username || fallbackName;
 }
 
 function isVisibleForSelectedClassroom(item) {
@@ -5326,7 +5339,7 @@ function renderAnnouncementCard(announcement, options = {}) {
   toggleButton.className = "btn btn-outline-secondary btn-sm ms-auto";
   toggleButton.type = "button";
   toggleButton.dataset.announcementAction = "toggle-comments";
-  toggleButton.textContent = "Minimize Comments";
+  toggleButton.textContent = "Open Comments";
 
   const header = document.createElement("div");
   header.className = "d-flex flex-wrap align-items-start gap-2";
@@ -5347,7 +5360,7 @@ function renderAnnouncementCard(announcement, options = {}) {
 
   const comments = getAnnouncementComments(announcement.id);
   const commentsSection = document.createElement("div");
-  commentsSection.className = "announcement-comments mt-3";
+  commentsSection.className = "announcement-comments mt-3 announcement-comments-collapsed";
 
   const commentsTitle = document.createElement("h4");
   commentsTitle.className = "h6 mb-2";
@@ -5375,7 +5388,7 @@ function renderAnnouncementCard(announcement, options = {}) {
 
         const commentMeta = document.createElement("small");
         commentMeta.className = "text-secondary d-block";
-        commentMeta.textContent = `${comment.author} - ${formatDate(comment.createdAt)}`;
+        commentMeta.textContent = `${comment.author || "Student"} • ${formatDateTime(comment.createdAt)}`;
 
         const commentText = document.createElement("p");
         commentText.className = "mb-0";
@@ -5395,7 +5408,7 @@ function renderAnnouncementCard(announcement, options = {}) {
 
         const replyButton = document.createElement("button");
         replyButton.type = "button";
-        replyButton.className = "btn btn-link btn-sm p-0";
+        replyButton.className = "btn btn-outline-secondary btn-sm";
         replyButton.dataset.announcementReplyToggle = "true";
         replyButton.dataset.commentId = comment.id;
         replyButton.textContent = "Reply";
@@ -5418,7 +5431,7 @@ function renderAnnouncementCard(announcement, options = {}) {
           replies.forEach((reply) => {
             const replyItem = document.createElement("div");
             replyItem.className = "small text-secondary mb-2";
-            replyItem.innerHTML = `<strong>${escapeHtml(reply.author || "Student")}</strong> — ${escapeHtml(reply.text || "")}`;
+            replyItem.innerHTML = `<div><strong>${escapeHtml(reply.author || "Student")}</strong> • ${escapeHtml(formatDateTime(reply.createdAt))}</div><div>${escapeHtml(reply.text || "")}</div>`;
             replyList.appendChild(replyItem);
           });
         }
@@ -5556,6 +5569,15 @@ function getAnnouncements() {
   return announcementsCache;
 }
 
+async function refreshAnnouncementViews() {
+  await renderAnnouncements();
+
+  const activeCourseCard = document.querySelector(".course-card-active");
+  if (activeCourseCard?.dataset.course) {
+    await renderCourseWorkspace(activeCourseCard.dataset.course, activeCourseCard);
+  }
+}
+
 announcementForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
@@ -5585,7 +5607,7 @@ announcementForm?.addEventListener("submit", async (event) => {
   });
 
   announcementForm.reset();
-  await renderAnnouncements();
+  await refreshAnnouncementViews();
 });
 
 document.addEventListener("submit", async (event) => {
@@ -5602,14 +5624,10 @@ document.addEventListener("submit", async (event) => {
     const savedReply = await postCommentReply(commentId, text);
     if (!savedReply) return;
 
-    const list = announcementCommentsCache[announcementId] || [];
-    announcementCommentsCache[announcementId] = list.map((comment) => {
-      if (String(comment.id) !== String(commentId)) return comment;
-      return { ...comment, replies: [...(Array.isArray(comment.replies) ? comment.replies : []), savedReply] };
-    });
+    await loadAnnouncementComments(announcementId);
 
     input.value = "";
-    await renderAnnouncements();
+    await refreshAnnouncementViews();
     return;
   }
 
@@ -5626,13 +5644,10 @@ document.addEventListener("submit", async (event) => {
   const savedComment = await postAnnouncementComment(announcementId, text);
   if (!savedComment) return;
 
-  announcementCommentsCache[announcementId] = [
-    ...(announcementCommentsCache[announcementId] || []),
-    savedComment
-  ];
+  await loadAnnouncementComments(announcementId);
 
   input.value = "";
-  await renderAnnouncements();
+  await refreshAnnouncementViews();
 });
 
 document.addEventListener("click", async (event) => {
@@ -5654,11 +5669,11 @@ document.addEventListener("click", async (event) => {
     if (action === "toggle-pin" && commentId) {
       const updated = await toggleCommentPinById(commentId);
       if (updated) {
-        const annId = updated.announcementId || updated.announcementId || updated.announcement || updated.announcementId;
-        const list = announcementCommentsCache[annId] || [];
-        const replaced = list.map((c) => (String(c.id) === String(updated._id || updated.id) ? { ...c, pinned: updated.pinned } : c));
-        announcementCommentsCache[annId] = replaced;
-        await renderAnnouncements();
+        const annId = updated.announcementId || "";
+        if (annId) {
+          await loadAnnouncementComments(annId);
+        }
+        await refreshAnnouncementViews();
       }
     }
     return;
@@ -5681,13 +5696,13 @@ document.addEventListener("click", async (event) => {
 
   if (actionButton.dataset.announcementAction === "remove") {
     await deleteAnnouncementById(announcementId);
-    await renderAnnouncements();
+    await refreshAnnouncementViews();
     return;
   }
 
   if (actionButton.dataset.announcementAction === "toggle-pin") {
     await toggleAnnouncementPinById(announcementId);
-    await renderAnnouncements();
+    await refreshAnnouncementViews();
   }
 });
 
@@ -7026,51 +7041,85 @@ function createGradeForm(courseId, student, options = {}) {
   gradeForm.dataset.studentName = student.name;
   gradeForm.dataset.classroom = student.classroom;
 
-  [
-    ["prelim", "Prelim", grade.prelim],
-    ["midterm", "Midterm", grade.midterm],
-    ["final", "Final", grade.final]
-  ].forEach(([name, labelText, value]) => {
-    const label = document.createElement("label");
-    label.className = "form-label mb-0";
-    label.textContent = labelText;
-
-    const input = document.createElement("input");
-    input.className = "form-control form-control-sm mt-1";
-    input.name = name;
-    input.type = "number";
-    input.min = "0";
-    input.max = "100";
-    input.placeholder = "0";
-    input.value = value ?? "";
-
-    label.appendChild(input);
-    gradeForm.appendChild(label);
+  // Build per-item cards (quizzes + assignments)
+  const quizzes = getCourseItems(getCourseQuizzes(), courseId);
+  const assignments = getCourseAssignments(null, courseId).filter((assignment) => {
+    return assignment.classroom === "all" || assignment.classroom === student.classroom;
   });
 
-  const finalDisplay = document.createElement("div");
-  finalDisplay.className = "assignment-final-grade";
-  finalDisplay.append(
-    createTextElement("span", "", "Final Grade"),
-    createTextElement("strong", "", finalGrade === null ? "--" : `${finalGrade}%`)
-  );
+  const items = [
+    ...quizzes.map((quiz) => ({
+      type: "quiz",
+      id: quiz.id,
+      name: quiz.title || quiz.name || "Untitled quiz",
+      score: getQuizScore(quiz, getQuizSubmission(quiz.id, student)),
+      total: getQuizTotalPoints(quiz)
+    })),
+    ...assignments.map((assignment) => ({
+      type: "assignment",
+      id: assignment.id,
+      name: assignment.title || assignment.name || "Untitled assignment",
+      score: (() => {
+        const submission = getStudentAssignmentSubmission(assignment.id, student._id || student.id || student.studentId || "");
+        const scoreValue = Number(submission?.score);
+        return Number.isFinite(scoreValue) && scoreValue >= 0 ? scoreValue : null;
+      })(),
+      total: getAssignmentPoints(assignment)
+    }))
+  ];
 
-  const gradeButton = document.createElement("button");
-  gradeButton.className = "btn btn-outline-primary btn-sm";
-  gradeButton.type = "submit";
-  gradeButton.textContent = "Save Grades";
+  const cardsWrap = document.createElement("div");
+  cardsWrap.className = "admin-grade-cards";
 
-  gradeForm.append(finalDisplay, gradeButton);
+  if (!items.length) {
+    cardsWrap.appendChild(createTextElement("p", "text-secondary small mb-0", "No graded items for this student."));
+  } else {
+    items.forEach((item) => {
+      const card = document.createElement("div");
+      card.className = "admin-grade-card";
+      card.dataset.itemId = item.id;
+      card.dataset.itemType = item.type;
+
+      const title = document.createElement("div");
+      title.className = "admin-grade-card-title";
+      title.textContent = item.name;
+
+      const score = document.createElement("div");
+      score.className = "admin-grade-card-score";
+      score.textContent = item.score === null || item.score === undefined ? "Not submitted" : `${item.score}/${item.total}`;
+
+      card.append(title, score);
+      cardsWrap.appendChild(card);
+    });
+  }
+
+  gradeForm.appendChild(cardsWrap);
+
   return gradeForm;
 }
 
-function renderGradebook() {
+async function renderGradebook() {
   if (!adminGrades) return;
 
   adminGrades.replaceChildren();
 
-  Object.entries(courseWorkspaces).forEach(([courseId, course]) => {
-    const courseGrades = getAllStudents().map((student) => {
+  const courseEntries = Object.entries(courseWorkspaces);
+
+  await Promise.all(courseEntries.map(async ([courseId, course]) => {
+    await loadServerEnrolledStudents(courseId);
+
+    const enrolledStudents = (getCourseEnrolledStudents(courseId) || [])
+      .map((student) => ({
+        ...student,
+        id: student.id || student._id || student.studentId || student.userId || "",
+        name: student.name || student.fullName || student.username || "Student",
+        fullName: student.fullName || student.name || student.username || "",
+        username: student.username || student.fullName || student.name || "",
+        classroom: student.classroom || course?.classroom || "all"
+      }))
+      .filter((student) => student.id);
+
+    const courseGrades = enrolledStudents.map((student) => {
       return calculateFinalGrade(getStudentGrade(courseId, student.id) || {});
     }).filter((grade) => grade !== null);
 
@@ -7087,7 +7136,7 @@ function renderGradebook() {
     headerText.append(
       createTextElement("p", "section-label mb-1", "Course grading"),
       createTextElement("h3", "h6 mb-1", course.title),
-      createTextElement("small", "text-secondary", "Record each learner's period grades. Final grade is calculated automatically.")
+      createTextElement("small", "text-secondary", "Record each enrolled learner's period grades. Final grade is calculated automatically.")
     );
 
     const average = document.createElement("div");
@@ -7102,27 +7151,37 @@ function renderGradebook() {
     const rows = document.createElement("div");
     rows.className = "gradebook-rows";
 
-    getAllStudents().forEach((student) => {
-      const row = document.createElement("section");
-      row.className = "gradebook-row";
+    if (!enrolledStudents.length) {
+      rows.appendChild(createTextElement("p", "text-secondary small mb-0", "No enrolled students for this course yet."));
+    } else {
+      enrolledStudents.forEach((student) => {
+        const row = document.createElement("section");
+        row.className = "gradebook-row";
 
-      const info = document.createElement("div");
-      info.className = "gradebook-student";
+        const info = document.createElement("div");
+        info.className = "gradebook-student";
 
-      const initials = student.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
-      info.append(
-        createTextElement("span", "avatar", initials),
-        createTextElement("strong", "", student.name),
-        createTextElement("small", "text-secondary", getClassroomTitle(student.classroom))
-      );
+        const initials = String(student.name || "Student")
+          .split(" ")
+          .map((part) => part[0])
+          .join("")
+          .slice(0, 2)
+          .toUpperCase();
 
-      row.append(info, createGradeForm(courseId, student, { compact: true }));
-      rows.appendChild(row);
-    });
+        info.append(
+          createTextElement("span", "avatar", initials || "ST"),
+          createTextElement("strong", "", student.name || student.fullName || student.username || "Student"),
+          createTextElement("small", "text-secondary", getClassroomTitle(student.classroom))
+        );
+
+        row.append(info, createGradeForm(courseId, student, { compact: true }));
+        rows.appendChild(row);
+      });
+    }
 
     coursePanel.append(header, rows);
     adminGrades.appendChild(coursePanel);
-  });
+  }));
 
   observeMotionElements(adminGrades);
 }
@@ -7757,7 +7816,7 @@ function renderAssignments() {
     observeMotionElements(studentAssignments);
   }
 
-  renderGradebook();
+  renderGradebook().catch(() => {});
 }
 
 async function saveAssignmentFromForm(form, courseId = "") {
@@ -8244,7 +8303,7 @@ document.addEventListener("submit", (event) => {
 
   saveStoredItems("gthStudentGrades", grades);
   renderAssignments();
-  renderGradebook();
+renderGradebook().catch(() => {});
 
   const activeCourseCard = document.querySelector(`.course-card-active[data-course='${form.dataset.studentGradeForm}']`);
   if (activeCourseCard) renderCourseWorkspace(form.dataset.studentGradeForm, activeCourseCard);
@@ -9110,7 +9169,7 @@ loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "").then(async (
   }
 
   renderCustomCourses();
-  renderGradebook();
+  renderGradebook().catch(() => {});
   setupPrivateMessageStudents();
   renderPrivateMessages();
   await refreshClassChat(getActiveChatClassroom());
