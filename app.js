@@ -345,10 +345,15 @@ function getSubjectTargets(options = {}) {
 function initializeClassroomSelection() {
   requestedClassroom = new URLSearchParams(window.location.search).get("classroom") || "";
   availableClassrooms = getSubjectTargets({ includeAll: false });
-  selectedClassroom = availableClassrooms.some((target) => target.value === requestedClassroom)
+  selectedClassroom = requestedClassroom && availableClassrooms.some((target) => target.value === requestedClassroom)
     ? requestedClassroom
-    : availableClassrooms[0]?.value || "";
+    : storedChatClassroom && availableClassrooms.some((target) => target.value === storedChatClassroom)
+      ? storedChatClassroom
+      : availableClassrooms[0]?.value || "";
   selectedClassroomTitle = getClassroomTitle(selectedClassroom);
+  if (selectedClassroom) {
+    sessionStorage.setItem("gthSelectedChatClassroom", selectedClassroom);
+  }
 }
 
 function populateSubjectTargetSelect(select, options = {}) {
@@ -378,6 +383,14 @@ function populateSubjectTargetSelect(select, options = {}) {
 
   if (targets.some((target) => target.value === currentValue)) {
     select.value = currentValue;
+  } else if (select === chatClassroom && selectedClassroom && targets.some((target) => target.value === selectedClassroom)) {
+    select.value = selectedClassroom;
+  } else if (targets.length) {
+    select.value = targets[0].value;
+  }
+
+  if (select === chatClassroom && select.value) {
+    sessionStorage.setItem("gthSelectedChatClassroom", select.value);
   }
 }
 
@@ -385,6 +398,7 @@ let requestedClassroom = new URLSearchParams(window.location.search).get("classr
 let availableClassrooms = [];
 let selectedClassroom = "";
 let selectedClassroomTitle = "";
+const storedChatClassroom = sessionStorage.getItem("gthSelectedChatClassroom") || "";
 const courseLinking = typeof window !== "undefined" && window.courseLinking ? window.courseLinking : null;
 const currentUserFromSession = (() => {
   try {
@@ -4249,6 +4263,10 @@ function renderCustomCourses() {
     _id: String(course._id || course.id),
     isJoined: true
   }));
+
+  if (chatClassroom && selectedClassroom) {
+    chatClassroom.value = selectedClassroom;
+  }
 
   Object.keys(courseWorkspaces)
     .filter((courseId) => courseId.startsWith("custom-course-"))
@@ -8675,6 +8693,32 @@ function createChatInfoPerson(name, detail, initials = getInitials(name)) {
   return item;
 }
 
+function getChatMembersForClassroom(classroom = "") {
+  const normalizedClassroom = String(classroom || "").trim();
+  if (!normalizedClassroom || normalizedClassroom === "all") {
+    return [];
+  }
+
+  const enrolledStudents = getCourseEnrolledStudents(normalizedClassroom);
+  if (enrolledStudents.length) {
+    return enrolledStudents.map((student) => ({
+      id: student.id || student._id || "",
+      name: student.fullName || student.name || student.username || "Student",
+      username: student.username || student.fullName || student.name || "",
+      detail: student.username && student.fullName && student.fullName !== student.username
+        ? `${student.username}`
+        : getClassroomTitle(normalizedClassroom)
+    }));
+  }
+
+  return (classroomStudents[normalizedClassroom] || []).map((student) => ({
+    id: student.id || student._id || "",
+    name: student.name || student.fullName || student.username || "Student",
+    username: student.username || student.name || "",
+    detail: getClassroomTitle(normalizedClassroom)
+  }));
+}
+
 function getSharedCourseResources() {
   const courses = getCustomCourses().filter((course) => adminApp || isCourseJoined(course));
   const resources = getCourseResources();
@@ -8736,13 +8780,23 @@ function getChatAttachmentResources(panel) {
   });
 }
 
-function renderChatMembersDetail(detail) {
+async function renderChatMembersDetail(detail) {
   const classroom = getActiveChatClassroom();
-  const students = classroomStudents[classroom] || [];
   detail.appendChild(createTextElement("h4", "chat-info-detail-title", "Chat members"));
   detail.appendChild(createChatInfoPerson("Admin", getClassroomTitle(classroom), "A"));
+
+  if (classroom && classroom !== "all") {
+    await loadServerEnrolledStudents(classroom);
+  }
+
+  const students = getChatMembersForClassroom(classroom);
+  if (!students.length) {
+    detail.appendChild(createChatInfoEmpty("No enrolled students for this chat yet."));
+    return;
+  }
+
   students.forEach((student) => {
-    detail.appendChild(createChatInfoPerson(student.name, getClassroomTitle(classroom)));
+    detail.appendChild(createChatInfoPerson(student.name, student.detail || getClassroomTitle(classroom), getInitials(student.name)));
   });
 }
 
@@ -8816,16 +8870,23 @@ function refreshOpenChatInfoDetails(root = document) {
 }
 
 function renderChatAttachment(file) {
-  const item = document.createElement(file.data ? "a" : "span");
+  const item = document.createElement("div");
   item.className = "chat-attachment";
-  if (file.data) {
-    item.href = file.data;
-    item.download = file.name;
+
+  const previewId = registerFilePreview(file);
+  const fileName = document.createElement("button");
+  fileName.type = "button";
+  fileName.className = "chat-attachment-name";
+  fileName.textContent = file.name || "Attachment";
+  if (previewId) {
+    fileName.dataset.filePreviewId = previewId;
   }
-  item.append(
-    createTextElement("strong", "", file.name || "Attachment"),
-    createTextElement("small", "", formatFileSize(file.size || 0))
-  );
+
+  const meta = document.createElement("small");
+  meta.className = "chat-attachment-meta";
+  meta.textContent = `${file.type ? getFileTypeLabel(file) : "FILE"} • ${formatFileSize(file.size || 0)}`;
+
+  item.append(fileName, meta);
   return item;
 }
 
@@ -8943,6 +9004,9 @@ function renderChatMessages() {
 }
 
 chatClassroom?.addEventListener("change", async () => {
+  if (chatClassroom?.value) {
+    sessionStorage.setItem("gthSelectedChatClassroom", chatClassroom.value);
+  }
   await refreshClassChat(getActiveChatClassroom());
 });
 
@@ -8958,6 +9022,26 @@ document.addEventListener("click", (event) => {
 
   const input = trigger.dataset.chatAttachmentTrigger === "private" ? privateMessageAttachment : chatAttachment;
   input?.click();
+});
+
+document.addEventListener("click", (event) => {
+  const attachmentButton = event.target.closest(".chat-attachment-name[data-file-preview-id]");
+  if (!attachmentButton) return;
+
+  const file = filePreviewStore.get(attachmentButton.dataset.filePreviewId);
+  if (!file) return;
+
+  const previewUrl = getFilePreviewTarget(file);
+  if (!previewUrl) return;
+
+  event.preventDefault();
+  const existingInlinePreview = attachmentButton.closest(".chat-attachment")?.querySelector(".file-preview-inline");
+  if (existingInlinePreview) {
+    existingInlinePreview.remove();
+    return;
+  }
+
+  renderInlineFilePreview(file, attachmentButton.closest(".chat-attachment"), attachmentButton.dataset.filePreviewId);
 });
 
 async function readChatAttachments(input) {
