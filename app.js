@@ -8909,16 +8909,31 @@ function renderChatMessages() {
     return;
   }
 
-  const currentAuthor = chatbox?.dataset.role === "admin" ? "Admin" : "Student";
+  const currentRole = chatbox?.dataset.role === "admin" ? "admin" : "student";
+  const currentUserId = String(currentStudent._id || currentStudent.id || "").trim();
+  const currentUserNames = [currentStudent.name, currentStudent.fullName, currentStudent.username]
+    .filter(Boolean)
+    .map((name) => String(name).trim().toLowerCase());
 
   messages.slice(-20).forEach((message) => {
     const author = message.sender || message.author || "Unknown";
+    const messageRole = String(message.role || "").trim().toLowerCase();
+    const messageUserId = String(message.userId || "").trim();
+    const normalizedAuthor = String(author).trim().toLowerCase();
+    const own = currentRole === "admin"
+      ? messageRole === "admin"
+      : messageRole !== "admin" && (
+        (currentUserId && messageUserId && currentUserId === messageUserId)
+        || currentUserNames.includes(normalizedAuthor)
+        || normalizedAuthor === String(currentStudent.name || "").trim().toLowerCase()
+      );
+
     chatMessages.appendChild(createChatBubble({
       author,
       text: message.text,
       attachments: message.attachments || [],
       createdAt: message.createdAt,
-      own: author === currentAuthor,
+      own,
       group: true
     }));
   });

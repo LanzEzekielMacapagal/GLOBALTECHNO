@@ -4088,12 +4088,16 @@ body {
   display: flex;
   align-items: flex-end;
   gap: 0.55rem;
+  width: fit-content;
   max-width: min(78%, 38rem);
+  margin-right: auto;
 }
 
 .chat-row-own {
   align-self: flex-end;
   flex-direction: row-reverse;
+  margin-left: auto;
+  margin-right: 0;
 }
 
 .chat-row-own .chat-avatar {
