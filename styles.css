@@ -3872,6 +3872,10 @@ body {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
+.messenger-shell-no-info {
+  grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr);
+}
+
 .chat-sidebar,
 .chat-main,
 .chat-info-panel {
@@ -4137,16 +4141,21 @@ body {
 }
 
 .chat-attachment {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 0.16rem;
-  width: min(18rem, 100%);
-  max-width: min(18rem, 100%);
+  /* fixed box size so long filenames don't resize the box */
+  width: 140px;
+  height: 100px;
+  flex: 0 0 140px;
   padding: 0.4rem 0.5rem;
   border: 1px solid #c9e0e7;
   border-radius: 0.55rem;
   background: #f8fbfc;
   color: var(--gth-ink);
+  min-width: 0;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 .chat-attachment-name {
@@ -4162,6 +4171,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
 
 .chat-attachment-name:hover,
@@ -4191,7 +4201,14 @@ body {
 .chat-attachment-name,
 .chat-attachment-meta {
   min-width: 0;
-  overflow-wrap: anywhere;
+}
+
+/* make sure long filenames are truncated instead of wrapping */
+.chat-attachment-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
 }
 
 .chat-attachment-meta {
@@ -4236,12 +4253,61 @@ body {
   border-radius: 999px;
 }
 
+.chat-attachment-preview {
+  width: 100%;
+  padding-top: 0.5rem;
+}
+
+.chat-file-preview-list {
+  display: grid;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.chat-file-preview {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 0.75rem;
+  border: 1px solid #d5e5ec;
+  background: #fff;
+}
+
+.chat-file-preview-name {
+  color: var(--gth-ink);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.chat-file-preview-meta {
+  color: var(--gth-muted);
+  font-size: 0.78rem;
+}
+
+.chat-file-preview-errors {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 0.75rem;
+  border: 1px solid #f5c2c7;
+  background: #fff5f5;
+  color: #8b1a1a;
+  font-size: 0.9rem;
+}
+
+.chat-file-preview-error {
+  line-height: 1.4;
+}
+
 .chat-info-panel {
   display: grid;
+  /* header, actions, then scrollable detail area */
+  grid-template-rows: auto auto 1fr;
   align-content: start;
   gap: 0.85rem;
   padding: 1.25rem 1rem;
   text-align: center;
+  min-height: 0;
 }
 
 .chat-info-actions {
@@ -4319,6 +4385,16 @@ body {
   min-height: 0;
   padding-top: 0.35rem;
   text-align: left;
+  /* make the detail region scrollable when content is long */
+  overflow: auto;
+  padding-right: 0.5rem;
+}
+
+/* make the shared files/detail scrollable if there are many items */
+.chat-info-detail {
+  max-height: calc(100% - 4rem);
+  overflow: auto;
+  padding-right: 0.5rem;
 }
 
 .chat-info-detail > * {
@@ -4381,22 +4457,54 @@ body {
 }
 
 .chat-info-resource {
-  display: grid;
-  gap: 0.45rem;
+  /* styled like a compact card similar to chat attachments */
+  display: block;
   padding: 0.65rem;
+  border: 1px solid #c9e0e7;
+  border-radius: 0.55rem;
+  background: #f8fbfc;
+  color: var(--gth-ink);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.chat-info-resource strong {
+  display: block;
+  font-weight: 800;
+  color: var(--gth-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-info-resource small {
+  display: block;
+  color: var(--gth-muted);
+  font-size: 0.82rem;
+  margin-top: 0.15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-info-resource-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  align-items: center;
+  justify-content: flex-start;
 }
 
 .chat-info-resource-actions a {
   color: var(--gth-cyan);
-  font-size: 0.84rem;
+  font-size: 0.86rem;
   font-weight: 800;
   text-decoration: none;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-info-resource-actions a:hover,

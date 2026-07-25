@@ -12,12 +12,18 @@ const server = express();
 // Declare server port
 const port = process.env.PORT || 3000;
 
-// Trigger connection to mongoDB thru mongoose
-// mongoose.connect("mongodb://localhost:27017/");
-mongoose.connect(process.env.MONGODB_URI || "mongodb://GlobalTechnoLMS:qwerty12345@ac-yppcca4-shard-00-00.n40fbrp.mongodb.net:27017,ac-yppcca4-shard-00-01.n40fbrp.mongodb.net:27017,ac-yppcca4-shard-00-02.n40fbrp.mongodb.net:27017/?ssl=true&replicaSet=atlas-lwiuiu-shard-0&authSource=admin&appName=LMS")
-  .catch((err) => {
-    console.error("Cannot connect to MongoDB.", err.message);
-  });
+// Trigger connection to MongoDB via Mongoose.
+// For deployment, set the MONGODB_URI environment variable to your Atlas or hosting DB URI.
+const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URL || "mongodb://127.0.0.1:27017/globaltechno";
+
+mongoose.set("strictQuery", false);
+
+mongoose.connect(mongoUri, {
+  serverSelectionTimeoutMS: 10000,
+  maxPoolSize: 10,
+}).catch((err) => {
+  console.error("Cannot connect to MongoDB.", err.message);
+});
 
 let db = mongoose.connection;
 
@@ -37,6 +43,10 @@ const upload = multer({
   storage: uploadStorage,
   limits: { fileSize: 20 * 1024 * 1024 }
 });
+
+const MAX_CHAT_ATTACHMENT_COUNT = 4;
+const MAX_CHAT_ATTACHMENT_SIZE = 12 * 1024 * 1024; // 12 MB per file
+const MAX_CHAT_ATTACHMENT_TOTAL_SIZE = 30 * 1024 * 1024; // 30 MB total per message
 
 function parseRemovedAttachmentValues(value) {
   if (Array.isArray(value)) {
@@ -62,10 +72,11 @@ function filterAttachmentsByRemoval(attachments = [], removedValues = []) {
 }
 
 // Check if connection has error
-db.on("error", console.error.bind(console, "Cannot connect to MongoDB."));
+db.on("error", (error) => console.error("MongoDB connection error:", error.message));
+db.on("disconnected", () => console.warn("MongoDB disconnected. Attempting to reconnect..."));
 
 // Check if connection is okay
-db.once("open", () => console.log("MongoDB Atlas Connection Success!"));
+db.once("open", () => console.log("MongoDB connection successful!"));
 
 // =============================================
 // SCHEMAS
@@ -427,18 +438,48 @@ const chatMessageSchema = new mongoose.Schema({
 
 // Private Message Schema
 const privateMessageSchema = new mongoose.Schema({
+  studentId: {
+    type: String,
+    default: null,
+  },
+  classroom: {
+    type: String,
+    default: "",
+  },
+  conversationType: {
+    type: String,
+    default: "private",
+    enum: ["private", "classroom"],
+  },
+  conversationId: {
+    type: String,
+    default: "",
+  },
   sender: {
     type: String,
     required: true,
   },
   receiver: {
     type: String,
-    required: true,
+    default: "",
   },
   senderRole: {
     type: String,
     default: "student",
     enum: ["admin", "student"],
+  },
+  role: {
+    type: String,
+    default: "student",
+    enum: ["admin", "student"],
+  },
+  author: {
+    type: String,
+    default: "",
+  },
+  userId: {
+    type: String,
+    default: null,
   },
   text: String,
   attachments: {
@@ -561,6 +602,7 @@ const Invitation = mongoose.model("Invitation", invitationSchema);
 const Grade = mongoose.model("Grade", gradeSchema);
 const Assignment = mongoose.model("Assignment", assignmentSchema);
 const AssignmentSubmission = mongoose.model("AssignmentSubmission", assignmentSubmissionSchema);
+const { shouldShowPrivateMessageRecipient } = require("./user-chat-utils");
 
 // Manual summary schema to track pending / checked counts and quiz status
 const manualSummarySchema = new mongoose.Schema({
@@ -859,8 +901,8 @@ if (db.readyState === 1) {
 // MIDDLEWARES
 // =============================================
 
-server.use(express.json({ limit: "50mb" }));
-server.use(express.urlencoded({ extended: true, limit: "50mb" }));
+server.use(express.json({ limit: "200mb" }));
+server.use(express.urlencoded({ extended: true, limit: "200mb" }));
 
 const escapeHtml = (value = "") => String(value)
   .replace(/&/g, "&amp;")
@@ -1159,23 +1201,72 @@ server.get("/users/:userId/profile", async (req, res) => {
   }
 });
 
-// Get all users
-server.get("/users/all", (req, res) => {
-  User.find({})
-    .then((result) => {
-      res.status(200).send({
-        code: 200,
-        message: "Here are all users.",
-        count: result.length,
-        data: result,
-      });
-    })
-    .catch((err) => {
-      res.status(500).send({
-        code: 500,
-        message: "There is an error fetching all users.",
-      });
+// Get all active users or users tied to active live courses
+server.get("/users/all", async (req, res) => {
+  try {
+    const activeCourses = await Course.find({ status: { $ne: "draft" }, isActive: { $ne: false } }).select("_id");
+    const activeCourseIds = activeCourses.map((course) => String(course._id));
+
+    const result = await User.find({}).select("_id fullName email username role enrolledCourses isActive dateRegistered");
+    const filtered = result.filter((user) => shouldShowPrivateMessageRecipient(user, activeCourseIds));
+
+    res.status(200).send({
+      code: 200,
+      message: "Here are the active users and users in live courses.",
+      count: filtered.length,
+      data: filtered,
     });
+  } catch (err) {
+    res.status(500).send({
+      code: 500,
+      message: "There is an error fetching active users.",
+    });
+  }
+});
+
+// Delete inactive users from the database
+server.delete("/users/inactive", async (req, res) => {
+  try {
+    const result = await User.deleteMany({
+      $or: [
+        { isActive: false },
+        { role: { $ne: "admin" }, enrolledCourses: { $exists: true, $size: 0 }, dateRegistered: { $lt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } }
+      ]
+    });
+
+    res.status(200).send({
+      code: 200,
+      message: "Inactive users removed successfully.",
+      deletedCount: result.deletedCount,
+    });
+  } catch (err) {
+    res.status(500).send({
+      code: 500,
+      message: "There is an error removing inactive users.",
+    });
+  }
+});
+
+// Keep only the two requested student accounts in the database
+server.delete("/users/keep-test-accounts", async (req, res) => {
+  try {
+    const keepUsernames = new Set(["testacc1", "testacc2"]);
+    const result = await User.deleteMany({
+      username: { $nin: Array.from(keepUsernames) },
+      role: { $ne: "admin" },
+    });
+
+    res.status(200).send({
+      code: 200,
+      message: "Non-admin users other than testacc1 and testacc2 were removed.",
+      deletedCount: result.deletedCount,
+    });
+  } catch (err) {
+    res.status(500).send({
+      code: 500,
+      message: "There is an error cleaning the user database.",
+    });
+  }
 });
 
 // =============================================
@@ -3220,6 +3311,40 @@ server.post("/chat/send", async (req, res) => {
       }
     }
 
+    if (!Array.isArray(attachments)) {
+      return res.status(400).send({
+        code: 400,
+        message: "Attachments must be an array."
+      });
+    }
+
+    if (attachments.length > MAX_CHAT_ATTACHMENT_COUNT) {
+      return res.status(400).send({
+        code: 400,
+        message: `Please send no more than ${MAX_CHAT_ATTACHMENT_COUNT} attachments at once.`
+      });
+    }
+
+    const totalAttachmentBytes = attachments.reduce((sum, attachment) => {
+      return sum + (typeof attachment?.data === "string" ? Buffer.byteLength(attachment.data, "utf8") : 0);
+    }, 0);
+
+    if (totalAttachmentBytes > MAX_CHAT_ATTACHMENT_TOTAL_SIZE) {
+      return res.status(400).send({
+        code: 400,
+        message: `Total attachments exceed ${Math.round(MAX_CHAT_ATTACHMENT_TOTAL_SIZE / (1024 * 1024))} MB.`
+      });
+    }
+
+    for (const attachment of attachments) {
+      if (attachment?.data && Buffer.byteLength(attachment.data, "utf8") > MAX_CHAT_ATTACHMENT_SIZE) {
+        return res.status(400).send({
+          code: 400,
+          message: `One of the attachments exceeds the ${Math.round(MAX_CHAT_ATTACHMENT_SIZE / (1024 * 1024))} MB limit.`
+        });
+      }
+    }
+
     const newMessage = new ChatMessage({
       classroom,
       userId,
@@ -3297,57 +3422,128 @@ server.delete("/chat/delete/:messageId", (req, res) => {
 // =============================================
 
 // Send a private message
-server.post("/private-messages/send", (req, res) => {
-  let newMessage = new PrivateMessage({
-    sender: req.body.sender,
-    receiver: req.body.receiver,
-    senderRole: req.body.senderRole || "student",
-    text: req.body.text,
-    attachments: req.body.attachments || [],
-  });
+server.post("/private-messages/send", async (req, res) => {
+  const sender = String(req.body.sender || req.body.author || "").trim();
+  const receiver = String(req.body.receiver || req.body.studentId || "").trim();
+  const senderRole = String(req.body.senderRole || req.body.role || "student").trim();
+  const text = req.body.text || "";
+  const attachments = Array.isArray(req.body.attachments) ? req.body.attachments : [];
+  const studentId = String(req.body.studentId || receiver || "").trim();
+  const classroom = String(req.body.classroom || "").trim();
+  const conversationType = String(req.body.conversationType || "private").trim();
+  const conversationId = String(req.body.conversationId || "").trim();
+  const author = String(req.body.author || sender || "Student").trim();
+  const userId = req.body.userId ? String(req.body.userId).trim() : null;
 
-  newMessage
-    .save()
-    .then((savedMessage) => {
-      res.status(201).send({
-        code: 201,
-        message: "Private message sent!",
-        data: savedMessage,
-      });
-    })
-    .catch((saveErr) => {
-      res.status(500).send({
-        code: 500,
-        message: "There is an error sending the private message.",
-      });
+  if (!sender) {
+    return res.status(400).send({
+      code: 400,
+      message: "Private message sender is required.",
     });
+  }
+
+  try {
+    if (conversationType === "classroom") {
+      const course = await Course.findOne({ _id: classroom || conversationId });
+      if (!course) {
+        return res.status(404).send({
+          code: 404,
+          message: "Course not found for classroom conversation.",
+        });
+      }
+
+      if (senderRole === "student") {
+        if (!userId) {
+          return res.status(400).send({
+            code: 400,
+            message: "Student userId is required to send classroom messages.",
+          });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+          return res.status(404).send({
+            code: 404,
+            message: "User not found.",
+          });
+        }
+
+        const enrolledCourseIds = (user.enrolledCourses || []).map(String);
+        if (!enrolledCourseIds.includes(String(classroom || conversationId))) {
+          return res.status(403).send({
+            code: 403,
+            message: "You are not enrolled in this course and cannot send to this classroom conversation.",
+          });
+        }
+      }
+    }
+
+    const newMessage = new PrivateMessage({
+      studentId: conversationType === "classroom" ? null : (studentId || null),
+      classroom: classroom || null,
+      conversationType,
+      conversationId: conversationType === "classroom" ? (conversationId || classroom || null) : (conversationId || studentId || null),
+      sender,
+      receiver: receiver || studentId,
+      senderRole,
+      role: senderRole,
+      author,
+      userId,
+      text,
+      attachments,
+    });
+
+    const savedMessage = await newMessage.save();
+    res.status(201).send({
+      code: 201,
+      message: "Private message sent!",
+      data: savedMessage,
+    });
+  } catch (saveErr) {
+    res.status(500).send({
+      code: 500,
+      message: "There is an error sending the private message.",
+    });
+  }
 });
 
-// Get all private messages (optionally filter by sender or receiver)
-server.get("/private-messages/all", (req, res) => {
-  let filter = {};
+// Get all private messages (optionally filter by sender, receiver, or studentId)
+server.get("/private-messages/all", async (req, res) => {
+  const filter = {};
+
+  if (req.query.studentId) {
+    filter.studentId = String(req.query.studentId).trim();
+  }
   if (req.query.sender) {
-    filter.sender = req.query.sender;
+    filter.sender = String(req.query.sender).trim();
   }
   if (req.query.receiver) {
-    filter.receiver = req.query.receiver;
+    filter.receiver = String(req.query.receiver).trim();
+  }
+  if (req.query.classroom) {
+    filter.classroom = String(req.query.classroom).trim();
+  }
+  if (req.query.conversationType) {
+    filter.conversationType = String(req.query.conversationType).trim();
+  }
+  if (req.query.conversationId) {
+    filter.conversationId = String(req.query.conversationId).trim();
   }
 
-  PrivateMessage.find(filter).sort({ createdAt: 1 })
-    .then((result) => {
-      res.status(200).send({
-        code: 200,
-        message: "Here are all private messages.",
-        count: result.length,
-        data: result,
-      });
-    })
-    .catch((err) => {
-      res.status(500).send({
-        code: 500,
-        message: "There is an error fetching private messages.",
-      });
+  try {
+    const result = await PrivateMessage.find(filter).sort({ createdAt: 1 });
+    res.status(200).send({
+      code: 200,
+      message: "Here are all private messages.",
+      count: result.length,
+      data: result,
     });
+  } catch (err) {
+    res.status(500).send({
+      code: 500,
+      message: "There is an error fetching private messages.",
+    });
+  }
 });
 
 // Delete a private message
@@ -3576,6 +3772,18 @@ server.delete("/grades/delete/:gradeId", (req, res) => {
         message: "There is an error deleting the grade.",
       });
     });
+});
+
+// =============================================
+// HEALTH CHECK
+// =============================================
+
+server.get("/health", (req, res) => {
+  res.status(200).send({
+    code: 200,
+    message: "Server is healthy.",
+    database: db.readyState === 1 ? "connected" : "disconnected",
+  });
 });
 
 // =============================================

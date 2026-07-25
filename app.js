@@ -18,6 +18,7 @@ const chatbox = document.querySelector("#chatbox");
 const chatForm = document.querySelector("#chatForm");
 const chatMessage = document.querySelector("#chatMessage");
 const chatAttachment = document.querySelector("#chatAttachment");
+const chatAttachmentPreview = document.querySelector("#chatAttachmentPreview");
 const chatMessages = document.querySelector("#chatMessages");
 const chatClassroom = document.querySelector("#chatClassroom");
 const chatRecentList = document.querySelector("#chatRecentList");
@@ -39,6 +40,7 @@ const privateMessages = document.querySelector("#privateMessages");
 const privateMessageForm = document.querySelector("#privateMessageForm");
 const privateMessageText = document.querySelector("#privateMessageText");
 const privateMessageAttachment = document.querySelector("#privateMessageAttachment");
+const privateMessageAttachmentPreview = document.querySelector("#privateMessageAttachmentPreview");
 const videoForm = document.querySelector("#videoForm");
 const videoError = document.querySelector("#videoError");
 const adminVideos = document.querySelector("#adminVideos");
@@ -776,7 +778,7 @@ function renderCourseAssignmentForm(courseId) {
   attachments.className = "form-control form-control-sm mt-1 d-none";
   attachments.name = "attachments";
   attachments.type = "file";
-  attachments.accept = ".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.gif,.webp,.zip,.ppt,.pptx,.xls,.xlsx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/*,text/plain,application/zip,application/x-zip-compressed";
+  attachments.accept = ".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.gif,.webp,.zip,.ppt,.pptx,.xls,.xlsx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/*,video/*,audio/*,text/plain,application/zip,application/x-zip-compressed,.mp4,.mov,.mkv,.avi,.webm";
   attachments.multiple = true;
   attachments.setAttribute("data-multi-file-picker", "true");
   attachments.setAttribute("aria-label", "Select one or more files to attach");
@@ -6521,6 +6523,10 @@ function formatDueDate(value) {
   }).format(date);
 }
 
+const MAX_CHAT_ATTACHMENT_COUNT = 4;
+const MAX_CHAT_ATTACHMENT_SIZE = 12 * 1024 * 1024; // 12 MB per file
+const MAX_CHAT_ATTACHMENT_TOTAL_SIZE = 30 * 1024 * 1024; // 30 MB total per message
+
 function formatFileSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
@@ -8594,6 +8600,8 @@ document.addEventListener("click", async (event) => {
 });
 
 let serverChatMessages = [];
+let privateMessageStore = [];
+let serverRegisteredStudents = [];
 
 function getActiveChatClassroom() {
   if (chatClassroom) return chatClassroom.value || getSubjectTargets({ includeAll: false })[0]?.value || "";
@@ -8612,6 +8620,50 @@ async function fetchClassChatMessages(classroom = "") {
     if (!response.ok) throw new Error(result.message || "Unable to load chat messages.");
     return Array.isArray(result.data) ? result.data : [];
   } catch {
+    return [];
+  }
+}
+
+async function fetchPrivateMessages(studentId = "", options = {}) {
+  const query = new URLSearchParams();
+  if (studentId) query.set("studentId", studentId);
+  if (options.classroom) query.set("classroom", options.classroom);
+  if (options.conversationType) query.set("conversationType", options.conversationType);
+  if (options.conversationId) query.set("conversationId", options.conversationId);
+
+  try {
+    const response = await fetch(getApiUrl(`/private-messages/all${query.toString() ? `?${query.toString()}` : ""}`));
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to load private messages.");
+    return Array.isArray(result.data) ? result.data : [];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchRegisteredStudents() {
+  try {
+    const response = await fetch(getApiUrl("/users/all"));
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to load registered students.");
+
+    const users = Array.isArray(result.data) ? result.data : [];
+    serverRegisteredStudents = users
+      .filter((user) => String(user.role || "").toLowerCase() !== "admin")
+      .map((user) => ({
+        id: user._id || user.id || user.username,
+        _id: user._id || user.id || user.username,
+        name: user.fullName || user.username || "Student",
+        username: user.username || "",
+        classroom: Array.isArray(user.enrolledCourses) && user.enrolledCourses.length
+          ? user.enrolledCourses[0]
+          : "",
+        fullName: user.fullName || user.username || "Student",
+        email: user.email || "",
+      }));
+    return serverRegisteredStudents;
+  } catch {
+    serverRegisteredStudents = [];
     return [];
   }
 }
@@ -8635,6 +8687,12 @@ async function sendServerClassChatMessage({ classroom, sender, role, userId, tex
 async function refreshClassChat(classroom = "") {
   serverChatMessages = await fetchClassChatMessages(classroom || getActiveChatClassroom());
   renderChatMessages();
+}
+
+async function refreshPrivateChat(studentId = "", options = {}) {
+  const messages = await fetchPrivateMessages(studentId, options);
+  privateMessageStore = messages;
+  renderPrivateMessages();
 }
 
 function getInitials(name) {
@@ -8745,9 +8803,12 @@ function createSharedResourceRow(resource) {
     file.href = resource.file.data;
     file.download = resource.file.name;
     file.textContent = resource.file.name || "Download file";
+    file.title = resource.file.name || "";
     actions.appendChild(file);
   } else if (resource.file?.name) {
-    actions.appendChild(createTextElement("span", "text-secondary", resource.file.name));
+    const fileNameSpan = createTextElement("span", "text-secondary", resource.file.name);
+    fileNameSpan.title = resource.file.name || "";
+    actions.appendChild(fileNameSpan);
   }
 
   if (resource.link) {
@@ -8756,6 +8817,7 @@ function createSharedResourceRow(resource) {
     link.target = "_blank";
     link.rel = "noopener";
     link.textContent = "Open link";
+    link.title = resource.link;
     actions.appendChild(link);
   }
 
@@ -8770,10 +8832,11 @@ function getChatAttachmentResources(panel) {
     : getChatMessages().filter((message) => message.classroom === getActiveChatClassroom());
 
   return messages.flatMap((message) => {
+    const senderLabel = message.sender || message.author || (message.role === "admin" ? "Admin" : "Student");
     return (message.attachments || []).map((file) => ({
       id: `${message.id}-${file.name}`,
       title: file.name,
-      courseTitle: `${message.author} - ${formatDate(message.createdAt)}`,
+      courseTitle: `${senderLabel} - ${formatDate(message.createdAt)}`,
       file,
       createdAt: message.createdAt
     }));
@@ -8805,6 +8868,12 @@ function renderSharedFilesDetail(detail) {
     ...getSharedCourseResources(),
     ...getChatAttachmentResources(detail.closest(".chat-info-panel"))
   ];
+
+  // preserve scroll position so admin/student can backread the shared list
+  const prevScrollTop = detail.scrollTop;
+  const prevScrollHeight = detail.scrollHeight;
+  const wasAtBottom = prevScrollHeight - prevScrollTop - detail.clientHeight < 60;
+
   detail.appendChild(createTextElement("h4", "chat-info-detail-title", "Shared files and links"));
   if (!resources.length) {
     detail.appendChild(createChatInfoEmpty("No shared files or links yet."));
@@ -8812,6 +8881,14 @@ function renderSharedFilesDetail(detail) {
   }
 
   resources.forEach((resource) => detail.appendChild(createSharedResourceRow(resource)));
+
+  // restore scroll: auto-scroll when previously at bottom, otherwise keep viewport
+  if (wasAtBottom) {
+    detail.scrollTop = detail.scrollHeight;
+  } else {
+    const newScrollHeight = detail.scrollHeight;
+    detail.scrollTop = Math.max(0, prevScrollTop + (newScrollHeight - prevScrollHeight));
+  }
 }
 
 function renderStudentInfoDetail(detail) {
@@ -8943,11 +9020,23 @@ function renderClassChatRecents() {
     });
 }
 
+async function ensureClassChatLoaded() {
+  const classroom = getActiveChatClassroom();
+  if (!classroom) return;
+  await refreshClassChat(classroom);
+}
+
 function renderChatMessages() {
   if (!chatMessages) return;
 
   const activeClassroom = getActiveChatClassroom();
   const messages = getChatMessages().filter((message) => message.classroom === activeClassroom);
+
+  // preserve user's scroll position: if they were at the bottom, we'll auto-scroll
+  // after render; otherwise keep their viewport stable so they can backread.
+  const prevScrollTop = chatMessages.scrollTop;
+  const prevScrollHeight = chatMessages.scrollHeight;
+  const wasAtBottom = prevScrollHeight - prevScrollTop - chatMessages.clientHeight < 60;
   chatMessages.replaceChildren();
   if (chatThreadTitle) chatThreadTitle.textContent = getClassroomTitle(activeClassroom) || "Class Chat";
   if (chatInfoTitle) chatInfoTitle.textContent = getClassroomTitle(activeClassroom) || "Class Chat";
@@ -8961,6 +9050,8 @@ function renderChatMessages() {
   renderClassChatRecents();
   renderNotificationCenter();
   refreshOpenChatInfoDetails(chatbox || document);
+
+  
 
   if (!messages.length) {
     const empty = document.createElement("p");
@@ -8976,7 +9067,8 @@ function renderChatMessages() {
     .filter(Boolean)
     .map((name) => String(name).trim().toLowerCase());
 
-  messages.slice(-20).forEach((message) => {
+  // render full message history so admin/student can scroll back through all messages
+  messages.forEach((message) => {
     const author = message.sender || message.author || "Unknown";
     const messageRole = String(message.role || "").trim().toLowerCase();
     const messageUserId = String(message.userId || "").trim();
@@ -9000,15 +9092,41 @@ function renderChatMessages() {
   });
 
   observeMotionElements(chatMessages);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+
+  // if user was at bottom, scroll to bottom; otherwise keep their relative position
+  if (wasAtBottom) {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  } else {
+    // keep the same viewport by shifting scrollTop by the change in scrollHeight
+    const newScrollHeight = chatMessages.scrollHeight;
+    chatMessages.scrollTop = Math.max(0, prevScrollTop + (newScrollHeight - prevScrollHeight));
+  }
 }
 
 chatClassroom?.addEventListener("change", async () => {
   if (chatClassroom?.value) {
     sessionStorage.setItem("gthSelectedChatClassroom", chatClassroom.value);
   }
-  await refreshClassChat(getActiveChatClassroom());
+  await ensureClassChatLoaded();
 });
+
+function setupClassChatAutoRefresh() {
+  if (!chatbox) return;
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      ensureClassChatLoaded().catch(() => {});
+    }
+  });
+
+  window.addEventListener("focus", () => {
+    ensureClassChatLoaded().catch(() => {});
+  });
+
+  window.addEventListener("pageshow", () => {
+    ensureClassChatLoaded().catch(() => {});
+  });
+}
 
 document.addEventListener("click", (event) => {
   const actionButton = event.target.closest("[data-chat-info-action]");
@@ -9044,16 +9162,118 @@ document.addEventListener("click", (event) => {
   renderInlineFilePreview(file, attachmentButton.closest(".chat-attachment"), attachmentButton.dataset.filePreviewId);
 });
 
-async function readChatAttachments(input) {
-  const files = await Promise.all(Array.from(input?.files || []).map(readStorageFile));
-  return files.filter(Boolean);
+async function readChatAttachments(input, options = {}) {
+  const { includeData = false } = options;
+  const files = Array.from(input?.files || []);
+
+  if (!files.length) return [];
+  if (!includeData) {
+    return files.map((file) => ({
+      name: file.name,
+      size: file.size,
+      type: file.type || getMimeTypeFromName(file.name)
+    }));
+  }
+
+  const resolvedFiles = await Promise.all(files.map(readStorageFile));
+  return resolvedFiles.filter(Boolean);
 }
+
+const CHAT_ATTACHMENT_ALLOWED_EXTENSIONS = ["pdf", "doc", "docx", "png", "jpg", "jpeg", "gif", "webp"];
+const CHAT_ATTACHMENT_ALLOWED_MIME_PREFIXES = ["image/"];
+
+function isAllowedChatAttachment(file) {
+  const extension = getFileExtension(file.name || "");
+  const mimeType = file.type || "";
+  return CHAT_ATTACHMENT_ALLOWED_EXTENSIONS.includes(extension)
+    || CHAT_ATTACHMENT_ALLOWED_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix));
+}
+
+function getChatAttachmentValidationErrors(files) {
+  const errors = [];
+  if (files.length > MAX_CHAT_ATTACHMENT_COUNT) {
+    errors.push(`Select at most ${MAX_CHAT_ATTACHMENT_COUNT} file(s) per chat message.`);
+  }
+
+  const totalSize = files.reduce((sum, file) => sum + (file?.size || 0), 0);
+  if (totalSize > MAX_CHAT_ATTACHMENT_TOTAL_SIZE) {
+    errors.push(`Total attachment size cannot exceed ${formatFileSize(MAX_CHAT_ATTACHMENT_TOTAL_SIZE)}.`);
+  }
+
+  files.forEach((file) => {
+    if (!file) return;
+    if (!isAllowedChatAttachment(file)) {
+      errors.push(`${file.name || "A file"} is not supported. Only PDF and DOCX are allowed.`);
+    } else if (file.size > MAX_CHAT_ATTACHMENT_SIZE) {
+      errors.push(`${file.name || "A file"} is too large. Max size is ${formatFileSize(MAX_CHAT_ATTACHMENT_SIZE)}.`);
+    }
+  });
+
+  return errors;
+}
+
+function renderSelectedAttachments(input, previewContainer) {
+  if (!previewContainer) return;
+  previewContainer.replaceChildren();
+
+  const files = Array.from(input?.files || []);
+  if (!files.length) return;
+
+  const errors = getChatAttachmentValidationErrors(files);
+  if (errors.length) {
+    const errorList = document.createElement("div");
+    errorList.className = "chat-file-preview-errors";
+    errors.forEach((message) => {
+      const errorItem = document.createElement("div");
+      errorItem.className = "chat-file-preview-error";
+      errorItem.textContent = message;
+      errorList.appendChild(errorItem);
+    });
+    previewContainer.appendChild(errorList);
+  }
+
+  const list = document.createElement("div");
+  list.className = "chat-file-preview-list";
+
+  files.forEach((file) => {
+    const row = document.createElement("div");
+    row.className = "chat-file-preview";
+
+    const name = document.createElement("strong");
+    name.className = "chat-file-preview-name";
+    name.textContent = file.name || "Attachment";
+
+    const meta = document.createElement("small");
+    meta.className = "chat-file-preview-meta";
+    meta.textContent = `${getFileKindLabel(file)} • ${getFileTypeLabel(file)} • ${formatFileSize(file.size || 0)}`;
+
+    row.append(name, meta);
+    list.append(row);
+  });
+
+  previewContainer.appendChild(list);
+}
+
+function validateChatAttachments(files) {
+  const errors = getChatAttachmentValidationErrors(files);
+  if (errors.length) {
+    window.alert(errors.join(" \n"));
+    return false;
+  }
+  return true;
+}
+
+chatAttachment?.addEventListener("change", () => renderSelectedAttachments(chatAttachment, chatAttachmentPreview));
+privateMessageAttachment?.addEventListener("change", () => renderSelectedAttachments(privateMessageAttachment, privateMessageAttachmentPreview));
 
 chatForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const text = chatMessage.value.trim();
-  const attachments = await readChatAttachments(chatAttachment);
+  const selectedFiles = Array.from(chatAttachment?.files || []);
+  if (!validateChatAttachments(selectedFiles)) return;
+
+  const attachments = await readChatAttachments(chatAttachment, { includeData: false });
   if (!text && !attachments.length) return;
 
   const classroom = getActiveChatClassroom();
@@ -9074,7 +9294,10 @@ chatForm?.addEventListener("submit", async (event) => {
       createdAt: new Date().toISOString()
     });
     chatMessage.value = "";
-    if (chatAttachment) chatAttachment.value = "";
+    if (chatAttachment) {
+      chatAttachment.value = "";
+      renderSelectedAttachments(chatAttachment, chatAttachmentPreview);
+    }
   } catch (error) {
     window.alert(error.message || "Unable to send chat message.");
   }
@@ -9088,48 +9311,66 @@ chatToggles.forEach((toggle) => {
 });
 
 function getPrivateMessages() {
-  return getStoredItems("gthPrivateMessages", []);
+  return Array.isArray(privateMessageStore) ? privateMessageStore : [];
 }
 
 function getActivePrivateStudentId() {
-  if (privateMessageStudent) return privateMessageStudent.value;
-  return currentStudent.id;
+  return privateMessageStudent?.value || currentStudent.id;
 }
 
 function getStudentById(studentId) {
-  return getAllStudents().find((student) => student.id === studentId) || currentStudent;
+  return serverRegisteredStudents.find((student) => student.id === studentId)
+    || getAllStudents().find((student) => student.id === studentId)
+    || currentStudent;
 }
 
-function setupPrivateMessageStudents() {
+async function setupPrivateMessageStudents() {
   if (!privateMessageStudent) return;
 
+  const students = await fetchRegisteredStudents();
   privateMessageStudent.replaceChildren();
-  getAllStudents().forEach((student) => {
+
+  if (!students.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No registered students found";
+    privateMessageStudent.appendChild(option);
+    return;
+  }
+
+  students.forEach((student) => {
     const option = document.createElement("option");
     option.value = student.id;
-    option.textContent = `${student.name} - ${getClassroomTitle(student.classroom)}`;
+    option.textContent = `${student.name}${student.username ? ` (${student.username})` : ""}`;
     privateMessageStudent.appendChild(option);
   });
+
+  const activeStudentId = getActivePrivateStudentId();
+  if (activeStudentId) {
+    privateMessageStudent.value = activeStudentId;
+  }
 }
 
 function renderPrivateMessageRecents() {
   if (!privateRecentList) return;
 
   const messages = getPrivateMessages();
-  const activeStudentId = getActivePrivateStudentId();
   const isAdmin = privateMessagePanel?.dataset.privateRole === "admin";
-  const students = isAdmin ? getAllStudents() : [currentStudent];
+  const students = isAdmin ? serverRegisteredStudents.length ? serverRegisteredStudents : getAllStudents() : [currentStudent];
 
   privateRecentList.replaceChildren();
   students.forEach((student) => {
-    const studentMessages = messages.filter((message) => message.studentId === student.id);
+    const studentMessages = messages.filter((message) => {
+      if (message.conversationType === "classroom") return false;
+      return message.studentId === student.id;
+    });
     const latest = studentMessages[studentMessages.length - 1];
     privateRecentList.appendChild(createRecentChatItem({
       title: isAdmin ? student.name : "Admin Support",
       preview: latest ? `${latest.author}: ${latest.text || `${latest.attachments?.length || 0} attachment(s)`}` : "No private messages yet.",
       time: latest ? getMessageTimeLabel(latest) : "",
       initials: isAdmin ? getInitials(student.name) : "A",
-      active: student.id === activeStudentId,
+      active: student.id === getActivePrivateStudentId(),
       unreadCount: getUnreadNotificationCount("private-messages", { studentId: student.id }),
       onClick: () => {
         if (privateMessageStudent) privateMessageStudent.value = student.id;
@@ -9144,13 +9385,15 @@ function renderPrivateMessages() {
 
   const studentId = getActivePrivateStudentId();
   const student = getStudentById(studentId);
-  const messages = getPrivateMessages().filter((message) => message.studentId === studentId);
-  const currentRole = privateMessagePanel?.dataset.privateRole === "admin" ? "admin" : "student";
-  const isAdmin = currentRole === "admin";
+  const isAdmin = privateMessagePanel?.dataset.privateRole === "admin";
+  const currentRole = isAdmin ? "admin" : "student";
   const threadName = isAdmin ? student.name : "Admin Support";
+  const messages = getPrivateMessages().filter((message) => {
+    if (message.conversationType === "classroom") return false;
+    return message.studentId === studentId;
+  });
 
   if (privateMessageStudentName) privateMessageStudentName.textContent = threadName;
-  if (privateInfoTitle) privateInfoTitle.textContent = threadName;
   if (isSectionCurrentlyOpen("private-messages")) {
     markNotificationsRead((notification) => {
       return getNotificationSectionId(notification) === "private-messages"
@@ -9159,7 +9402,6 @@ function renderPrivateMessages() {
   }
   renderPrivateMessageRecents();
   renderNotificationCenter();
-  refreshOpenChatInfoDetails(privateMessagePanel || document);
   privateMessages.replaceChildren();
 
   if (!messages.length) {
@@ -9182,47 +9424,82 @@ function renderPrivateMessages() {
   privateMessages.scrollTop = privateMessages.scrollHeight;
 }
 
-privateMessageStudent?.addEventListener("change", renderPrivateMessages);
+privateMessageStudent?.addEventListener("change", async () => {
+  const studentId = getActivePrivateStudentId();
+  if (studentId) {
+    await refreshPrivateChat(studentId, { conversationType: "private" });
+  }
+});
 
 privateMessageForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const text = privateMessageText?.value.trim() || "";
-  const attachments = await readChatAttachments(privateMessageAttachment);
+  const selectedFiles = Array.from(privateMessageAttachment?.files || []);
+  if (!validateChatAttachments(selectedFiles)) return;
+
+  const attachments = await readChatAttachments(privateMessageAttachment, { includeData: false });
   const studentId = getActivePrivateStudentId();
   const student = getStudentById(studentId);
   if (!text && !attachments.length) return;
 
   const isAdmin = privateMessagePanel?.dataset.privateRole === "admin";
-  const messages = getPrivateMessages();
-  const message = {
-    id: `private-message-${Date.now()}`,
-    studentId,
-    classroom: student.classroom,
-    role: isAdmin ? "admin" : "student",
-    author: isAdmin ? "Admin" : student.name,
-    text,
-    attachments,
-    createdAt: new Date().toISOString()
-  };
-  messages.push(message);
+  const sender = isAdmin ? "Admin" : currentStudent.name || "Student";
+  const role = isAdmin ? "admin" : "student";
 
-  saveStoredItems("gthPrivateMessages", messages);
-  addNotification({
-    type: "private-message",
-    section: "private-messages",
-    studentId,
-    studentName: student.name,
-    classroom: student.classroom,
-    audience: isAdmin ? { role: "student", studentId } : { role: "admin", studentId },
-    title: isAdmin ? "Admin sent you a private message" : `${student.name} sent a private message`,
-    message: message.text || `${message.attachments.length} attachment(s)`,
-    createdAt: message.createdAt
-  });
-  privateMessageText.value = "";
-  if (privateMessageAttachment) privateMessageAttachment.value = "";
-  renderPrivateMessages();
+  try {
+    const response = await fetch(getApiUrl("/private-messages/send"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sender,
+        receiver: studentId,
+        senderRole: role,
+        role,
+        author: sender,
+        studentId,
+        classroom: student.classroom,
+        conversationType: "private",
+        conversationId: studentId,
+        userId: currentStudent.id || currentStudent._id || null,
+        text,
+        attachments,
+      })
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to send private message.");
+
+    privateMessageStore = [...(Array.isArray(privateMessageStore) ? privateMessageStore : []), result.data];
+    addNotification({
+      type: "private-message",
+      section: "private-messages",
+      studentId,
+      studentName: student.name,
+      classroom: student.classroom,
+      audience: isAdmin ? { role: "student", studentId } : { role: "admin", studentId },
+      title: isAdmin ? "Admin sent you a private message" : `${student.name} sent a private message`,
+      message: text || `${attachments.length} attachment(s)`,
+      createdAt: new Date().toISOString()
+    });
+    privateMessageText.value = "";
+    if (privateMessageAttachment) {
+      privateMessageAttachment.value = "";
+      renderSelectedAttachments(privateMessageAttachment, privateMessageAttachmentPreview);
+    }
+    renderPrivateMessages();
+  } catch (error) {
+    window.alert(error.message || "Unable to send private message.");
+  }
 });
+
+async function initializePrivateMessages() {
+  await setupPrivateMessageStudents();
+  const initialStudentId = getActivePrivateStudentId();
+  if (initialStudentId) {
+    await refreshPrivateChat(initialStudentId, { conversationType: "private" });
+  }
+}
 
 function redirectAdminIfLoggedOut() {
   if (adminApp && sessionStorage.getItem("gthAdminLoggedIn") !== "true") {
@@ -9238,6 +9515,8 @@ adminLogout?.addEventListener("click", () => {
   sessionStorage.removeItem("gthCurrentUser");
   window.location.replace("index.html");
 });
+
+initializePrivateMessages().catch(() => {});
 
 portalLoginForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -9312,6 +9591,7 @@ window.persistAssignmentSubmissionToStore = persistAssignmentSubmissionToStore;
 
 renderAnnouncements();
 renderVideos();
+setupClassChatAutoRefresh();
 renderChatMessages();
 const currentUserForCourses = JSON.parse(sessionStorage.getItem("gthCurrentUser") || "null");
 loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "").then(async () => {
@@ -9339,7 +9619,7 @@ loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "").then(async (
   renderGradebook().catch(() => {});
   setupPrivateMessageStudents();
   renderPrivateMessages();
-  await refreshClassChat(getActiveChatClassroom());
+  await ensureClassChatLoaded();
   renderNotificationCenter();
   observeMotionElements();
 });
