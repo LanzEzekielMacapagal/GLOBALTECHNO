@@ -2727,10 +2727,54 @@ body {
   grid-column: 1 / -1;
   width: 100%;
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
+  align-content: flex-start;
   gap: 12px;
-  overflow-x: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: calc(160px + 12px + 4px);
   -webkit-overflow-scrolling: touch;
+}
+
+.gradebook-grade-form > .admin-grade-cards .admin-grade-card {
+  min-width: 0;
+  max-width: calc((100% - 48px) / 5);
+  width: calc((100% - 48px) / 5);
+  flex: 0 0 calc((100% - 48px) / 5);
+}
+
+@media (max-width: 768px) {
+  .gradebook-grade-form > .admin-grade-cards,
+  .gradebook-grade-form > .course-grade-items {
+    display: block;
+    align-items: stretch;
+    overflow-y: auto;
+    overflow-x: hidden;
+    max-height: 260px;
+    height: 260px;
+    gap: 1rem;
+    padding: 0 0 0.5rem 0;
+    scroll-snap-type: y mandatory;
+    -webkit-overflow-scrolling: touch;
+    box-sizing: border-box;
+  }
+
+  .gradebook-grade-form > .admin-grade-cards .admin-grade-card,
+  .gradebook-grade-form > .course-grade-items .course-grade-card {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 0 0 auto !important;
+    min-width: 0 !important;
+    margin: 0 auto 1rem !important;
+    box-sizing: border-box !important;
+    scroll-snap-align: start;
+  }
+
+  .gradebook-row {
+    overflow: visible;
+    padding-bottom: 1rem;
+  }
 }
 
 .student-dashboard-shell {

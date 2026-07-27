@@ -513,8 +513,12 @@ function getAllStudents() {
   });
 }
 
-function getStudentGrades() {
+function getStoredGrades() {
   return getStoredItems("gthStudentGrades", []);
+}
+
+function getStudentGrades() {
+  return Array.isArray(serverGrades) && serverGrades.length ? serverGrades : getStoredGrades();
 }
 
 function getStudentGrade(courseId, studentId) {
@@ -522,7 +526,8 @@ function getStudentGrade(courseId, studentId) {
 }
 
 function calculateFinalGrade(grade = {}) {
-  const values = ["prelim", "midterm", "final"].map((key) => grade[key]);
+  const finalValue = grade.final ?? grade.finals;
+  const values = ["prelim", "midterm", finalValue].map((value) => value);
   if (values.some((value) => value === "" || value === null || value === undefined)) return null;
   const parts = values.map((value) => Number(value));
   if (parts.some((part) => Number.isNaN(part))) return null;
@@ -1945,7 +1950,8 @@ async function loadServerCourseResources(courseId = "") {
     return serverCourseResources;
   } catch (error) {
     console.error("Error loading reviewers from server:", error);
-    serverCourseResources = [];
+    serverGrades = [];
+let serverCourseResources = [];
     return serverCourseResources;
   }
 }
@@ -1957,6 +1963,7 @@ let serverAssignmentExtraChances = [];
 let serverCourseEnrolledStudents = {};
 let serverAssignments = [];
 let serverAssignmentSubmissions = [];
+let serverGrades = [];
 let studentCourseAssignments = {};
 let studentAssignmentSubmissions = {};
 
@@ -2055,6 +2062,20 @@ async function loadServerAssignmentExtraChances(courseId = "") {
     return serverAssignmentExtraChances;
   } catch {
     return getAssignmentExtraChances();
+  }
+}
+
+async function loadServerGrades(courseId = "") {
+  if (!courseId) return [];
+  try {
+    const response = await fetch(getApiUrl(`/grades/course/${encodeURIComponent(courseId)}`));
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to load course grades.");
+    serverGrades = Array.isArray(result.data) ? result.data : [];
+    return serverGrades;
+  } catch {
+    serverGrades = getStoredGrades();
+    return serverGrades;
   }
 }
 
@@ -7252,7 +7273,10 @@ async function renderGradebook() {
   const courseEntries = Object.entries(courseWorkspaces);
 
   await Promise.all(courseEntries.map(async ([courseId, course]) => {
-    await loadServerEnrolledStudents(courseId);
+    await Promise.all([
+      loadServerGrades(courseId),
+      loadServerEnrolledStudents(courseId)
+    ]);
 
     const enrolledStudents = (getCourseEnrolledStudents(courseId) || [])
       .map((student) => ({
@@ -7342,6 +7366,15 @@ function adjustGradeCardScaling() {
     cards.forEach((c) => { c.style.transform = ''; c.style.transformOrigin = 'top left'; });
 
     const style = window.getComputedStyle(container);
+    if (style.display !== 'flex' || style.flexWrap === 'wrap') {
+      container.style.height = '';
+      cards.forEach((c) => {
+        c.style.transform = '';
+        c.style.transformOrigin = '';
+      });
+      return;
+    }
+
     const gap = parseFloat(style.columnGap || style.gap || 12) || 12;
     const totalWidth = cards.reduce((sum, c) => sum + c.offsetWidth, 0) + gap * Math.max(0, cards.length - 1);
     const available = container.clientWidth || container.parentElement.clientWidth || window.innerWidth;
@@ -8447,9 +8480,8 @@ document.addEventListener("submit", (event) => {
 
   event.preventDefault();
 
-  const grades = getStudentGrades().filter((grade) => {
-    return !(grade.courseId === form.dataset.studentGradeForm && grade.studentId === form.dataset.studentId);
-  });
+  const courseId = form.dataset.studentGradeForm;
+  const studentId = form.dataset.studentId;
 
   const readGrade = (name) => {
     const value = form.querySelector(`[name='${name}']`)?.value.trim();
@@ -8457,26 +8489,37 @@ document.addEventListener("submit", (event) => {
   };
 
   const grade = {
-    id: `student-grade-${Date.now()}`,
-    courseId: form.dataset.studentGradeForm,
-    studentId: form.dataset.studentId,
+    courseId,
+    studentId,
     studentName: form.dataset.studentName,
     classroom: form.dataset.classroom,
     prelim: readGrade("prelim"),
     midterm: readGrade("midterm"),
-    final: readGrade("final"),
-    updatedAt: new Date().toISOString()
+    finals: readGrade("final"),
   };
 
-  grade.finalGrade = calculateFinalGrade(grade);
-  grades.push(grade);
+  grade.finalGrade = calculateFinalGrade(grade) || 0;
 
-  saveStoredItems("gthStudentGrades", grades);
-  renderAssignments();
-renderGradebook().catch(() => {});
+  try {
+    const response = await fetch(getApiUrl("/grades/add"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(grade),
+    });
 
-  const activeCourseCard = document.querySelector(`.course-card-active[data-course='${form.dataset.studentGradeForm}']`);
-  if (activeCourseCard) renderCourseWorkspace(form.dataset.studentGradeForm, activeCourseCard);
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Unable to save grade.");
+
+    // Refresh server grades after successful save
+    await loadServerGrades(courseId);
+    renderAssignments();
+    renderGradebook().catch(() => {});
+
+    const activeCourseCard = document.querySelector(`.course-card-active[data-course='${courseId}']`);
+    if (activeCourseCard) renderCourseWorkspace(courseId, activeCourseCard);
+  } catch (error) {
+    window.alert(error.message || "Unable to save grade.");
+  }
 });
 
 async function loadServerInvitations(classroom = "") {

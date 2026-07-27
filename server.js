@@ -529,6 +529,16 @@ const invitationSchema = new mongoose.Schema({
 
 // Grade Schema
 const gradeSchema = new mongoose.Schema({
+  courseId: {
+    type: String,
+    required: true,
+    index: true,
+  },
+  studentId: {
+    type: String,
+    required: true,
+    index: true,
+  },
   studentName: {
     type: String,
     required: true,
@@ -555,6 +565,7 @@ const gradeSchema = new mongoose.Schema({
     default: Date.now,
   },
 });
+gradeSchema.index({ courseId: 1, studentId: 1 }, { unique: true, sparse: true });
 
 // Assignment Schema
 const assignmentSchema = new mongoose.Schema({
@@ -3678,28 +3689,42 @@ server.delete("/invitations/delete/:invitationId", (req, res) => {
 
 // Add or update a grade
 server.post("/grades/add", (req, res) => {
-  let newGrade = new Grade({
-    studentName: req.body.studentName,
-    classroom: req.body.classroom,
-    prelim: req.body.prelim || 0,
-    midterm: req.body.midterm || 0,
-    finals: req.body.finals || 0,
-    finalGrade: req.body.finalGrade || 0,
-  });
+  const courseId = String(req.body.courseId || "");
+  const studentId = String(req.body.studentId || "");
 
-  newGrade
-    .save()
+  if (!courseId || !studentId) {
+    return res.status(400).send({
+      code: 400,
+      message: "courseId and studentId are required to save a grade.",
+    });
+  }
+
+  Grade.findOneAndUpdate(
+    { courseId, studentId },
+    {
+      courseId,
+      studentId,
+      studentName: req.body.studentName,
+      classroom: req.body.classroom,
+      prelim: req.body.prelim || 0,
+      midterm: req.body.midterm || 0,
+      finals: req.body.final ?? req.body.finals || 0,
+      finalGrade: req.body.finalGrade || 0,
+      dateUpdated: new Date(),
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  )
     .then((savedGrade) => {
       res.status(201).send({
         code: 201,
-        message: "Grade added successfully!",
+        message: "Grade saved successfully!",
         data: savedGrade,
       });
     })
     .catch((saveErr) => {
       res.status(500).send({
         code: 500,
-        message: "There is an error adding the grade.",
+        message: "There is an error saving the grade.",
       });
     });
 });
@@ -3723,6 +3748,24 @@ server.get("/grades/all", (req, res) => {
     });
 });
 
+server.get("/grades/course/:courseId", (req, res) => {
+  Grade.find({ courseId: String(req.params.courseId) })
+    .then((result) => {
+      res.status(200).send({
+        code: 200,
+        message: "Here are the grades for this course.",
+        count: result.length,
+        data: result,
+      });
+    })
+    .catch((err) => {
+      res.status(500).send({
+        code: 500,
+        message: "There is an error fetching course grades.",
+      });
+    });
+});
+
 // Edit a grade
 server.put("/grades/edit/:gradeId", (req, res) => {
   Grade.findOne({ _id: req.params.gradeId })
@@ -3736,7 +3779,7 @@ server.put("/grades/edit/:gradeId", (req, res) => {
 
       result.prelim = req.body.prelim ?? result.prelim;
       result.midterm = req.body.midterm ?? result.midterm;
-      result.finals = req.body.finals ?? result.finals;
+      result.finals = req.body.final ?? req.body.finals ?? result.finals;
       result.finalGrade = req.body.finalGrade ?? result.finalGrade;
       result.dateUpdated = new Date();
 
