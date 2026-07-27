@@ -1,0 +1,106 @@
+{
+  "info": {
+    "name": "Student Grades API",
+    "description": "Complete API for managing student grades, connecting manual grading and automatic quiz/assignment scores",
+    "version": "1.0.0"
+  },
+  "item": [
+    {
+      "name": "1. SAVE GRADE (Admin Manual Entry)",
+      "description": "Save or update a student's period grades (Prelim, Midterm, Finals). Final grade is auto-calculated.\n\n**Database:** Creates/updates `grades` collection with `{ courseId, studentId }` as unique key\n\n**Response:** Saved grade object with auto-calculated finalGrade\n\n**Use Cases:**\n- Admin manually enters Prelim grade for a student\n- Admin updates Midterm grade after period review\n- Admin finalizes all Finals grades for the course",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:3000/grades/add",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "grades",
+            "add"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"courseId\": \"65f1a2b3c4d5e6f7g8h9i0j1\",\n  \"studentId\": \"65f1a2b3c4d5e6f7g8h9i0j2\",\n  \"studentName\": \"John Doe\",\n  \"classroom\": \"Section A\",\n  \"prelim\": 85,\n  \"midterm\": 88,\n  \"finals\": 90\n}"
+        }
+      },
+      "response": {
+        "status": "201 Created",
+        "body": {
+          "code": 201,
+          "message": "Grade saved successfully!",
+          "data": {
+            "_id": "65f2a3b4c5d6e7f8g9h0i1j2",
+            "courseId": "65f1a2b3c4d5e6f7g8h9i0j1",
+            "studentId": "65f1a2b3c4d5e6f7g8h9i0j2",
+            "studentName": "John Doe",
+            "classroom": "Section A",
+            "prelim": 85,
+            "midterm": 88,
+            "finals": 90,
+            "finalGrade": 88,
+            "dateUpdated": "2026-07-27T10:30:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "2. SYNC GRADES FROM ASSESSMENTS",
+      "description": "Automatically sync and calculate a student's grade based on all their quiz and assignment submissions.\n\n**Database:** Auto-fetches QuizSubmission and AssignmentSubmission records, then updates the grade\n\n**Response:** Updated grade object with calculated finalGrade from all assessments\n\n**Use Cases:**\n- After admin grades a quiz submission manually\n- After admin grades an assignment\n- Force recalculation of student's current assessment-based grade\n- Integration point for auto-grading systems",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:3000/grades/sync",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "grades",
+            "sync"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"courseId\": \"65f1a2b3c4d5e6f7g8h9i0j1\",\n  \"studentId\": \"65f1a2b3c4d5e6f7g8h9i0j2\",\n  \"studentName\": \"John Doe\",\n  \"classroom\": \"Section A\"\n}"
+        }
+      },
+      "response": {
+        "status": "200 OK",
+        "body": {
+          "code": 200,
+          "message": "Grade synced successfully.",
+          "data": {
+            "_id": "65f2a3b4c5d6e7f8g9h0i1j2",
+            "courseId": "65f1a2b3c4d5e6f7g8h9i0j1",
+            "studentId": "65f1a2b3c4d5e6f7g8h9i0j2",
+            "studentName": "John Doe",
+            "classroom": "Section A",
+            "prelim": 0,
+            "midterm": 0,
+            "finals": 87,
+            "finalGrade": 87,
+            "dateUpdated": "2026-07-27T10:35:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "name": "3. GET ALL GRADES",
+      "description": "Retrieve all student grades across all courses (Admin only).\n\n**Database:** Queries entire `grades` collection\n\n**Response:** Array of all grade records\n\n**Use Cases:**\n- Generate comprehensive grade report\n- Grade analytics dashboard\n- Bulk export for records",\n      \"request\": {\n        \"method\": \"GET\",\n        \"header\": [],\n        \"url\": {\n          \"raw\": \"http://localhost:3000/grades/all\",\n          \"protocol\": \"http\",\n          \"host\": [\n            \"localhost\"\n          ],\n          \"port\": \"3000\",\n          \"path\": [\n            \"grades\",\n            \"all\"\n          ]\n        }\n      },\n      \"response\": {\n        \"status\": \"200 OK\",\n        \"body\": {\n          \"code\": 200,\n          \"message\": \"Here are all grades.\",\n          \"count\": 150,\n          \"data\": [\n            {\n              \"_id\": \"65f2a3b4c5d6e7f8g9h0i1j2\",\n              \"courseId\": \"65f1a2b3c4d5e6f7g8h9i0j1\",\n              \"studentId\": \"65f1a2b3c4d5e6f7g8h9i0j2\",\n              \"studentName\": \"John Doe\",\n              \"classroom\": \"Section A\",\n              \"prelim\": 85,\n              \"midterm\": 88,\n              \"finals\": 90,\n              \"finalGrade\": 88,\n              \"dateUpdated\": \"2026-07-27T10:30:00.000Z\"\n            },\n            {\n              \"_id\": \"65f2a3b4c5d6e7f8g9h0i1j3\",\n              \"courseId\": \"65f1a2b3c4d5e6f7g8h9i0j1\",\n              \"studentId\": \"65f1a2b3c4d5e6f7g8h9i0j3\",\n              \"studentName\": \"Jane Smith\",\n              \"classroom\": \"Section B\",\n              \"prelim\": 92,\n              \"midterm\": 89,\n              \"finals\": 95,\n              \"finalGrade\": 92,\n              \"dateUpdated\": \"2026-07-27T10:32:00.000Z\"\n            }\n          ]\n        }\n      }\n    },\n    {\n      \"name\": \"4. GET COURSE GRADES\",\n      \"description\": \"Retrieve all student grades for a specific course.\n\n**Database:** Queries `grades` with filter `{ courseId }`\n\n**Response:** Array of grade records for the course\n\n**Use Cases:**\n- Display gradebook for a single course\n- Course-specific grade analytics\n- Class roster with grades\n- Identify students needing intervention\",\n      \"request\": {\n        \"method\": \"GET\",\n        \"header\": [],\n        \"url\": {\n          \"raw\": \"http://localhost:3000/grades/course/65f1a2b3c4d5e6f7g8h9i0j1\",\n          \"protocol\": \"http\",\n          \"host\": [\n            \"localhost\"\n          ],\n          \"port\": \"3000\",\n          \"path\": [\n            \"grades\",\n            \"course\",\n            \"65f1a2b3c4d5e6f7g8h9i0j1\"\n          ]\n        }\n      },\n      \"response\": {\n        \"status\": \"200 OK\",\n        \"body\": {\n          \"code\": 200,\n          \"message\": \"Here are the grades for this course.\",\n          \"count\": 25,\n          \"data\": [\n            {\n              \"_id\": \"65f2a3b4c5d6e7f8g9h0i1j2\",\n              \"courseId\": \"65f1a2b3c4d5e6f7g8h9i0j1\",\n              \"studentId\": \"65f1a2b3c4d5e6f7g8h9i0j2\",\n              \"studentName\": \"John Doe\",\n              \"classroom\": \"Section A\",\n              \"prelim\": 85,\n              \"midterm\": 88,\n              \"finals\": 90,\n              \"finalGrade\": 88,\n              \"dateUpdated\": \"2026-07-27T10:30:00.000Z\"\n            }\n          ]\n        }\n      }\n    },\n    {\n      \"name\": \"5. UPDATE A GRADE\",\n      \"description\": \"Edit an existing grade record by ID.\n\n**Database:** Queries `grades` by `_id` and updates specified fields\n\n**Response:** Updated grade object\n\n**Use Cases:**\n- Correct a mistaken grade entry\n- Update Midterm grade after review\n- Adjust Finals grade due to appeal\n- Change student name or classroom info\",\n      \"request\": {\n        \"method\": \"PUT\",\n        \"header\": [\n          {\n            \"key\": \"Content-Type\",\n            \"value\": \"application/json\"\n          }\n        ],\n        \"url\": {\n          \"raw\": \"http://localhost:3000/grades/edit/65f2a3b4c5d6e7f8g9h0i1j2\",\n          \"protocol\": \"http\",\n          \"host\": [\n            \"localhost\"\n          ],\n          \"port\": \"3000\",\n          \"path\": [\n            \"grades\",\n            \"edit\",\n            \"65f2a3b4c5d6e7f8g9h0i1j2\"\n          ]\n        },\n        \"body\": {\n          \"mode\": \"raw\",\n          \"raw\": \"{\n  \"prelim\": 87,\n  \"midterm\": 91,\n  \"finals\": 92,\n  \"finalGrade\": 90\n}\"\n        }\n      },\n      \"response\": {\n        \"status\": \"200 OK\",\n        \"body\": {\n          \"code\": 200,\n          \"message\": \"Grade updated successfully!\",\n          \"data\": {\n            \"_id\": \"65f2a3b4c5d6e7f8g9h0i1j2\",\n            \"courseId\": \"65f1a2b3c4d5e6f7g8h9i0j1\",\n            \"studentId\": \"65f1a2b3c4d5e6f7g8h9i0j2\",\n            \"studentName\": \"John Doe\",\n            \"classroom\": \"Section A\",\n            \"prelim\": 87,\n            \"midterm\": 91,\n            \"finals\": 92,\n            \"finalGrade\": 90,\n            \"dateUpdated\": \"2026-07-27T11:00:00.000Z\"\n          }\n        }\n      }\n    },\n    {\n      \"name\": \"6. DELETE A GRADE\",\n      \"description\": \"Remove a grade record by ID (Use with caution).\n\n**Database:** Deletes from `grades` collection\n\n**Response:** Deletion confirmation\n\n**Use Cases:**\n- Remove duplicate grade entry\n- Delete grade for unenrolled student\n- Clean up erroneous records\",\n      \"request\": {\n        \"method\": \"DELETE\",\n        \"header\": [],\n        \"url\": {\n          \"raw\": \"http://localhost:3000/grades/delete/65f2a3b4c5d6e7f8g9h0i1j2\",\n          \"protocol\": \"http\",\n          \"host\": [\n            \"localhost\"\n          ],\n          \"port\": \"3000\",\n          \"path\": [\n            \"grades\",\n            \"delete\",\n            \"65f2a3b4c5d6e7f8g9h0i1j2\"\n          ]\n        }\n      },\n      \"response\": {\n        \"status\": \"200 OK\",\n        \"body\": {\n          \"code\": 200,\n          \"message\": \"Grade is now deleted!\",\n          \"data\": {\n            \"deletedCount\": 1\n          }\n        }\n      }\n    }\n  ]\n}

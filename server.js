@@ -629,6 +629,7 @@ const Grade = mongoose.model("Grade", gradeSchema);
 const Assignment = mongoose.model("Assignment", assignmentSchema);
 const AssignmentSubmission = mongoose.model("AssignmentSubmission", assignmentSubmissionSchema);
 const { shouldShowPrivateMessageRecipient } = require("./user-chat-utils");
+const { calculateAssignmentScore, calculateQuizSubmissionScore, computeFinalGrade } = require("./grade-utils");
 
 // Manual summary schema to track pending / checked counts and quiz status
 const manualSummarySchema = new mongoose.Schema({
@@ -2296,6 +2297,19 @@ server.put("/courses/:courseId/quiz-submissions/:submissionId", async (req, res)
 
     Object.assign(submission, { ...req.body, submittedAt: submission.submittedAt });
     await submission.save();
+
+    try {
+      const courseId = String(req.params.courseId);
+      const studentId = String(submission.studentId || "").trim();
+      const studentName = String(submission.studentName || "Student").trim();
+      await syncStudentGradeFromAssessments(courseId, studentId, {
+        studentName,
+        classroom: submission.classroom || "all",
+      });
+    } catch (gradeErr) {
+      console.warn("Failed to sync quiz grading to grade record", gradeErr && gradeErr.message);
+    }
+
     // Recalculate manual summary after grading/update
     try {
       await recalcManualSummary(req.params.courseId);
@@ -2882,6 +2896,18 @@ server.put("/courses/:courseId/assignments/:assignmentId/submissions/:submission
     submission.gradedAt = req.body?.gradedAt ? new Date(req.body.gradedAt) : new Date();
     submission.updatedAt = new Date();
     await submission.save();
+
+    try {
+      const courseId = String(req.params.courseId);
+      const studentId = String(submission.studentId || "").trim();
+      const studentName = String(submission.studentName || "Student").trim();
+      await syncStudentGradeFromAssessments(courseId, studentId, {
+        studentName,
+        classroom: submission.classroom || "all",
+      });
+    } catch (gradeErr) {
+      console.warn("Failed to sync assignment grading to grade record", gradeErr && gradeErr.message);
+    }
 
     res.status(200).send({ code: 200, message: "Assignment graded successfully.", data: submission });
   } catch (error) {
@@ -3687,10 +3713,75 @@ server.delete("/invitations/delete/:invitationId", (req, res) => {
 // GRADE ROUTES — CRUD
 // =============================================
 
+async function syncStudentGradeFromAssessments(courseId, studentId, overrides = {}) {
+  const normalizedCourseId = String(courseId || "").trim();
+  const normalizedStudentId = String(studentId || "").trim();
+  if (!normalizedCourseId || !normalizedStudentId) return null;
+
+  const existingGrade = await Grade.findOne({ courseId: normalizedCourseId, studentId: normalizedStudentId });
+  const quizzes = await Quiz.find({ courseId: normalizedCourseId }).lean();
+  const assignments = await Assignment.find({ courseId: normalizedCourseId }).lean();
+  const quizSubmissions = await QuizSubmission.find({ courseId: normalizedCourseId, studentId: normalizedStudentId }).lean();
+  const assignmentSubmissions = await AssignmentSubmission.find({ courseId: normalizedCourseId, studentId: normalizedStudentId }).lean();
+
+  let earnedPoints = 0;
+  let totalPoints = 0;
+
+  quizzes.forEach((quiz) => {
+    const totalQuizPoints = (Array.isArray(quiz.questions) ? quiz.questions : []).reduce((sum, question) => {
+      const points = Number(question.points);
+      return sum + (Number.isFinite(points) && points > 0 ? points : 1);
+    }, 0);
+
+    if (!totalQuizPoints) return;
+
+    totalPoints += totalQuizPoints;
+
+    const matchingSubmission = quizSubmissions.find((submission) => String(submission.quizId) === String(quiz.id));
+    if (!matchingSubmission) return;
+
+    earnedPoints += calculateQuizSubmissionScore(quiz, matchingSubmission);
+  });
+
+  const assignmentScoreTotal = assignmentSubmissions.reduce((sum, submission) => {
+    const score = Number(submission.score);
+    return sum + (Number.isFinite(score) ? score : 0);
+  }, 0);
+
+  assignments.forEach((assignment) => {
+    const points = Number(assignment.points);
+    if (!Number.isFinite(points) || points <= 0) return;
+    totalPoints += points;
+  });
+
+  earnedPoints += assignmentScoreTotal;
+
+  const gradeValue = totalPoints > 0 ? Math.round((earnedPoints / totalPoints) * 100) : 0;
+  const finalGrade = Number.isFinite(Number(overrides.finalGrade)) ? Number(overrides.finalGrade) : gradeValue;
+
+  const savedGrade = await Grade.findOneAndUpdate(
+    { courseId: normalizedCourseId, studentId: normalizedStudentId },
+    {
+      courseId: normalizedCourseId,
+      studentId: normalizedStudentId,
+      studentName: overrides.studentName || existingGrade?.studentName || "Student",
+      classroom: overrides.classroom || existingGrade?.classroom || "all",
+      prelim: Number.isFinite(Number(overrides.prelim)) ? Number(overrides.prelim) : existingGrade?.prelim ?? 0,
+      midterm: Number.isFinite(Number(overrides.midterm)) ? Number(overrides.midterm) : existingGrade?.midterm ?? 0,
+      finals: Number.isFinite(Number(overrides.finals)) ? Number(overrides.finals) : gradeValue,
+      finalGrade,
+      dateUpdated: new Date(),
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+
+  return savedGrade;
+}
+
 // Add or update a grade
 server.post("/grades/add", (req, res) => {
-  const courseId = String(req.body.courseId || "");
-  const studentId = String(req.body.studentId || "");
+  const courseId = String(req.body.courseId || "").trim();
+  const studentId = String(req.body.studentId || "").trim();
 
   if (!courseId || !studentId) {
     return res.status(400).send({
@@ -3699,17 +3790,22 @@ server.post("/grades/add", (req, res) => {
     });
   }
 
+  const prelim = Number.isFinite(Number(req.body.prelim)) ? Number(req.body.prelim) : 0;
+  const midterm = Number.isFinite(Number(req.body.midterm)) ? Number(req.body.midterm) : 0;
+  const finals = Number.isFinite(Number(req.body.final ?? req.body.finals)) ? Number(req.body.final ?? req.body.finals) : 0;
+  const finalGrade = Number.isFinite(Number(req.body.finalGrade)) ? Number(req.body.finalGrade) : computeFinalGrade({ prelim, midterm, finals });
+
   Grade.findOneAndUpdate(
     { courseId, studentId },
     {
       courseId,
       studentId,
-      studentName: req.body.studentName,
-      classroom: req.body.classroom,
-      prelim: req.body.prelim || 0,
-      midterm: req.body.midterm || 0,
-      finals: req.body.final ?? req.body.finals || 0,
-      finalGrade: req.body.finalGrade || 0,
+      studentName: req.body.studentName || "Student",
+      classroom: req.body.classroom || "all",
+      prelim,
+      midterm,
+      finals,
+      finalGrade,
       dateUpdated: new Date(),
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -3727,6 +3823,22 @@ server.post("/grades/add", (req, res) => {
         message: "There is an error saving the grade.",
       });
     });
+});
+
+server.post("/grades/sync", async (req, res) => {
+  try {
+    const courseId = String(req.body.courseId || "").trim();
+    const studentId = String(req.body.studentId || "").trim();
+
+    if (!courseId || !studentId) {
+      return res.status(400).send({ code: 400, message: "courseId and studentId are required." });
+    }
+
+    const grade = await syncStudentGradeFromAssessments(courseId, studentId, req.body);
+    res.status(200).send({ code: 200, message: "Grade synced successfully.", data: grade });
+  } catch (error) {
+    res.status(500).send({ code: 500, message: "There is an error syncing the grade." });
+  }
 });
 
 // Get all grades

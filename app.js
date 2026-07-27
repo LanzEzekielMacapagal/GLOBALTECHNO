@@ -8474,7 +8474,7 @@ document.addEventListener("submit", async (event) => {
   }
 });
 
-document.addEventListener("submit", (event) => {
+document.addEventListener("submit", async (event) => {
   const form = event.target.closest("[data-student-grade-form]");
   if (!form) return;
 
