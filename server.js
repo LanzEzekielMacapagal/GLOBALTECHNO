@@ -14,16 +14,12 @@ const port = process.env.PORT || 3000;
 
 // Trigger connection to MongoDB via Mongoose.
 // For deployment, set the MONGODB_URI environment variable to your Atlas or hosting DB URI.
-const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URL || "mongodb://127.0.0.1:27017/globaltechno";
-
 mongoose.set("strictQuery", false);
 
-mongoose.connect(mongoUri, {
-  serverSelectionTimeoutMS: 10000,
-  maxPoolSize: 10,
-}).catch((err) => {
-  console.error("Cannot connect to MongoDB.", err.message);
-});
+mongoose.connect(process.env.MONGODB_URI || "mongodb://GlobalTechnoLMS:qwerty12345@ac-yppcca4-shard-00-00.n40fbrp.mongodb.net:27017,ac-yppcca4-shard-00-01.n40fbrp.mongodb.net:27017,ac-yppcca4-shard-00-02.n40fbrp.mongodb.net:27017/?ssl=true&replicaSet=atlas-lwiuiu-shard-0&authSource=admin&appName=LMS")
+  .catch((err) => {
+    console.error("Cannot connect to MongoDB.", err.message);
+  });
 
 let db = mongoose.connection;
 
@@ -441,19 +437,23 @@ const privateMessageSchema = new mongoose.Schema({
   studentId: {
     type: String,
     default: null,
+    index: true,
   },
   classroom: {
     type: String,
     default: "",
+    index: true,
   },
   conversationType: {
     type: String,
     default: "private",
     enum: ["private", "classroom"],
+    index: true,
   },
   conversationId: {
     type: String,
     default: "",
+    index: true,
   },
   sender: {
     type: String,
@@ -462,11 +462,13 @@ const privateMessageSchema = new mongoose.Schema({
   receiver: {
     type: String,
     default: "",
+    index: true,
   },
   senderRole: {
     type: String,
     default: "student",
     enum: ["admin", "student"],
+    index: true,
   },
   role: {
     type: String,
@@ -480,8 +482,12 @@ const privateMessageSchema = new mongoose.Schema({
   userId: {
     type: String,
     default: null,
+    index: true,
   },
-  text: String,
+  text: {
+    type: String,
+    default: "",
+  },
   attachments: {
     type: Array,
     default: [],
@@ -489,8 +495,17 @@ const privateMessageSchema = new mongoose.Schema({
   createdAt: {
     type: Date,
     default: Date.now,
+    index: true,
   },
+}, {
+  timestamps: true,
+  collection: "private_messages",
 });
+
+privateMessageSchema.index({ studentId: 1, conversationType: 1, conversationId: 1, createdAt: -1 });
+privateMessageSchema.index({ receiver: 1, createdAt: -1 });
+privateMessageSchema.index({ classroom: 1, createdAt: -1 });
+privateMessageSchema.index({ userId: 1, createdAt: -1 });
 
 // Invitation / Live Session Schema
 const invitationSchema = new mongoose.Schema({
@@ -597,7 +612,7 @@ const Announcement = mongoose.model("Announcement", announcementSchema);
 const AnnouncementComment = mongoose.model("AnnouncementComment", announcementCommentSchema);
 const Video = mongoose.model("Video", videoSchema);
 const ChatMessage = mongoose.model("ChatMessage", chatMessageSchema);
-const PrivateMessage = mongoose.model("PrivateMessage", privateMessageSchema);
+const PrivateMessage = mongoose.model("PrivateMessage", privateMessageSchema, "private_messages");
 const Invitation = mongoose.model("Invitation", invitationSchema);
 const Grade = mongoose.model("Grade", gradeSchema);
 const Assignment = mongoose.model("Assignment", assignmentSchema);

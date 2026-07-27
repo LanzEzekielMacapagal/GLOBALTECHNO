@@ -21,6 +21,7 @@ const chatAttachment = document.querySelector("#chatAttachment");
 const chatAttachmentPreview = document.querySelector("#chatAttachmentPreview");
 const chatMessages = document.querySelector("#chatMessages");
 const chatClassroom = document.querySelector("#chatClassroom");
+const chatClassroomSearch = document.querySelector("#chatClassroomSearch");
 const chatRecentList = document.querySelector("#chatRecentList");
 const chatThreadTitle = document.querySelector("#chatThreadTitle");
 const chatInfoTitle = document.querySelector("#chatInfoTitle");
@@ -32,6 +33,7 @@ const studentImportForm = document.querySelector("#studentImportForm");
 const studentImportCode = document.querySelector("#studentImportCode");
 const studentImportMessage = document.querySelector("#studentImportMessage");
 const privateMessagePanel = document.querySelector(".private-message-panel");
+const privateMessageStudentSearch = document.querySelector("#privateMessageStudentSearch");
 const privateMessageStudent = document.querySelector("#privateMessageStudent");
 const privateMessageStudentName = document.querySelector("#privateMessageStudentName");
 const privateRecentList = document.querySelector("#privateRecentList");
@@ -364,35 +366,76 @@ function populateSubjectTargetSelect(select, options = {}) {
   const { includeAll = true, emptyLabel = "Create a subject first" } = options;
   const currentValue = select.value;
   const targets = getSubjectTargets({ includeAll });
-  select.replaceChildren();
 
-  if (!targets.length) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = emptyLabel;
-    option.disabled = true;
-    option.selected = true;
-    select.appendChild(option);
+  if (select.tagName === "SELECT") {
+    select.replaceChildren();
+
+    if (!targets.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = emptyLabel;
+      option.disabled = true;
+      option.selected = true;
+      select.appendChild(option);
+      return;
+    }
+
+    targets.forEach((target) => {
+      const option = document.createElement("option");
+      option.value = target.value;
+      option.textContent = target.label;
+      select.appendChild(option);
+    });
+
+    if (targets.some((target) => target.value === currentValue)) {
+      select.value = currentValue;
+    } else if (select === chatClassroom && selectedClassroom && targets.some((target) => target.value === selectedClassroom)) {
+      select.value = selectedClassroom;
+    } else if (targets.length) {
+      select.value = targets[0].value;
+    }
+
+    if (select === chatClassroom && select.value) {
+      sessionStorage.setItem("gthSelectedChatClassroom", select.value);
+    }
     return;
   }
 
-  targets.forEach((target) => {
-    const option = document.createElement("option");
-    option.value = target.value;
-    option.textContent = target.label;
-    select.appendChild(option);
-  });
+  if (select.tagName === "INPUT" && chatClassroomSearch) {
+    const datalist = document.querySelector("#chatClassroomList");
+    if (datalist) datalist.replaceChildren();
 
-  if (targets.some((target) => target.value === currentValue)) {
-    select.value = currentValue;
-  } else if (select === chatClassroom && selectedClassroom && targets.some((target) => target.value === selectedClassroom)) {
-    select.value = selectedClassroom;
-  } else if (targets.length) {
-    select.value = targets[0].value;
-  }
+    if (!targets.length) {
+      select.value = "";
+      chatClassroomSearch.value = "";
+      if (datalist) {
+        const option = document.createElement("option");
+        option.value = emptyLabel;
+        datalist.appendChild(option);
+      }
+      return;
+    }
 
-  if (select === chatClassroom && select.value) {
-    sessionStorage.setItem("gthSelectedChatClassroom", select.value);
+    targets.forEach((target) => {
+      const option = document.createElement("option");
+      option.value = target.label;
+      datalist?.appendChild(option);
+    });
+
+    const currentTarget = targets.find((target) => target.value === currentValue)
+      || (select === chatClassroom && selectedClassroom && targets.find((target) => target.value === selectedClassroom));
+
+    if (currentTarget) {
+      select.value = currentTarget.value;
+      chatClassroomSearch.value = currentTarget.label;
+    } else if (targets.length) {
+      select.value = targets[0].value;
+      chatClassroomSearch.value = targets[0].label;
+    }
+
+    if (select.value) {
+      sessionStorage.setItem("gthSelectedChatClassroom", select.value);
+    }
   }
 }
 
@@ -4266,6 +4309,10 @@ function renderCustomCourses() {
     isJoined: true
   }));
 
+  if (chatClassroom) {
+    populateSubjectTargetSelect(chatClassroom, { includeAll: false });
+  }
+
   if (chatClassroom && selectedClassroom) {
     chatClassroom.value = selectedClassroom;
   }
@@ -4341,9 +4388,20 @@ studentImportForm?.addEventListener("submit", async (event) => {
       sessionStorage.setItem("gthCurrentUser", JSON.stringify(result.data.user));
     }
 
+    const joinedCourseId = String(result.data?.course?._id || result.data?.course?.id || "").trim();
+    if (joinedCourseId) {
+      selectedClassroom = joinedCourseId;
+      selectedClassroomTitle = getClassroomTitle(selectedClassroom);
+      sessionStorage.setItem("gthSelectedChatClassroom", selectedClassroom);
+    }
+
     studentImportForm.reset();
     await loadServerCourses(currentUser?._id || "");
     renderCustomCourses();
+    if (selectedClassroom) {
+      await refreshClassChat(selectedClassroom);
+      renderChatMessages();
+    }
   } catch (error) {
     studentImportMessage.className = "course-import-message text-danger mb-0";
     studentImportMessage.textContent = error.message || "Unable to join course.";
@@ -7059,7 +7117,7 @@ function createGradeForm(courseId, student, options = {}) {
   const grade = getStudentGrade(courseId, student.id) || {};
   const finalGrade = calculateFinalGrade(grade);
   const gradeForm = document.createElement("form");
-  gradeForm.className = options.compact ? "assignment-grade-form gradebook-grade-form" : "assignment-grade-form";
+  gradeForm.className = options.compact ? "assignment-grade-form gradebook-grade-form gradebook-student-card" : "assignment-grade-form gradebook-student-card";
   gradeForm.dataset.studentGradeForm = courseId;
   gradeForm.dataset.studentId = student.id;
   gradeForm.dataset.studentName = student.name;
@@ -7072,35 +7130,52 @@ function createGradeForm(courseId, student, options = {}) {
   });
 
   const items = [
-    ...quizzes.map((quiz) => ({
-      type: "quiz",
-      id: quiz.id,
-      name: quiz.title || quiz.name || "Untitled quiz",
-      score: (() => {
-        const submission = getQuizSubmission(quiz.id, student);
-        if (!submission) return null;
-        const manualQuestions = getQuizQuestions(quiz).filter((q) => isManualGradeType(getQuestionType(quiz, q)));
-        if (manualQuestions.length) {
-          const allManualScored = manualQuestions.every((q) => getManualQuestionScore(submission, q) !== null);
-          if (!allManualScored) return "NOT_GRADED";
-        }
-        return getQuizScore(quiz, submission);
-      })(),
-      total: getQuizTotalPoints(quiz)
-    })),
-    ...assignments.map((assignment) => ({
-      type: "assignment",
-      id: assignment.id,
-      name: assignment.title || assignment.name || "Untitled assignment",
-      score: (() => {
-        const submission = getStudentAssignmentSubmission(assignment.id, student._id || student.id || student.studentId || "");
-        if (!submission) return null;
-        if (!hasAssignmentScore(submission)) return "NOT_GRADED";
-        const scoreValue = Number(submission?.score);
-        return Number.isFinite(scoreValue) ? scoreValue : null;
-      })(),
-      total: getAssignmentPoints(assignment)
-    }))
+    ...quizzes.map((quiz) => {
+      const submission = getQuizSubmission(quiz.id, student);
+      const manualQuestions = getQuizQuestions(quiz).filter((q) => isManualGradeType(getQuestionType(quiz, q)));
+      const allManualScored = manualQuestions.length
+        ? manualQuestions.every((q) => getManualQuestionScore(submission, q) !== null)
+        : true;
+      const scoreValue = submission ? getQuizScore(quiz, submission) : null;
+      const status = !submission
+        ? "NOT_SUBMITTED"
+        : manualQuestions.length && !allManualScored
+          ? "NOT_GRADED"
+          : "GRADED";
+
+      return {
+        type: "quiz",
+        id: quiz.id,
+        name: quiz.title || quiz.name || "Untitled quiz",
+        score: status === "NOT_SUBMITTED" ? null : (status === "NOT_GRADED" ? "NOT_GRADED" : scoreValue),
+        total: getQuizTotalPoints(quiz),
+        status,
+        submittedAt: submission?.submittedAt || null,
+        gradedAt: submission?.gradedAt || null,
+      };
+    }),
+    ...assignments.map((assignment) => {
+      const submission = getStudentAssignmentSubmission(assignment.id, student._id || student.id || student.studentId || "");
+      const status = !submission
+        ? "NOT_SUBMITTED"
+        : !hasAssignmentScore(submission)
+          ? "NOT_GRADED"
+          : "GRADED";
+      const scoreValue = submission && hasAssignmentScore(submission)
+        ? Number(submission.score)
+        : null;
+
+      return {
+        type: "assignment",
+        id: assignment.id,
+        name: assignment.title || assignment.name || "Untitled assignment",
+        score: status === "NOT_SUBMITTED" ? null : (status === "NOT_GRADED" ? "NOT_GRADED" : scoreValue),
+        total: getAssignmentPoints(assignment),
+        status,
+        submittedAt: submission?.submittedAt || null,
+        gradedAt: submission?.gradedAt || null,
+      };
+    })
   ];
 
   const cardsWrap = document.createElement("div");
@@ -7123,22 +7198,43 @@ function createGradeForm(courseId, student, options = {}) {
       typeBadge.className = "admin-grade-card-type";
       typeBadge.textContent = item.type === "quiz" ? "Quiz" : "Assignment";
 
+      const headerRow = document.createElement("div");
+      headerRow.className = "admin-grade-card-header";
+      headerRow.append(title, typeBadge);
+
       const score = document.createElement("div");
       score.className = "admin-grade-card-score";
       let scoreText = "";
-      if (item.score === null || item.score === undefined) scoreText = "Not Yet Answered";
+      if (item.score === null || item.score === undefined) scoreText = "Not Yet Submitted";
       else if (item.score === "NOT_GRADED") scoreText = "Not Yet Graded";
       else scoreText = `${item.score}/${item.total}`;
       score.textContent = scoreText;
 
-      // If the item is not yet answered/graded, use stacked layout so the text appears below the title
+      const statusText = document.createElement("div");
+      statusText.className = "admin-grade-card-status";
+      if (item.score === null || item.score === undefined) {
+        statusText.textContent = "Not yet submitted";
+      } else if (item.score === "NOT_GRADED") {
+        statusText.textContent = "Waiting for grading";
+      } else {
+        statusText.textContent = "Graded";
+      }
+
+      const metaText = document.createElement("div");
+      metaText.className = "admin-grade-card-meta";
+      if (item.submittedAt) {
+        metaText.textContent = `Submitted ${formatDateTime(item.submittedAt)}`;
+      } else {
+        metaText.textContent = "No submission yet";
+      }
+
       if (/Not Yet/i.test(scoreText)) {
         card.classList.add("stacked");
       } else {
         card.classList.remove("stacked");
       }
 
-      card.append(title, typeBadge, score);
+      card.append(headerRow, score, statusText, metaText);
       cardsWrap.appendChild(card);
     });
   }
@@ -7189,14 +7285,7 @@ async function renderGradebook() {
       createTextElement("small", "text-secondary", "Record each enrolled learner's period grades. Final grade is calculated automatically.")
     );
 
-    const average = document.createElement("div");
-    average.className = "gradebook-average";
-    average.append(
-      createTextElement("span", "", "Course average"),
-      createTextElement("strong", "", courseAverage === null ? "--" : `${courseAverage}%`)
-    );
-
-    header.append(headerText, average);
+    header.append(headerText);
 
     const rows = document.createElement("div");
     rows.className = "gradebook-rows";
@@ -7208,22 +7297,11 @@ async function renderGradebook() {
         const row = document.createElement("section");
         row.className = "gradebook-row";
 
-        const info = document.createElement("div");
-        info.className = "gradebook-student";
+        const studentNameLabel = document.createElement("div");
+        studentNameLabel.className = "gradebook-row-label";
+        studentNameLabel.textContent = student.name || student.fullName || student.username || "Student";
 
-        const initials = String(student.name || "Student")
-          .split(" ")
-          .map((part) => part[0])
-          .join("")
-          .slice(0, 2)
-          .toUpperCase();
-
-        info.append(
-          createTextElement("span", "avatar", initials || "ST"),
-          createTextElement("strong", "", student.name || student.fullName || student.username || "Student")
-        );
-
-        row.append(info, createGradeForm(courseId, student, { compact: true }));
+        row.append(studentNameLabel, createGradeForm(courseId, student, { compact: true }));
         rows.appendChild(row);
       });
     }
@@ -8967,9 +9045,12 @@ function renderChatAttachment(file) {
   return item;
 }
 
-function createChatBubble({ author, text, attachments = [], createdAt, own, group }) {
+function createChatBubble({ author, text, attachments = [], createdAt, own, group, messageId }) {
   const row = document.createElement("div");
   row.className = `chat-row${own ? " chat-row-own" : ""}`;
+  if (messageId) {
+    row.dataset.messageId = String(messageId);
+  }
 
   const avatar = createTextElement("span", `chat-avatar${group ? " chat-avatar-group" : ""}`, getInitials(author));
   const item = document.createElement("div");
@@ -8994,6 +9075,17 @@ function createChatBubble({ author, text, attachments = [], createdAt, own, grou
   return row;
 }
 
+function arraysEqualPrefix(a, b) {
+  if (a.length === 0 || b.length === 0) return false;
+  if (a.length >= b.length) return false;
+  return a.every((value, index) => value === b[index]);
+}
+
+function getMessageIds(container) {
+  if (!container) return [];
+  return Array.from(container.querySelectorAll("[data-message-id]"), (item) => item.dataset.messageId);
+}
+
 function renderClassChatRecents() {
   if (!chatRecentList) return;
 
@@ -9001,11 +9093,14 @@ function renderClassChatRecents() {
   const activeClassroom = getActiveChatClassroom();
   chatRecentList.replaceChildren();
 
-  getSubjectTargets({ includeAll: false })
-    .forEach(({ value: classroom, label }) => {
-      const classroomMessages = allMessages.filter((message) => message.classroom === classroom);
-      const latest = classroomMessages[classroomMessages.length - 1];
-      chatRecentList.appendChild(createRecentChatItem({
+  const classroomItems = getSubjectTargets({ includeAll: false }).map(({ value: classroom, label }) => {
+    const classroomMessages = allMessages.filter((message) => message.classroom === classroom);
+    const latest = classroomMessages[classroomMessages.length - 1];
+    return {
+      classroom,
+      label,
+      latest,
+      item: createRecentChatItem({
         title: label,
         preview: latest ? `${latest.sender || latest.author}: ${latest.text || `${latest.attachments?.length || 0} attachment(s)`}` : "Start the class conversation.",
         time: latest ? getMessageTimeLabel(latest) : "",
@@ -9016,8 +9111,18 @@ function renderClassChatRecents() {
           if (chatClassroom) chatClassroom.value = classroom;
           await refreshClassChat(classroom);
         }
-      }));
-    });
+      })
+    };
+  });
+
+  classroomItems
+    .sort((a, b) => {
+      if (!a.latest && !b.latest) return 0;
+      if (!a.latest) return 1;
+      if (!b.latest) return -1;
+      return new Date(b.latest.createdAt) - new Date(a.latest.createdAt);
+    })
+    .forEach(({ item }) => chatRecentList.appendChild(item));
 }
 
 async function ensureClassChatLoaded() {
@@ -9067,7 +9172,54 @@ function renderChatMessages() {
     .filter(Boolean)
     .map((name) => String(name).trim().toLowerCase());
 
+  const oldMessageIds = getMessageIds(chatMessages);
+  const newMessageIds = messages.map((message) => String(message._id || message.id || ""));
+
+  if (oldMessageIds.length === newMessageIds.length && oldMessageIds.every((id, index) => id === newMessageIds[index])) {
+    // no change in messages, only update recents and return
+    renderClassChatRecents();
+    renderNotificationCenter();
+    return;
+  }
+
+  const appendOnly = arraysEqualPrefix(oldMessageIds, newMessageIds);
+  if (appendOnly) {
+    const appendedMessages = messages.slice(oldMessageIds.length);
+    appendedMessages.forEach((message) => {
+      const author = message.sender || message.author || "Unknown";
+      const messageRole = String(message.role || "").trim().toLowerCase();
+      const messageUserId = String(message.userId || "").trim();
+      const normalizedAuthor = String(author).trim().toLowerCase();
+      const own = currentRole === "admin"
+        ? messageRole === "admin"
+        : messageRole !== "admin" && (
+          (currentUserId && messageUserId && currentUserId === messageUserId)
+          || currentUserNames.includes(normalizedAuthor)
+          || normalizedAuthor === String(currentStudent.name || "").trim().toLowerCase()
+        );
+
+      chatMessages.appendChild(createChatBubble({
+        author,
+        text: message.text,
+        attachments: message.attachments || [],
+        createdAt: message.createdAt,
+        own,
+        group: true,
+        messageId: message._id || message.id
+      }));
+    });
+
+    if (wasAtBottom) {
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    renderClassChatRecents();
+    renderNotificationCenter();
+    return;
+  }
+
   // render full message history so admin/student can scroll back through all messages
+  chatMessages.replaceChildren();
   messages.forEach((message) => {
     const author = message.sender || message.author || "Unknown";
     const messageRole = String(message.role || "").trim().toLowerCase();
@@ -9087,27 +9239,56 @@ function renderChatMessages() {
       attachments: message.attachments || [],
       createdAt: message.createdAt,
       own,
-      group: true
+      group: true,
+      messageId: message._id || message.id
     }));
   });
-
-  observeMotionElements(chatMessages);
 
   // if user was at bottom, scroll to bottom; otherwise keep their relative position
   if (wasAtBottom) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
   } else {
-    // keep the same viewport by shifting scrollTop by the change in scrollHeight
     const newScrollHeight = chatMessages.scrollHeight;
     chatMessages.scrollTop = Math.max(0, prevScrollTop + (newScrollHeight - prevScrollHeight));
   }
+
+  // intentionally avoid chat message motion reveal to prevent blinking
 }
+
+const resolveChatClassroomSelection = async () => {
+  if (!chatClassroomSearch || !chatClassroom) return;
+  const typed = String(chatClassroomSearch.value || "").trim().toLowerCase();
+  if (!typed) return;
+
+  const targets = getSubjectTargets({ includeAll: false });
+  const matched = targets.find((target) => target.label.trim().toLowerCase() === typed);
+  if (matched) {
+    chatClassroom.value = matched.value;
+    sessionStorage.setItem("gthSelectedChatClassroom", matched.value);
+    await refreshClassChat(matched.value);
+    renderClassChatRecents();
+    return;
+  }
+
+  if (chatClassroom.value) {
+    await refreshClassChat(chatClassroom.value);
+    renderClassChatRecents();
+  }
+};
 
 chatClassroom?.addEventListener("change", async () => {
   if (chatClassroom?.value) {
     sessionStorage.setItem("gthSelectedChatClassroom", chatClassroom.value);
   }
   await ensureClassChatLoaded();
+});
+chatClassroomSearch?.addEventListener("change", resolveChatClassroomSelection);
+chatClassroomSearch?.addEventListener("blur", resolveChatClassroomSelection);
+chatClassroomSearch?.addEventListener("input", () => {
+  const typed = String(chatClassroomSearch.value || "").trim();
+  if (!typed && chatClassroom) {
+    chatClassroom.value = "";
+  }
 });
 
 function setupClassChatAutoRefresh() {
@@ -9328,27 +9509,72 @@ async function setupPrivateMessageStudents() {
   if (!privateMessageStudent) return;
 
   const students = await fetchRegisteredStudents();
-  privateMessageStudent.replaceChildren();
+  const datalist = document.querySelector("#privateMessageStudentList");
+  if (datalist) datalist.replaceChildren();
 
   if (!students.length) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "No registered students found";
-    privateMessageStudent.appendChild(option);
+    if (privateMessageStudentSearch) privateMessageStudentSearch.value = "";
+    privateMessageStudent.value = "";
     return;
   }
 
   students.forEach((student) => {
+    if (!datalist) return;
     const option = document.createElement("option");
-    option.value = student.id;
-    option.textContent = `${student.name}${student.username ? ` (${student.username})` : ""}`;
-    privateMessageStudent.appendChild(option);
+    option.value = student.username || "";
+    option.label = `${student.name}${student.username ? ` (${student.username})` : ""}`;
+    datalist.appendChild(option);
   });
 
   const activeStudentId = getActivePrivateStudentId();
-  if (activeStudentId) {
+  const activeStudent = students.find((student) => student.id === activeStudentId);
+  if (activeStudent) {
+    if (privateMessageStudentSearch) privateMessageStudentSearch.value = activeStudent.username || activeStudent.name || "";
     privateMessageStudent.value = activeStudentId;
+  } else if (students[0]) {
+    if (privateMessageStudentSearch) privateMessageStudentSearch.value = students[0].username || students[0].name || "";
+    privateMessageStudent.value = students[0].id;
   }
+}
+
+const PRIVATE_MESSAGE_REFRESH_INTERVAL_MS = 5000;
+let privateMessageRefreshTimer = null;
+
+async function refreshPrivateMessagesIfNeeded() {
+  const studentId = getActivePrivateStudentId();
+  if (!studentId) return;
+  await refreshPrivateChat(studentId, { conversationType: "private" });
+}
+
+function startPrivateMessageAutoRefresh() {
+  if (privateMessageRefreshTimer) return;
+  privateMessageRefreshTimer = setInterval(() => {
+    refreshPrivateMessagesIfNeeded().catch(() => {});
+  }, PRIVATE_MESSAGE_REFRESH_INTERVAL_MS);
+}
+
+function stopPrivateMessageAutoRefresh() {
+  if (!privateMessageRefreshTimer) return;
+  clearInterval(privateMessageRefreshTimer);
+  privateMessageRefreshTimer = null;
+}
+
+function setupPrivateMessageAutoRefresh() {
+  startPrivateMessageAutoRefresh();
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      refreshPrivateMessagesIfNeeded().catch(() => {});
+    }
+  });
+
+  window.addEventListener("focus", () => {
+    refreshPrivateMessagesIfNeeded().catch(() => {});
+  });
+
+  window.addEventListener("pageshow", () => {
+    refreshPrivateMessagesIfNeeded().catch(() => {});
+  });
 }
 
 function renderPrivateMessageRecents() {
@@ -9358,26 +9584,39 @@ function renderPrivateMessageRecents() {
   const isAdmin = privateMessagePanel?.dataset.privateRole === "admin";
   const students = isAdmin ? serverRegisteredStudents.length ? serverRegisteredStudents : getAllStudents() : [currentStudent];
 
-  privateRecentList.replaceChildren();
-  students.forEach((student) => {
+  const studentItems = students.map((student) => {
     const studentMessages = messages.filter((message) => {
       if (message.conversationType === "classroom") return false;
       return message.studentId === student.id;
     });
     const latest = studentMessages[studentMessages.length - 1];
-    privateRecentList.appendChild(createRecentChatItem({
-      title: isAdmin ? student.name : "Admin Support",
-      preview: latest ? `${latest.author}: ${latest.text || `${latest.attachments?.length || 0} attachment(s)`}` : "No private messages yet.",
-      time: latest ? getMessageTimeLabel(latest) : "",
-      initials: isAdmin ? getInitials(student.name) : "A",
-      active: student.id === getActivePrivateStudentId(),
-      unreadCount: getUnreadNotificationCount("private-messages", { studentId: student.id }),
-      onClick: () => {
-        if (privateMessageStudent) privateMessageStudent.value = student.id;
-        renderPrivateMessages();
-      }
-    }));
+    return {
+      student,
+      latest,
+      item: createRecentChatItem({
+        title: isAdmin ? student.name : "Admin Support",
+        preview: latest ? `${latest.author}: ${latest.text || `${latest.attachments?.length || 0} attachment(s)`}` : "No private messages yet.",
+        time: latest ? getMessageTimeLabel(latest) : "",
+        initials: isAdmin ? getInitials(student.name) : "A",
+        active: student.id === getActivePrivateStudentId(),
+        unreadCount: getUnreadNotificationCount("private-messages", { studentId: student.id }),
+        onClick: () => {
+          if (privateMessageStudent) privateMessageStudent.value = student.id;
+          renderPrivateMessages();
+        }
+      })
+    };
   });
+
+  privateRecentList.replaceChildren();
+  studentItems
+    .sort((a, b) => {
+      if (!a.latest && !b.latest) return 0;
+      if (!a.latest) return 1;
+      if (!b.latest) return -1;
+      return new Date(b.latest.createdAt) - new Date(a.latest.createdAt);
+    })
+    .forEach(({ item }) => privateRecentList.appendChild(item));
 }
 
 function renderPrivateMessages() {
@@ -9402,6 +9641,31 @@ function renderPrivateMessages() {
   }
   renderPrivateMessageRecents();
   renderNotificationCenter();
+
+  const oldMessageIds = getMessageIds(privateMessages);
+  const newMessageIds = messages.map((message) => String(message._id || message.id || ""));
+
+  if (oldMessageIds.length === newMessageIds.length && oldMessageIds.every((id, index) => id === newMessageIds[index])) {
+    return;
+  }
+
+  const appendOnly = arraysEqualPrefix(oldMessageIds, newMessageIds);
+  if (appendOnly) {
+    const appendedMessages = messages.slice(oldMessageIds.length);
+    appendedMessages.forEach((message) => {
+      privateMessages.appendChild(createChatBubble({
+        author: message.author,
+        text: message.text,
+        attachments: message.attachments || [],
+        createdAt: message.createdAt,
+        own: message.role === currentRole,
+        messageId: message._id || message.id
+      }));
+    });
+    privateMessages.scrollTop = privateMessages.scrollHeight;
+    return;
+  }
+
   privateMessages.replaceChildren();
 
   if (!messages.length) {
@@ -9416,18 +9680,47 @@ function renderPrivateMessages() {
       text: message.text,
       attachments: message.attachments || [],
       createdAt: message.createdAt,
-      own: message.role === currentRole
+      own: message.role === currentRole,
+      messageId: message._id || message.id
     }));
   });
 
-  observeMotionElements(privateMessages);
   privateMessages.scrollTop = privateMessages.scrollHeight;
 }
 
-privateMessageStudent?.addEventListener("change", async () => {
-  const studentId = getActivePrivateStudentId();
-  if (studentId) {
-    await refreshPrivateChat(studentId, { conversationType: "private" });
+const resolvePrivateStudentSelection = async () => {
+  if (!privateMessageStudentSearch || !privateMessageStudent) return;
+  const typed = String(privateMessageStudentSearch.value || "").trim().toLowerCase();
+  if (!typed) {
+    privateMessageStudent.value = "";
+    privateMessageStudentName.textContent = "Student";
+    return;
+  }
+
+  const matched = serverRegisteredStudents.find((student) => {
+    const username = String(student.username || "").trim().toLowerCase();
+    const name = String(student.name || "").trim().toLowerCase();
+    return username === typed || name === typed;
+  });
+
+  if (matched) {
+    privateMessageStudent.value = matched.id;
+    privateMessageStudentName.textContent = matched.name || matched.username || "Student";
+    await refreshPrivateChat(matched.id, { conversationType: "private" });
+    renderPrivateMessages();
+    renderPrivateMessageRecents();
+  } else {
+    privateMessageStudent.value = "";
+  }
+};
+
+privateMessageStudentSearch?.addEventListener("change", resolvePrivateStudentSelection);
+privateMessageStudentSearch?.addEventListener("blur", resolvePrivateStudentSelection);
+privateMessageStudentSearch?.addEventListener("input", () => {
+  const typed = String(privateMessageStudentSearch.value || "").trim().toLowerCase();
+  if (!typed) {
+    privateMessageStudent.value = "";
+    privateMessageStudentName.textContent = "Student";
   }
 });
 
@@ -9499,6 +9792,7 @@ async function initializePrivateMessages() {
   if (initialStudentId) {
     await refreshPrivateChat(initialStudentId, { conversationType: "private" });
   }
+  setupPrivateMessageAutoRefresh();
 }
 
 function redirectAdminIfLoggedOut() {

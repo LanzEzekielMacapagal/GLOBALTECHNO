@@ -287,9 +287,9 @@
               </div>
               <label class="chat-search">
                 <span class="visually-hidden">Classroom</span>
-                <select class="form-select form-select-sm" id="chatClassroom">
-                  <option value="">Create a subject first</option>
-                </select>
+                <input class="form-control form-control-sm" id="chatClassroomSearch" list="chatClassroomList" type="search" placeholder="Search course name" autocomplete="off" />
+                <datalist id="chatClassroomList"></datalist>
+                <input type="hidden" id="chatClassroom" />
               </label>
               <div class="recent-chat-list" id="chatRecentList"></div>
             </aside>
@@ -329,7 +329,9 @@
               </div>
               <label class="chat-search private-message-student">
                 <span class="visually-hidden">Student</span>
-                <select class="form-select form-select-sm" id="privateMessageStudent"></select>
+                <input class="form-control form-control-sm" id="privateMessageStudentSearch" list="privateMessageStudentList" type="search" placeholder="Search student username" autocomplete="off" />
+                <datalist id="privateMessageStudentList"></datalist>
+                <input type="hidden" id="privateMessageStudent" />
               </label>
               <div class="recent-chat-list" id="privateRecentList"></div>
             </aside>
