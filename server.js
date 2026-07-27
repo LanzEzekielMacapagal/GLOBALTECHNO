@@ -7,6 +7,7 @@ const path = require("path");
 const fs = require("fs");
 const multer = require("multer");
 const { normalizeAnnouncementComment, normalizeAnnouncementReply } = require("./announcement-utils");
+const { buildCourseLookupFilter, buildUserLookupFilter } = require("./chat-utils");
 // provide name for the server
 const server = express();
 // Declare server port
@@ -1737,7 +1738,9 @@ server.get("/courses/all", async (req, res) => {
       });
     }
 
-    const result = await Course.find(activeCoursesQuery).sort({ dateCreated: -1 });
+    const result = await Course.find(activeCoursesQuery)
+      .select("_id id title subject classroom description inviteCode invitationCode dateCreated isActive")
+      .sort({ dateCreated: -1 });
     res.status(200).send({
       code: 200,
       message: "Here are all active courses.",
@@ -3330,7 +3333,7 @@ server.post("/chat/send", async (req, res) => {
   }
 
   try {
-    const course = await Course.findOne({ _id: classroom });
+    const course = await Course.findOne(buildCourseLookupFilter(classroom));
     if (!course) {
       return res.status(404).send({
         code: 404,
@@ -3346,7 +3349,7 @@ server.post("/chat/send", async (req, res) => {
         });
       }
 
-      const user = await User.findById(userId);
+      const user = await User.findOne(buildUserLookupFilter(userId));
       if (!user) {
         return res.status(404).send({
           code: 404,
@@ -3355,7 +3358,8 @@ server.post("/chat/send", async (req, res) => {
       }
 
       const enrolledCourseIds = (user.enrolledCourses || []).map(String);
-      if (!enrolledCourseIds.includes(String(classroom))) {
+      const courseKey = String(course._id || course.id || classroom || "");
+      if (!enrolledCourseIds.includes(courseKey)) {
         return res.status(403).send({
           code: 403,
           message: "You are not enrolled in this course and cannot post to this class chat.",
@@ -3413,6 +3417,7 @@ server.post("/chat/send", async (req, res) => {
       data: savedMessage,
     });
   } catch (saveErr) {
+    console.error("Chat message send failed", saveErr);
     res.status(500).send({
       code: 500,
       message: "There is an error sending the chat message.",
@@ -3427,7 +3432,9 @@ server.get("/chat/all", (req, res) => {
     filter.classroom = req.query.classroom;
   }
 
-  ChatMessage.find(filter).sort({ createdAt: 1 })
+  ChatMessage.find(filter)
+    .select("_id id classroom userId sender role text attachments createdAt")
+    .sort({ createdAt: 1 })
     .then((result) => {
       res.status(200).send({
         code: 200,

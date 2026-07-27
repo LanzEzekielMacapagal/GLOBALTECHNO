@@ -48,7 +48,55 @@ function buildPrivateMessagePayload(options = {}) {
   };
 }
 
+function buildCourseLookupFilter(classroom = "") {
+  const normalized = String(classroom || "").trim();
+  if (!normalized) return {};
+
+  const maybeObjectId = /^[a-fA-F0-9]{24}$/; // Mongo ObjectId / hex string
+  if (maybeObjectId.test(normalized)) {
+    return {
+      $or: [
+        { _id: normalized },
+        { id: normalized },
+        { invitationCode: normalized },
+      ],
+    };
+  }
+
+  return {
+    $or: [
+      { id: normalized },
+      { invitationCode: normalized },
+    ],
+  };
+}
+
+function buildUserLookupFilter(userId = "") {
+  const normalized = String(userId || "").trim();
+  if (!normalized) return {};
+
+  const maybeObjectId = /^[a-fA-F0-9]{24}$/;
+  if (maybeObjectId.test(normalized)) {
+    return {
+      $or: [
+        { _id: normalized },
+        { username: normalized },
+        { email: normalized },
+      ],
+    };
+  }
+
+  return {
+    $or: [
+      { username: normalized },
+      { email: normalized },
+    ],
+  };
+}
+
 module.exports = {
   buildPrivateMessageFilter,
   buildPrivateMessagePayload,
+  buildCourseLookupFilter,
+  buildUserLookupFilter,
 };

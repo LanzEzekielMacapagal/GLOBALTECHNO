@@ -126,12 +126,16 @@ function setSectionMenuOpen(isOpen) {
   document.body.classList.toggle("section-menu-lock", isOpen);
 }
 
-sectionMenuToggle?.addEventListener("click", () => {
+sectionMenuToggle?.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
   const isOpen = sectionMenuToggle.getAttribute("aria-expanded") === "true";
   setSectionMenuOpen(!isOpen);
 });
 
-sectionMenuBackdrop?.addEventListener("click", () => {
+sectionMenuBackdrop?.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
   setSectionMenuOpen(false);
 });
 
@@ -157,6 +161,7 @@ notificationPanel?.addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  if (sectionMenuToggle?.contains(event.target) || sectionMenuBackdrop?.contains(event.target)) return;
   if (!notificationCenter?.contains(event.target)) setNotificationPanelOpen(false);
 });
 
@@ -1809,18 +1814,40 @@ function setNotificationPanelOpen(isOpen) {
   notificationPanel.classList.toggle("active", isOpen);
 }
 
-async function loadServerCourses(userId = "") {
-  try {
-    const query = userId ? `?userId=${encodeURIComponent(userId)}` : "";
-    const response = await fetch(getApiUrl(`/courses/all${query}`));
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.message || "Unable to load courses.");
-    serverCourses = Array.isArray(result.data) ? result.data : [];
-    return serverCourses;
-  } catch (error) {
-    serverCourses = [];
+let coursesLoadPromise = null;
+let coursesLoadTimestamp = 0;
+const COURSES_CACHE_TTL_MS = 20000;
+
+async function loadServerCourses(userId = "", options = {}) {
+  const { force = false } = options;
+  const now = Date.now();
+  const shouldUseCache = !force && !userId && serverCourses.length && now - coursesLoadTimestamp < COURSES_CACHE_TTL_MS;
+  if (shouldUseCache) {
     return serverCourses;
   }
+
+  if (!force && coursesLoadPromise) {
+    return coursesLoadPromise;
+  }
+
+  coursesLoadPromise = (async () => {
+    try {
+      const query = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+      const response = await fetch(getApiUrl(`/courses/all${query}`));
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "Unable to load courses.");
+      serverCourses = Array.isArray(result.data) ? result.data : [];
+      coursesLoadTimestamp = Date.now();
+      return serverCourses;
+    } catch (error) {
+      serverCourses = [];
+      return serverCourses;
+    } finally {
+      coursesLoadPromise = null;
+    }
+  })();
+
+  return coursesLoadPromise;
 }
 
 function getCustomCourses() {
@@ -4417,7 +4444,7 @@ studentImportForm?.addEventListener("submit", async (event) => {
     }
 
     studentImportForm.reset();
-    await loadServerCourses(currentUser?._id || "");
+    await loadServerCourses(currentUser?._id || "", { force: false });
     renderCustomCourses();
     if (selectedClassroom) {
       await refreshClassChat(selectedClassroom);
@@ -4452,7 +4479,7 @@ courseForm?.addEventListener("submit", async (event) => {
 
     courseForm.reset();
     setFormStatus(courseForm, result.data?.invitationCode ? `Course created! Share code ${result.data.invitationCode} with students.` : "Course created successfully.", "success");
-    await loadServerCourses();
+    await loadServerCourses("", { force: false });
     renderCustomCourses();
     showStudentSection("courses", { updateHash: true });
 
@@ -4536,7 +4563,7 @@ document.addEventListener("click", async (event) => {
       saveCourseQuizSubmissions(getCourseQuizSubmissions().filter((item) => item.courseId !== courseId));
       document.querySelector(".course-workspace")?.remove();
 
-      await loadServerCourses();
+      await loadServerCourses("", { force: false });
       renderCustomCourses();
     } catch (error) {
       window.alert(error.message || "Unable to remove course.");
@@ -4713,7 +4740,7 @@ document.addEventListener("submit", async (event) => {
 
     if (!response.ok) throw new Error(result.message || "Unable to save course update.");
 
-    await loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "");
+    await loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "", { force: false });
     if (courseWorkspaces[courseId]) {
       courseWorkspaces[courseId] = {
         ...courseWorkspaces[courseId],
@@ -8723,6 +8750,11 @@ document.addEventListener("click", async (event) => {
 let serverChatMessages = [];
 let privateMessageStore = [];
 let serverRegisteredStudents = [];
+let chatMessagesLoadPromise = null;
+let chatMessagesLoadedAt = 0;
+let lastChatRefreshClassroom = "";
+let chatRefreshTimer = null;
+const CHAT_CACHE_TTL_MS = 10000;
 
 function getActiveChatClassroom() {
   if (chatClassroom) return chatClassroom.value || getSubjectTargets({ includeAll: false })[0]?.value || "";
@@ -8735,14 +8767,33 @@ function getChatMessages() {
 
 async function fetchClassChatMessages(classroom = "") {
   if (!classroom) return [];
-  try {
-    const response = await fetch(getApiUrl(`/chat/all?classroom=${encodeURIComponent(classroom)}`));
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.message || "Unable to load chat messages.");
-    return Array.isArray(result.data) ? result.data : [];
-  } catch {
-    return [];
+  const now = Date.now();
+  if (serverChatMessages.length && lastChatRefreshClassroom === classroom && now - chatMessagesLoadedAt < CHAT_CACHE_TTL_MS) {
+    return serverChatMessages.filter((message) => message.classroom === classroom);
   }
+
+  if (chatMessagesLoadPromise && lastChatRefreshClassroom === classroom) {
+    return chatMessagesLoadPromise;
+  }
+
+  chatMessagesLoadPromise = (async () => {
+    try {
+      const response = await fetch(getApiUrl(`/chat/all?classroom=${encodeURIComponent(classroom)}`));
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "Unable to load chat messages.");
+      const messages = Array.isArray(result.data) ? result.data : [];
+      serverChatMessages = messages;
+      lastChatRefreshClassroom = classroom;
+      chatMessagesLoadedAt = Date.now();
+      return messages;
+    } catch {
+      return [];
+    } finally {
+      chatMessagesLoadPromise = null;
+    }
+  })();
+
+  return chatMessagesLoadPromise;
 }
 
 async function fetchPrivateMessages(studentId = "", options = {}) {
@@ -8806,7 +8857,10 @@ async function sendServerClassChatMessage({ classroom, sender, role, userId, tex
 }
 
 async function refreshClassChat(classroom = "") {
-  serverChatMessages = await fetchClassChatMessages(classroom || getActiveChatClassroom());
+  const resolvedClassroom = classroom || getActiveChatClassroom();
+  if (!resolvedClassroom) return;
+  const messages = await fetchClassChatMessages(resolvedClassroom);
+  serverChatMessages = messages.filter((message) => message.classroom === resolvedClassroom);
   renderChatMessages();
 }
 
@@ -9337,19 +9391,23 @@ chatClassroomSearch?.addEventListener("input", () => {
 function setupClassChatAutoRefresh() {
   if (!chatbox) return;
 
+  const triggerRefresh = () => {
+    if (chatRefreshTimer) {
+      clearTimeout(chatRefreshTimer);
+    }
+    chatRefreshTimer = setTimeout(() => {
+      ensureClassChatLoaded().catch(() => {});
+    }, 250);
+  };
+
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
-      ensureClassChatLoaded().catch(() => {});
+      triggerRefresh();
     }
   });
 
-  window.addEventListener("focus", () => {
-    ensureClassChatLoaded().catch(() => {});
-  });
-
-  window.addEventListener("pageshow", () => {
-    ensureClassChatLoaded().catch(() => {});
-  });
+  window.addEventListener("focus", triggerRefresh);
+  window.addEventListener("pageshow", triggerRefresh);
 }
 
 document.addEventListener("click", (event) => {
@@ -9931,7 +9989,7 @@ renderVideos();
 setupClassChatAutoRefresh();
 renderChatMessages();
 const currentUserForCourses = JSON.parse(sessionStorage.getItem("gthCurrentUser") || "null");
-loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "").then(async () => {
+loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "", { force: false }).then(async () => {
   initializeClassroomSelection();
   currentStudent.classroom = currentStudent.classroom || selectedClassroom;
   if (selectedClassroomTitle) {
@@ -9941,16 +9999,19 @@ loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "").then(async (
 
   await syncCurrentStudentFromServer();
   currentStudent.classroom = currentStudent.classroom || selectedClassroom;
-  await loadServerAssignments(getCustomCourses()[0]?._id || getCustomCourses()[0]?.id || "");
+
+  const primaryCourse = getCustomCourses()[0];
+  const courseId = primaryCourse?._id || primaryCourse?.id || "";
+  if (courseId) {
+    await Promise.all([
+      loadServerAssignments(courseId),
+      loadServerQuizzes(courseId),
+      loadServerQuizSubmissions(courseId)
+    ]);
+  }
   renderAssignments();
   await loadServerInvitations();
   renderInvitations();
-
-  const courseId = getCustomCourses()[0]?._id || getCustomCourses()[0]?.id || "";
-  if (courseId) {
-    await loadServerQuizzes(courseId);
-    await loadServerQuizSubmissions(courseId);
-  }
 
   renderCustomCourses();
   renderGradebook().catch(() => {});
