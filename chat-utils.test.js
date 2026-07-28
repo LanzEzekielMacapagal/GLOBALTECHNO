@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildPrivateMessageFilter, buildPrivateMessagePayload, buildCourseLookupFilter, buildUserLookupFilter } = require('./chat-utils');
+const { buildPrivateMessageFilter, buildPrivateMessagePayload, buildCourseLookupFilter, buildUserLookupFilter, sanitizeChatMessageForResponse } = require('./chat-utils');
 
 test('buildPrivateMessageFilter uses classroom conversation filters', () => {
   const filter = buildPrivateMessageFilter({
@@ -65,4 +65,21 @@ test('buildUserLookupFilter resolves a user by id or username safely', () => {
   assert.deepEqual(validUserFilter.$or[0], { _id: '507f1f77bcf86cd799439011' });
   assert.equal(validUserFilter.$or[1].username, '507f1f77bcf86cd799439011');
   assert.equal(validUserFilter.$or[2].email, '507f1f77bcf86cd799439011');
+});
+
+test('sanitizeChatMessageForResponse strips file payloads while preserving metadata', () => {
+  const sanitized = sanitizeChatMessageForResponse({
+    _id: 'msg-1',
+    classroom: 'course-123',
+    userId: 'user-1',
+    sender: 'Admin',
+    role: 'admin',
+    text: 'Welcome',
+    attachments: [{ name: 'note.pdf', size: 123, type: 'application/pdf', data: 'base64-blob' }],
+    createdAt: '2026-01-01T00:00:00.000Z',
+  });
+
+  assert.equal(sanitized._id, 'msg-1');
+  assert.deepEqual(sanitized.attachments, [{ name: 'note.pdf', size: 123, type: 'application/pdf' }]);
+  assert.equal(sanitized.attachments[0].data, undefined);
 });

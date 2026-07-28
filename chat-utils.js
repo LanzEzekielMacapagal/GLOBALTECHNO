@@ -48,6 +48,38 @@ function buildPrivateMessagePayload(options = {}) {
   };
 }
 
+function sanitizeChatAttachment(attachment = {}) {
+  if (!attachment || typeof attachment !== "object") {
+    return attachment;
+  }
+
+  const sanitized = {
+    name: attachment.name,
+    size: attachment.size,
+    type: attachment.type,
+  };
+
+  if (attachment.filename) sanitized.filename = attachment.filename;
+  if (attachment.originalname) sanitized.originalname = attachment.originalname;
+  if (attachment.url) sanitized.url = attachment.url;
+  if (attachment.path) sanitized.path = attachment.path;
+
+  return sanitized;
+}
+
+function sanitizeChatMessageForResponse(message = {}) {
+  if (!message || typeof message !== "object") {
+    return message;
+  }
+
+  const sanitizedMessage = { ...message };
+  if (Array.isArray(sanitizedMessage.attachments)) {
+    sanitizedMessage.attachments = sanitizedMessage.attachments.map(sanitizeChatAttachment);
+  }
+
+  return sanitizedMessage;
+}
+
 function buildCourseLookupFilter(classroom = "") {
   const normalized = String(classroom || "").trim();
   if (!normalized) return {};
@@ -97,6 +129,8 @@ function buildUserLookupFilter(userId = "") {
 module.exports = {
   buildPrivateMessageFilter,
   buildPrivateMessagePayload,
+  sanitizeChatAttachment,
+  sanitizeChatMessageForResponse,
   buildCourseLookupFilter,
   buildUserLookupFilter,
 };

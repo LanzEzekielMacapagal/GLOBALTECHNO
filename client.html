@@ -52,8 +52,8 @@
     </header>
 
     <section class="row g-3 mb-3" id="dashboard" aria-label="Learner summary">
-      <div class="col-12 col-sm-6 col-xl-3">
-        <article class="card metric-card h-100 dashboard-jump" data-open-section="courses" role="button" tabindex="0">
+      <div class="col-12 col-sm-6 col-xl-4">
+        <article class="card metric-card h-100 dashboard-jump" data-metric="assigned-courses" data-open-section="courses" role="button" tabindex="0">
           <div class="card-body">
             <span class="text-secondary">Assigned courses</span>
             <strong class="metric-value d-block">3</strong>
@@ -61,8 +61,8 @@
           </div>
         </article>
       </div>
-      <div class="col-12 col-sm-6 col-xl-3">
-        <article class="card metric-card h-100">
+      <div class="col-12 col-sm-6 col-xl-4">
+        <article class="card metric-card h-100" data-metric="overall-progress">
           <div class="card-body">
             <span class="text-secondary">Overall progress</span>
             <strong class="metric-value d-block">78%</strong>
@@ -70,17 +70,9 @@
           </div>
         </article>
       </div>
-      <div class="col-12 col-sm-6 col-xl-3">
-        <article class="card metric-card h-100">
-          <div class="card-body">
-            <span class="text-secondary">Certificates</span>
-            <strong class="metric-value d-block">1</strong>
-            <small class="text-secondary">Ready to download</small>
-          </div>
-        </article>
-      </div>
-      <div class="col-12 col-sm-6 col-xl-3">
-        <article class="card metric-card h-100">
+      <!-- Certificates card removed per client-side request -->
+      <div class="col-12 col-sm-6 col-xl-4">
+        <article class="card metric-card h-100" data-metric="due-soon">
           <div class="card-body">
             <span class="text-secondary">Due soon</span>
             <strong class="metric-value d-block">2</strong>

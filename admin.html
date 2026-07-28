@@ -61,7 +61,7 @@
       </header>
 
       <section class="row g-3 mb-3" id="dashboard" aria-label="Learning management summary">
-        <div class="col-12 col-sm-6 col-xl-3">
+        <div class="col-12 col-sm-6 col-xl-4">
           <article class="card metric-card h-100 dashboard-jump" data-open-section="courses" role="button" tabindex="0">
             <div class="card-body">
               <span class="text-secondary">Active courses</span>
@@ -70,17 +70,9 @@
             </div>
           </article>
         </div>
-        <div class="col-12 col-sm-6 col-xl-3">
-          <article class="card metric-card h-100">
-            <div class="card-body">
-              <span class="text-secondary">Learners tracked</span>
-              <strong class="metric-value d-block">186</strong>
-              <small class="text-secondary">78% average progress</small>
-            </div>
-          </article>
-        </div>
-        <div class="col-12 col-sm-6 col-xl-3">
-          <article class="card metric-card h-100">
+        <!-- Learners tracked card removed -->
+        <div class="col-12 col-sm-6 col-xl-4">
+          <article class="card metric-card h-100" data-metric="completion-rate">
             <div class="card-body">
               <span class="text-secondary">Completion rate</span>
               <strong class="metric-value d-block">84%</strong>
@@ -88,8 +80,8 @@
             </div>
           </article>
         </div>
-        <div class="col-12 col-sm-6 col-xl-3">
-          <article class="card metric-card h-100">
+        <div class="col-12 col-sm-6 col-xl-4">
+          <article class="card metric-card h-100" data-metric="open-reports">
             <div class="card-body">
               <span class="text-secondary">Open reports</span>
               <strong class="metric-value d-block">7</strong>

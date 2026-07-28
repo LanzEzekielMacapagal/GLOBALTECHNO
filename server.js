@@ -7,7 +7,8 @@ const path = require("path");
 const fs = require("fs");
 const multer = require("multer");
 const { normalizeAnnouncementComment, normalizeAnnouncementReply } = require("./announcement-utils");
-const { buildCourseLookupFilter, buildUserLookupFilter } = require("./chat-utils");
+const { buildCourseLookupFilter, buildUserLookupFilter, sanitizeChatMessageForResponse } = require("./chat-utils");
+const { ChatMessage, PrivateMessage } = require("./chat-model");
 // provide name for the server
 const server = express();
 // Declare server port
@@ -403,111 +404,6 @@ const videoSchema = new mongoose.Schema({
   },
 });
 
-// Chat Message Schema
-const chatMessageSchema = new mongoose.Schema({
-  classroom: {
-    type: String,
-    required: true,
-  },
-  userId: {
-    type: String,
-    default: null,
-  },
-  sender: {
-    type: String,
-    required: true,
-  },
-  role: {
-    type: String,
-    default: "student",
-    enum: ["admin", "student"],
-  },
-  text: String,
-  attachments: {
-    type: Array,
-    default: [],
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-  },
-});
-
-// Private Message Schema
-const privateMessageSchema = new mongoose.Schema({
-  studentId: {
-    type: String,
-    default: null,
-    index: true,
-  },
-  classroom: {
-    type: String,
-    default: "",
-    index: true,
-  },
-  conversationType: {
-    type: String,
-    default: "private",
-    enum: ["private", "classroom"],
-    index: true,
-  },
-  conversationId: {
-    type: String,
-    default: "",
-    index: true,
-  },
-  sender: {
-    type: String,
-    required: true,
-  },
-  receiver: {
-    type: String,
-    default: "",
-    index: true,
-  },
-  senderRole: {
-    type: String,
-    default: "student",
-    enum: ["admin", "student"],
-    index: true,
-  },
-  role: {
-    type: String,
-    default: "student",
-    enum: ["admin", "student"],
-  },
-  author: {
-    type: String,
-    default: "",
-  },
-  userId: {
-    type: String,
-    default: null,
-    index: true,
-  },
-  text: {
-    type: String,
-    default: "",
-  },
-  attachments: {
-    type: Array,
-    default: [],
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-    index: true,
-  },
-}, {
-  timestamps: true,
-  collection: "private_messages",
-});
-
-privateMessageSchema.index({ studentId: 1, conversationType: 1, conversationId: 1, createdAt: -1 });
-privateMessageSchema.index({ receiver: 1, createdAt: -1 });
-privateMessageSchema.index({ classroom: 1, createdAt: -1 });
-privateMessageSchema.index({ userId: 1, createdAt: -1 });
-
 // Invitation / Live Session Schema
 const invitationSchema = new mongoose.Schema({
   classroom: {
@@ -623,8 +519,6 @@ const AssignmentExtraChance = mongoose.model("AssignmentExtraChance", assignment
 const Announcement = mongoose.model("Announcement", announcementSchema);
 const AnnouncementComment = mongoose.model("AnnouncementComment", announcementCommentSchema);
 const Video = mongoose.model("Video", videoSchema);
-const ChatMessage = mongoose.model("ChatMessage", chatMessageSchema);
-const PrivateMessage = mongoose.model("PrivateMessage", privateMessageSchema, "private_messages");
 const Invitation = mongoose.model("Invitation", invitationSchema);
 const Grade = mongoose.model("Grade", gradeSchema);
 const Assignment = mongoose.model("Assignment", assignmentSchema);
@@ -3414,7 +3308,7 @@ server.post("/chat/send", async (req, res) => {
     res.status(201).send({
       code: 201,
       message: "Chat message sent!",
-      data: savedMessage,
+      data: sanitizeChatMessageForResponse(savedMessage),
     });
   } catch (saveErr) {
     console.error("Chat message send failed", saveErr);
@@ -3426,29 +3320,39 @@ server.post("/chat/send", async (req, res) => {
 });
 
 // Get all chat messages (optionally filter by classroom)
-server.get("/chat/all", (req, res) => {
-  let filter = {};
-  if (req.query.classroom) {
-    filter.classroom = req.query.classroom;
-  }
+server.get("/chat/all", async (req, res) => {
+  try {
+    const filter = {};
+    if (req.query.classroom) {
+      filter.classroom = String(req.query.classroom).trim();
+    }
 
-  ChatMessage.find(filter)
-    .select("_id id classroom userId sender role text attachments createdAt")
-    .sort({ createdAt: 1 })
-    .then((result) => {
-      res.status(200).send({
-        code: 200,
-        message: "Here are all chat messages.",
-        count: result.length,
-        data: result,
-      });
-    })
-    .catch((err) => {
-      res.status(500).send({
-        code: 500,
-        message: "There is an error fetching chat messages.",
-      });
+    const result = await ChatMessage.find(filter)
+      .select("_id id classroom userId sender role text attachments createdAt")
+      .limit(100)
+      .lean();
+
+    const sortedResult = result.sort((left, right) => {
+      const leftTime = left?.createdAt ? new Date(left.createdAt).getTime() : 0;
+      const rightTime = right?.createdAt ? new Date(right.createdAt).getTime() : 0;
+      return leftTime - rightTime;
     });
+
+    const sanitizedResult = sortedResult.map(sanitizeChatMessageForResponse);
+
+    res.status(200).send({
+      code: 200,
+      message: "Here are all chat messages.",
+      count: sanitizedResult.length,
+      data: sanitizedResult,
+    });
+  } catch (err) {
+    console.error("Chat fetch failed", err);
+    res.status(500).send({
+      code: 500,
+      message: "There is an error fetching chat messages.",
+    });
+  }
 });
 
 // Delete a chat message

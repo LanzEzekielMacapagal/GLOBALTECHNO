@@ -717,6 +717,101 @@ function calculateLearnerCourseProgress(courseId, course, student) {
   };
 }
 
+function getStudentCourseProgressSummary(courseId, course, student = currentStudent) {
+  const effectiveStudent = student || currentStudent || {};
+  const courseProfile = course || courseWorkspaces[courseId] || {};
+  const visibleQuizzes = getCourseItems(getCourseQuizzes(), courseId).filter((quiz) => {
+    if (!quiz) return false;
+    return isVisibleForSelectedClassroom(quiz);
+  });
+  const visibleAssignments = getCourseAssignments(courseProfile, courseId).filter((assignment) => {
+    return isVisibleForSelectedClassroom(assignment);
+  });
+  const baseProgress = calculateLearnerCourseProgress(courseId, courseProfile, effectiveStudent);
+  const quizProgress = visibleQuizzes.length ? Math.round((baseProgress.quizSubmissions / visibleQuizzes.length) * 100) : 0;
+  const assignmentProgress = visibleAssignments.length ? Math.round((baseProgress.assignmentSubmissions / visibleAssignments.length) * 100) : 0;
+  const dueSoonWindowMs = 7 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const dueSoonItems = [];
+
+  visibleQuizzes.forEach((quiz) => {
+    const dueAt = quiz?.dueAt || quiz?.dueDate;
+    if (!dueAt) return;
+    const dueTime = new Date(dueAt).getTime();
+    if (Number.isNaN(dueTime) || dueTime <= now) return;
+    if (dueTime - now > dueSoonWindowMs) return;
+    // skip if student already submitted this quiz
+    if (getQuizSubmission(quiz.id, effectiveStudent)) return;
+    dueSoonItems.push({
+      kind: "Quiz",
+      title: quiz.title || quiz.name || "Quiz",
+      dueAt: dueTime,
+      location: courseProfile.title || "this course"
+    });
+  });
+
+  visibleAssignments.forEach((assignment) => {
+    const dueAt = assignment?.dueDate || assignment?.dueAt;
+    if (!dueAt) return;
+    const dueTime = new Date(dueAt).getTime();
+    if (Number.isNaN(dueTime) || dueTime <= now) return;
+    if (dueTime - now > dueSoonWindowMs) return;
+    // skip if student already submitted this assignment
+    if (getAssignmentSubmission(assignment.id, effectiveStudent)) return;
+    dueSoonItems.push({
+      kind: "Assignment",
+      title: assignment.title || "Assignment",
+      dueAt: dueTime,
+      location: courseProfile.title || "this course"
+    });
+  });
+
+  dueSoonItems.sort((left, right) => left.dueAt - right.dueAt);
+  const nearestDue = dueSoonItems[0] || null;
+
+  return {
+    ...baseProgress,
+    quizProgress,
+    assignmentProgress,
+    dueSoonCount: dueSoonItems.length,
+    nearestDue,
+    visibleQuizCount: visibleQuizzes.length,
+    visibleAssignmentCount: visibleAssignments.length
+  };
+}
+
+function renderStudentCourseProgressSummary(courseId, course, student = currentStudent) {
+  if (adminApp || !student) return null;
+
+  const summary = getStudentCourseProgressSummary(courseId, course, student);
+  const panel = document.createElement("section");
+  panel.className = "course-progress-summary card border-0 shadow-sm p-3 mb-3";
+
+  const header = document.createElement("div");
+  header.className = "d-flex flex-wrap gap-2 align-items-center justify-content-between mb-2";
+  header.append(
+    createTextElement("h4", "h6 mb-0", "Your progress"),
+    createTextElement("span", "badge text-bg-primary", `${summary.progress}% overall`)
+  );
+
+  const metrics = document.createElement("div");
+  metrics.className = "small text-secondary";
+  metrics.append(
+    createTextElement("div", "", `Quizzes: ${summary.quizSubmissions}/${summary.quizTotal} complete (${summary.quizProgress}%)`),
+    createTextElement("div", "", `Assignments: ${summary.assignmentSubmissions}/${summary.assignmentTotal} complete (${summary.assignmentProgress}%)`)
+  );
+
+  const footer = document.createElement("div");
+  footer.className = "mt-2 small";
+  footer.append(
+    createTextElement("div", summary.dueSoonCount ? "text-warning" : "text-secondary", summary.dueSoonCount ? `${summary.dueSoonCount} item${summary.dueSoonCount === 1 ? "" : "s"} due soon` : "No items due soon"),
+    createTextElement("div", "text-secondary", summary.nearestDue ? `Nearest due: ${summary.nearestDue.kind} “${summary.nearestDue.title}” in ${summary.nearestDue.location} (${formatDateTime(summary.nearestDue.dueAt)})` : "No urgent deadlines in the next 7 days")
+  );
+
+  panel.append(header, metrics, footer);
+  return panel;
+}
+
 function renderCourseLearnerTracker(course, courseId) {
   const panel = document.createElement("section");
   panel.className = "course-learner-tracker";
@@ -1271,13 +1366,6 @@ async function renderCourseWorkspace(courseId, triggerCard) {
     createTextElement("p", "text-secondary mb-0", course.description)
   );
 
-  const heroMeta = document.createElement("div");
-  heroMeta.className = "course-workspace-meta";
-  heroMeta.append(
-    createTextElement("span", "badge text-bg-info", course.status),
-    createTextElement("strong", "", `${course.progress}%`)
-  );
-
   const inviteCode = course.invitationCode || createInvitationCode(course.title, course.id);
   const invitePanel = document.createElement("div");
   invitePanel.className = "course-invite-code course-invite-code-hero course-invite-code-copy";
@@ -1294,6 +1382,53 @@ async function renderCourseWorkspace(courseId, triggerCard) {
   invitePanel.append(inviteText, copyInvite);
 
   hero.appendChild(heroText);
+
+  const progressSummary = getStudentCourseProgressSummary(courseId, course, currentStudent);
+  // If admin is viewing, adjust progress to reflect pending manual grading checks
+  let adjustedProgressPercent = progressSummary.progress ?? 0;
+  if (adminApp) {
+    // Count quiz submissions for this course that require manual grading and have no manual scores
+    const quizSubs = (Array.isArray(window.serverQuizSubmissions) ? window.serverQuizSubmissions : serverQuizSubmissions)
+      .filter((s) => String(s.courseId) === String(courseId));
+    const courseQuizzes = getCourseItems(getCourseQuizzes(), courseId);
+    let quizPending = 0;
+    quizSubs.forEach((submission) => {
+      const quiz = courseQuizzes.find((q) => String(q.id || q._id) === String(submission.quizId));
+      if (!quiz) return;
+      const manualQuestions = getQuizQuestions(quiz).filter((q) => isManualGradeType(getQuestionType(quiz, q)));
+      if (!manualQuestions.length) return;
+      const manualScores = submission.manualScores || {};
+      const hasAnyScore = Object.values(manualScores).some((v) => v !== null && v !== undefined && v !== "");
+      if (!hasAnyScore) quizPending++;
+    });
+
+    // Count assignment submissions pending grading for this course
+    const runtimeAssignSubs = Array.isArray(window.serverAssignmentSubmissions) ? window.serverAssignmentSubmissions : serverAssignmentSubmissions;
+    const storedAssignSubs = getAssignmentSubmissions();
+    const mergedAssignSubs = [...runtimeAssignSubs, ...storedAssignSubs].filter((s) => String(s.courseId) === String(courseId));
+    const assignmentPending = mergedAssignSubs.filter((s) => !hasAssignmentScore(s)).length;
+
+    const totalPending = quizPending + assignmentPending;
+    const visibleTotal = (progressSummary.visibleQuizCount || 0) + (progressSummary.visibleAssignmentCount || 0);
+
+    if (!visibleTotal) {
+      adjustedProgressPercent = 100;
+    } else if (totalPending <= 0) {
+      adjustedProgressPercent = 100;
+    } else {
+      adjustedProgressPercent = Math.max(0, Math.round(((visibleTotal - totalPending) / visibleTotal) * 100));
+    }
+  }
+  const heroMeta = document.createElement("div");
+  heroMeta.className = "course-workspace-meta";
+  const metaItems = [
+    createTextElement("span", "badge text-bg-info", course.status),
+    createTextElement("strong", "", `${adjustedProgressPercent}% overall`),
+  ];
+  if (!adminApp) {
+    metaItems.push(createTextElement("span", progressSummary.dueSoonCount ? "badge text-bg-warning" : "badge text-bg-secondary", progressSummary.dueSoonCount ? `${progressSummary.dueSoonCount} due soon` : "No due soon"));
+  }
+  heroMeta.append(...metaItems);
 
   const livePanel = document.createElement("div");
   livePanel.className = "course-invite-code course-invite-code-hero course-live-link-hero course-invite-code-copy";
@@ -1345,7 +1480,7 @@ async function renderCourseWorkspace(courseId, triggerCard) {
 
   const progressBar = document.createElement("div");
   progressBar.className = `progress-bar ${course.accent === "coral" ? "bg-coral" : course.accent === "sand" ? "bg-sand" : ""}`;
-  progressBar.style.width = `${course.progress}%`;
+  progressBar.style.width = `${adjustedProgressPercent}%`;
   progress.appendChild(progressBar);
 
   const body = document.createElement("div");
@@ -4293,36 +4428,12 @@ function createCourseCard(course, index) {
   const livePreview = createTextElement("p", "small text-secondary mb-3", courseInvitation ? `Latest live session: ${courseInvitation.title}` : "No live session scheduled yet.");
   livePreview.style.margin = "0 0 0.75rem 0";
 
-  const progressMeta = document.createElement("div");
-  progressMeta.className = "d-flex justify-content-between small mb-1";
-  progressMeta.style.fontSize = "0.85rem";
-  progressMeta.style.fontWeight = "600";
-  progressMeta.append(
-    createTextElement("span", "", "Progress"),
-    createTextElement("strong", "", adminApp ? "0%" : "1%")
-  );
-
-  const progress = document.createElement("div");
-  progress.className = "progress";
-  progress.setAttribute("role", "progressbar");
-  progress.setAttribute("aria-label", `${course.title} progress`);
-  progress.setAttribute("aria-valuenow", adminApp ? "0" : "1");
-  progress.setAttribute("aria-valuemin", "0");
-  progress.setAttribute("aria-valuemax", "100");
-
-  const progressBar = document.createElement("div");
-  progressBar.className = `progress-bar ${accent === "coral" ? "bg-coral" : accent === "sand" ? "bg-sand" : ""}`;
-  progressBar.style.width = adminApp ? "0%" : "1%";
-  progress.appendChild(progressBar);
-
   body.append(
     header,
     descEl,
     codeLabel,
     codeEl,
-    livePreview,
-    progressMeta,
-    progress
+    livePreview
   );
 
   if (adminApp) {
@@ -4871,6 +4982,9 @@ document.addEventListener("submit", async (event) => {
   }
 
   saveCourseQuizSubmissions(submissions);
+  if (typeof renderDashboardMetrics === "function") {
+    try { renderDashboardMetrics(); } catch (e) { /* ignore */ }
+  }
   await loadServerQuizSubmissions(quiz.courseId);
   if (!refreshManualGradingPanel(quiz.courseId)) {
     refreshOpenCourseWorkspace(quiz.courseId);
@@ -5077,6 +5191,9 @@ document.addEventListener("submit", async (event) => {
   }
 
   saveCourseQuizSubmissions(submissions);
+  if (typeof renderDashboardMetrics === "function") {
+    try { renderDashboardMetrics(); } catch (e) { /* ignore */ }
+  }
   if (extraChance) await consumeQuizExtraChance(quizId);
   refreshOpenCourseWorkspace(quiz.courseId);
 });
@@ -6942,6 +7059,9 @@ function persistAssignmentSubmissionToStore(submission = {}) {
   }
 
   window.serverAssignmentSubmissions = serverAssignmentSubmissions;
+  if (typeof renderDashboardMetrics === "function") {
+    try { renderDashboardMetrics(); } catch (e) { /* ignore */ }
+  }
   return existingSubmissions;
 }
 
@@ -9984,6 +10104,250 @@ window.renderCourseAssignmentForm = renderCourseAssignmentForm;
 window.renderCourseAssignmentManualGradingPanel = renderCourseAssignmentManualGradingPanel;
 window.persistAssignmentSubmissionToStore = persistAssignmentSubmissionToStore;
 
+function computeDashboardMetricsForStudent(student = currentStudent) {
+  const allCourses = getCustomCourses();
+  const studentEnrolledIds = Array.isArray(student.enrolledCourses) ? student.enrolledCourses.map((c) => String(c)) : [];
+
+  const joinedCourses = allCourses.filter((course) => {
+    const courseId = String(course._id || course.id || "");
+    // If student explicitly lists enrolled courses, use that as authoritative
+    if (studentEnrolledIds.length) return studentEnrolledIds.includes(courseId) || Boolean(course.isJoined);
+    // Otherwise, check server-side enrolled students mapping
+    const enrolledList = Array.isArray(serverCourseEnrolledStudents[courseId]) ? serverCourseEnrolledStudents[courseId] : [];
+    if (enrolledList.some((s) => String(s._id || s.id) === String(student._id || student.id))) return true;
+    return Boolean(course.isJoined);
+  });
+  const assignedCount = joinedCourses.length;
+  const now = Date.now();
+  let activeCount = 0;
+  let upcomingCount = 0;
+
+  joinedCourses.forEach((course) => {
+    const startAt = course?.startDate || course?.startAt || course?.startsAt || course?.start;
+    if (startAt && new Date(startAt).getTime() > now) {
+      upcomingCount++;
+    } else {
+      activeCount++;
+    }
+  });
+
+  let totalRequired = 0;
+  let totalCompleted = 0;
+  let progressSum = 0;
+  let progressCount = 0;
+  let dueSoonTotal = 0;
+  let nearest = null;
+
+  joinedCourses.forEach((course) => {
+    const courseId = course._id || course.id;
+    const summary = getStudentCourseProgressSummary(courseId, course, student);
+    if (typeof summary.progress === "number") {
+      progressSum += summary.progress;
+      progressCount++;
+    }
+    totalRequired += summary.requiredItems || 0;
+    totalCompleted += summary.completedItems || 0;
+    dueSoonTotal += summary.dueSoonCount || 0;
+    if (summary.nearestDue) {
+      if (!nearest || summary.nearestDue.dueAt < nearest.dueAt) nearest = { ...summary.nearestDue };
+    }
+  });
+
+  const overallProgress = progressCount ? Math.round(progressSum / progressCount) : 0;
+  const overallCompletionPercent = totalRequired ? Math.round((totalCompleted / totalRequired) * 100) : overallProgress;
+
+  return {
+    assignedCount,
+    activeCount,
+    upcomingCount,
+    overallProgress,
+    overallCompletionPercent,
+    dueSoonTotal,
+    nearest
+  };
+}
+
+function computeDashboardMetricsForAdmin() {
+  const allCourses = getCustomCourses();
+  const activeCourses = allCourses.filter((c) => c && c.status !== "draft" && c.isActive !== false);
+  const activeCount = activeCourses.length;
+
+  // Count courses with live sessions (invitations) within next 7 days
+  const now = Date.now();
+  const weekAhead = now + 7 * 24 * 60 * 60 * 1000;
+  const invitations = getInvitations();
+  const deliveringSet = new Set();
+
+  invitations.forEach((inv) => {
+    const invDate = new Date(inv.createdAt || inv.date || inv.startsAt || inv.startAt).getTime();
+    if (!invDate || invDate < now || invDate > weekAhead) return;
+    const classroom = String(inv.classroom || "").trim().toLowerCase();
+    if (!classroom) return;
+    if (classroom === "all") {
+      // applies to all active courses
+      activeCourses.forEach((c) => deliveringSet.add(String(c._id || c.id)));
+      return;
+    }
+    // try to match classroom to a course id or invite code or title
+    const match = activeCourses.find((c) => {
+      const id = String(c._id || c.id || "").toLowerCase();
+      const invite = String(c.invitationCode || c.inviteCode || "").toLowerCase();
+      const title = String(c.title || "").toLowerCase();
+      return classroom === id || classroom === invite || classroom === title;
+    });
+    if (match) deliveringSet.add(String(match._id || match.id));
+  });
+
+  const deliveringThisWeek = deliveringSet.size;
+
+  return {
+    activeCount,
+    deliveringThisWeek
+  };
+}
+
+function computeAdminOpenReportsCounts() {
+  // Quiz pending: submissions with manual question types but no manual scores
+  const quizSubmissions = Array.isArray(window.serverQuizSubmissions) ? window.serverQuizSubmissions : serverQuizSubmissions;
+  const quizzes = Array.isArray(window.serverQuizzes) ? serverQuizzes : getCourseQuizzes();
+  let quizPending = 0;
+
+  quizSubmissions.forEach((submission) => {
+    const quiz = quizzes.find((q) => String(q.id || q._id) === String(submission.quizId));
+    if (!quiz) return;
+    const manualQuestions = getQuizQuestions(quiz).filter((q) => isManualGradeType(getQuestionType(quiz, q)));
+    if (!manualQuestions.length) return;
+    const manualScores = submission.manualScores || {};
+    const hasAnyScore = Object.values(manualScores).some((v) => v !== null && v !== undefined && v !== "");
+    if (!hasAnyScore) quizPending++;
+  });
+
+  // Assignment pending: submissions (runtime + stored) without recorded score
+  const runtimeAssignSubs = Array.isArray(window.serverAssignmentSubmissions) ? window.serverAssignmentSubmissions : serverAssignmentSubmissions;
+  const storedAssignSubs = getAssignmentSubmissions();
+  const mergedAssignSubs = [...runtimeAssignSubs, ...storedAssignSubs];
+  const assignments = getAssignments();
+  const relevantAssignSubs = mergedAssignSubs.filter((s) => assignments.some((a) => String(a.id) === String(s.assignmentId)));
+  const assignmentPending = relevantAssignSubs.filter((s) => !hasAssignmentScore(s)).length;
+
+  return {
+    quizPending,
+    assignmentPending,
+    total: quizPending + assignmentPending
+  };
+}
+
+function computeAdminCompletionRateSync() {
+  const courses = getCustomCourses();
+  let totalLearners = 0;
+  let totalCompletedLearners = 0;
+
+  courses.forEach((course) => {
+    const courseId = String(course._id || course.id || "");
+    if (!courseId) return;
+    const enrolled = Array.isArray(serverCourseEnrolledStudents[courseId]) ? serverCourseEnrolledStudents[courseId] : [];
+    if (!enrolled.length) return;
+
+    enrolled.forEach((learner) => {
+      const summary = getStudentCourseProgressSummary(courseId, course, learner);
+      if (!summary) return;
+      // Skip learners with no required items
+      if ((summary.requiredItems || 0) === 0) return;
+      totalLearners += 1;
+      if ((summary.completedItems || 0) >= (summary.requiredItems || 0)) totalCompletedLearners += 1;
+    });
+  });
+
+  const percent = totalLearners ? Math.round((totalCompletedLearners / totalLearners) * 100) : 0;
+  return { percent, totalLearners, totalCompletedLearners };
+}
+
+async function preloadAdminCompletionData() {
+  const courses = getCustomCourses();
+  if (!courses.length) return null;
+
+  for (const course of courses) {
+    const courseId = String(course._id || course.id || "");
+    if (!courseId) continue;
+    // load enrolled students, quizzes, assignments and their submissions to ensure summary computes correctly
+    try {
+      await Promise.all([
+        loadServerEnrolledStudents(courseId),
+        loadServerQuizzes(courseId),
+        loadServerAssignments(courseId),
+        loadServerQuizSubmissions(courseId),
+        loadServerAssignmentSubmissions(courseId)
+      ]);
+    } catch (e) {
+      // ignore individual failures and continue
+    }
+  }
+
+  // Update the dashboard card if present
+  const dashboard = document.querySelector('#dashboard');
+  if (!dashboard) return null;
+  const completionEl = dashboard.querySelector('[data-metric="completion-rate"] .metric-value');
+  const completionSmall = dashboard.querySelector('[data-metric="completion-rate"] small');
+  const result = computeAdminCompletionRateSync();
+  if (completionEl) completionEl.textContent = `${result.percent}%`;
+  if (completionSmall) completionSmall.textContent = `${result.totalCompletedLearners || 0} of ${result.totalLearners || 0} learners completed`;
+  return result;
+}
+
+function renderDashboardMetrics() {
+  const metrics = computeDashboardMetricsForStudent();
+  const dashboard = document.querySelector("#dashboard");
+  if (!dashboard) return;
+
+  const assignedEl = dashboard.querySelector('[data-metric="assigned-courses"] .metric-value');
+  const assignedSmall = dashboard.querySelector('[data-metric="assigned-courses"] small');
+  const progressEl = dashboard.querySelector('[data-metric="overall-progress"] .metric-value');
+  const progressSmall = dashboard.querySelector('[data-metric="overall-progress"] small');
+  const dueEl = dashboard.querySelector('[data-metric="due-soon"] .metric-value');
+  const dueSmall = dashboard.querySelector('[data-metric="due-soon"] small');
+  const certEl = dashboard.querySelector('[data-metric="certificates"] .metric-value');
+  const adminCoursesEl = dashboard.querySelector('[data-open-section="courses"] .metric-value');
+  const adminCoursesSmall = dashboard.querySelector('[data-open-section="courses"] small');
+  const openReportsEl = dashboard.querySelector('[data-metric="open-reports"] .metric-value');
+  const openReportsSmall = dashboard.querySelector('[data-metric="open-reports"] small');
+
+  if (assignedEl) assignedEl.textContent = String(metrics.assignedCount || 0);
+  if (assignedSmall) assignedSmall.textContent = `${metrics.activeCount || 0} active, ${metrics.upcomingCount || 0} upcoming`;
+
+  if (progressEl) progressEl.textContent = `${metrics.overallCompletionPercent ?? metrics.overallProgress}%`;
+  if (progressSmall) progressSmall.textContent = `Quizzes & assignments: ${metrics.overallCompletionPercent}% across active modules`;
+
+  if (dueEl) dueEl.textContent = String(metrics.dueSoonTotal || 0);
+  if (dueSmall) {
+    if (metrics.dueSoonTotal) {
+      const nearest = metrics.nearest;
+      const dateText = nearest ? `Nearest: ${nearest.kind} “${nearest.title}” in ${nearest.location} (${formatDateTime(nearest.dueAt)})` : "Check your upcoming items";
+      dueSmall.textContent = `${metrics.dueSoonTotal} due — ${dateText}`;
+    } else {
+      dueSmall.textContent = "Up to date";
+    }
+  }
+
+  if (certEl) {
+    // Certificates computation is not implemented here; keep existing value if set by other logic.
+  }
+
+  // Admin dashboard: show active course counts when on admin pages
+  if (adminApp && adminCoursesEl) {
+    const adminMetrics = computeDashboardMetricsForAdmin();
+    adminCoursesEl.textContent = String(adminMetrics.activeCount || 0);
+    if (adminCoursesSmall) adminCoursesSmall.textContent = `${adminMetrics.deliveringThisWeek || 0} delivering this week`;
+  }
+
+  if (adminApp && openReportsEl) {
+    const counts = computeAdminOpenReportsCounts();
+    openReportsEl.textContent = String(counts.total || 0);
+    if (openReportsSmall) openReportsSmall.textContent = `${counts.assignmentPending || 0} assignments, ${counts.quizPending || 0} quizzes need review`;
+  }
+}
+
+window.renderDashboardMetrics = renderDashboardMetrics;
+
 renderAnnouncements();
 renderVideos();
 setupClassChatAutoRefresh();
@@ -10014,6 +10378,14 @@ loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "", { force: fal
   renderInvitations();
 
   renderCustomCourses();
+    // Update dashboard summary metrics after courses render
+    if (typeof renderDashboardMetrics === "function") {
+      try { renderDashboardMetrics(); } catch (e) { /* ignore rendering errors */ }
+    }
+    // For admin, preload completion-related data and refresh metrics
+    if (adminApp) {
+      try { await preloadAdminCompletionData(); } catch (e) { /* ignore */ }
+    }
   renderGradebook().catch(() => {});
   setupPrivateMessageStudents();
   renderPrivateMessages();
