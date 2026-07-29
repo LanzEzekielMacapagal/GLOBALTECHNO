@@ -28,6 +28,8 @@ let db = mongoose.connection;
 const uploadDir = path.join(__dirname, "uploads", "assignments");
 fs.mkdirSync(uploadDir, { recursive: true });
 
+
+
 const uploadStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => {
@@ -2238,6 +2240,37 @@ server.delete("/courses/delete/:courseId", async (req, res) => {
     );
     await Quiz.deleteMany({ courseId: req.params.courseId });
     await QuizSubmission.deleteMany({ courseId: req.params.courseId });
+    // Build possible classroom identifiers that postings may have used
+    const courseIdStr = String(course._id);
+    const candidateClassrooms = [courseIdStr];
+    if (course.title) candidateClassrooms.push(String(course.title));
+    if (course.invitationCode) candidateClassrooms.push(String(course.invitationCode));
+
+    // Remove announcements and their comments tied to this course/classroom (by id, title, or invitation code)
+    try {
+      const courseAnnouncements = await Announcement.find({ classroom: { $in: candidateClassrooms } }).select("_id").lean();
+      const announcementIds = Array.isArray(courseAnnouncements) ? courseAnnouncements.map((a) => String(a._id)) : [];
+      if (announcementIds.length) {
+        await AnnouncementComment.deleteMany({ announcementId: { $in: announcementIds } });
+      }
+      await Announcement.deleteMany({ classroom: { $in: candidateClassrooms } });
+    } catch (annErr) {
+      console.warn("Failed to remove course announcements or comments", annErr && annErr.message);
+    }
+
+    // Remove live session invitations linked to this classroom identifiers
+    try {
+      await Invitation.deleteMany({ classroom: { $in: candidateClassrooms } });
+    } catch (invErr) {
+      console.warn("Failed to remove course invitations", invErr && invErr.message);
+    }
+
+    // Remove videos linked to this course (by courseId or classroom identifiers)
+    try {
+      await Video.deleteMany({ $or: [{ courseId: req.params.courseId }, { classroom: { $in: candidateClassrooms } }] });
+    } catch (vidErr) {
+      console.warn("Failed to remove course videos", vidErr && vidErr.message);
+    }
 
     res.status(200).send({
       code: 200,

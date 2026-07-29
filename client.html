@@ -86,6 +86,9 @@
       <div class="section-menu-backdrop" id="sectionMenuBackdrop"></div>
       <aside class="student-section-nav" id="sectionNav" aria-label="Student sections">
         <a href="#courses" class="active" data-student-section-link="courses">Courses</a>
+        <a href="#live-sessions" data-student-section-link="live-sessions">Live Sessions</a>
+        <a href="#announcements" data-student-section-link="announcements">Announcements</a>
+        <a href="#videos" data-student-section-link="videos">Videos</a>
         <a href="#student-chat" data-student-section-link="student-chat">Class Chat</a>
         <a href="#private-messages" data-student-section-link="private-messages">Private Messages</a>
       </aside>
@@ -132,6 +135,45 @@
             </div>
 
             <div class="vstack gap-3" id="courseList"></div>
+          </div>
+        </section>
+
+        <section class="card student-section-card" id="live-sessions" data-student-section="live-sessions">
+          <div class="card-body">
+            <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-3">
+              <div>
+                <p class="section-label mb-1">Live sessions</p>
+                <h2 class="h5 mb-0">Upcoming meetings</h2>
+              </div>
+              <span class="badge text-bg-info align-self-start">Google Meet</span>
+            </div>
+            <div class="vstack gap-3" id="studentLiveSessions"></div>
+          </div>
+        </section>
+
+        <section class="card student-section-card" id="announcements" data-student-section="announcements">
+          <div class="card-body">
+            <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-3">
+              <div>
+                <p class="section-label mb-1">Announcements</p>
+                <h2 class="h5 mb-0">Latest updates</h2>
+              </div>
+              <span class="badge text-bg-secondary align-self-start">News</span>
+            </div>
+            <div class="announcement-list vstack gap-3" id="studentAnnouncements"></div>
+          </div>
+        </section>
+
+        <section class="card student-section-card" id="videos" data-student-section="videos">
+          <div class="card-body">
+            <div class="d-flex flex-column flex-md-row justify-content-between gap-3 mb-3">
+              <div>
+                <p class="section-label mb-1">Videos</p>
+                <h2 class="h5 mb-0">Recorded lessons</h2>
+              </div>
+              <span class="badge text-bg-info align-self-start">Media</span>
+            </div>
+            <div class="row g-3" id="studentVideos"></div>
           </div>
         </section>
 

@@ -14,6 +14,8 @@ const announcementSubject = document.querySelector("#announcementSubject");
 const adminAnnouncements = document.querySelector("#adminAnnouncements");
 const studentAnnouncements = document.querySelector("#studentAnnouncements");
 const studentAnnouncementClass = document.querySelector("#studentAnnouncementClass");
+const studentLiveSessions = document.querySelector("#studentLiveSessions");
+const studentVideos = document.querySelector("#studentVideos");
 const chatbox = document.querySelector("#chatbox");
 const chatForm = document.querySelector("#chatForm");
 const chatMessage = document.querySelector("#chatMessage");
@@ -610,6 +612,65 @@ function renderCourseGradeSummary(courseId, student = currentStudent) {
   return summary;
 }
 
+function renderSidebarLiveSessionItem(invitation) {
+  const item = document.createElement("article");
+  item.className = "course-resource-item";
+
+  const header = document.createElement("div");
+  header.className = "course-resource-summary course-resource-summary-tile";
+
+  const text = document.createElement("div");
+  text.className = "course-resource-summary-text";
+  text.append(
+    createTextElement("strong", "d-block", invitation?.title || "Live session"),
+    createTextElement("small", "text-secondary", invitation?.link ? "Open the meeting link" : "No link available")
+  );
+
+  const badge = document.createElement("span");
+  badge.className = "badge text-bg-info";
+  badge.textContent = "Live";
+
+  header.append(text, badge);
+
+  const content = document.createElement("div");
+  content.className = "course-resource-content";
+  if (invitation?.link) {
+    const openLink = document.createElement("a");
+    openLink.className = "btn btn-outline-primary btn-sm";
+    openLink.href = invitation.link;
+    openLink.target = "_blank";
+    openLink.rel = "noopener noreferrer";
+    openLink.textContent = "Open";
+    content.appendChild(openLink);
+  }
+
+  item.append(header, content);
+  return item;
+}
+
+function renderSidebarAnnouncementItem(announcement) {
+  const item = document.createElement("article");
+  item.className = "course-resource-item";
+
+  const header = document.createElement("div");
+  header.className = "course-resource-summary course-resource-summary-tile";
+
+  const text = document.createElement("div");
+  text.className = "course-resource-summary-text";
+  text.append(
+    createTextElement("strong", "d-block", announcement?.subject || announcement?.title || "Announcement"),
+    createTextElement("small", "text-secondary", announcement?.message ? String(announcement.message).slice(0, 110) : "New update from the admin")
+  );
+
+  const badge = document.createElement("span");
+  badge.className = "badge text-bg-secondary";
+  badge.textContent = "Update";
+
+  header.append(text, badge);
+  item.appendChild(header);
+  return item;
+}
+
 function renderCourseResourcesPanel(course, courseId) {
   const panel = document.createElement("aside");
   panel.className = "course-workspace-panel course-workspace-resources-panel";
@@ -650,6 +711,55 @@ function renderCourseResourcesPanel(course, courseId) {
   if (adminApp) postedBox.appendChild(renderCourseResourceForm(courseId));
 
   panel.append(guidanceBox, postedBox);
+
+  if (!adminApp) {
+    const liveSection = document.createElement("section");
+    liveSection.className = "course-resource-box";
+    liveSection.append(
+      createTextElement("h4", "h6 mb-1", "Live sessions"),
+      createTextElement("small", "text-secondary", "Meetings linked to this course")
+    );
+
+    const liveList = document.createElement("div");
+    liveList.className = "course-post-list mt-2";
+    const invitations = getCourseInvitations(courseId, course.title, course.invitationCode || createInvitationCode(course.title, course.id))
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    if (!invitations.length) {
+      liveList.appendChild(createTextElement("p", "text-secondary small mb-0", "No live sessions scheduled for this course yet."));
+    } else {
+      invitations.forEach((invitation) => {
+        liveList.appendChild(renderSidebarLiveSessionItem(invitation));
+      });
+    }
+
+    liveSection.appendChild(liveList);
+    panel.appendChild(liveSection);
+
+    const announcementSection = document.createElement("section");
+    announcementSection.className = "course-resource-box";
+    announcementSection.append(
+      createTextElement("h4", "h6 mb-1", "Announcements"),
+      createTextElement("small", "text-secondary", "Latest updates from the admin")
+    );
+
+    const announcementList = document.createElement("div");
+    announcementList.className = "course-post-list mt-2";
+    const announcements = getAnnouncements()
+      .filter((announcement) => announcement.classroom === "all" || String(announcement.classroom) === String(courseId))
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    if (!announcements.length) {
+      announcementList.appendChild(createTextElement("p", "text-secondary small mb-0", "No announcements posted for this course yet."));
+    } else {
+      announcements.forEach((announcement) => {
+        announcementList.appendChild(renderSidebarAnnouncementItem(announcement));
+      });
+    }
+
+    announcementSection.appendChild(announcementList);
+    panel.appendChild(announcementSection);
+  }
 
   const courseVideos = getCourseVideos(courseId);
   const videoTitle = document.createElement("div");
@@ -1531,6 +1641,16 @@ async function renderCourseWorkspace(courseId, triggerCard) {
   workspace.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "nearest" });
 }
 
+function collapseCourseWorkspace(card) {
+  if (!card) return;
+
+  card.classList.remove("course-card-active");
+  card.setAttribute("aria-pressed", "false");
+
+  const courseList = card.closest("#courseList");
+  courseList?.parentElement?.querySelector(".course-workspace")?.remove();
+}
+
 function bindCourseCard(card) {
   if (card.dataset.courseBound === "true") return;
   card.dataset.courseBound = "true";
@@ -1539,12 +1659,35 @@ function bindCourseCard(card) {
   card.setAttribute("aria-pressed", "false");
 
   card.addEventListener("click", () => {
+    if (card.classList.contains("course-card-active")) {
+      collapseCourseWorkspace(card);
+      return;
+    }
+
+    document.querySelectorAll(".course-card").forEach((item) => {
+      if (item !== card && item.classList.contains("course-card-active")) {
+        collapseCourseWorkspace(item);
+      }
+    });
+
     renderCourseWorkspace(card.dataset.course, card);
   });
 
   card.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
+
+    if (card.classList.contains("course-card-active")) {
+      collapseCourseWorkspace(card);
+      return;
+    }
+
+    document.querySelectorAll(".course-card").forEach((item) => {
+      if (item !== card && item.classList.contains("course-card-active")) {
+        collapseCourseWorkspace(item);
+      }
+    });
+
     renderCourseWorkspace(card.dataset.course, card);
   });
 }
@@ -1577,9 +1720,7 @@ filterButtons.forEach((button) => {
 
     const activeCard = document.querySelector(".course-card-active");
     if (activeCard?.classList.contains("d-none")) {
-      activeCard.classList.remove("course-card-active");
-      activeCard.setAttribute("aria-pressed", "false");
-      activeCard.closest("#courseList")?.parentElement.querySelector(".course-workspace")?.remove();
+      collapseCourseWorkspace(activeCard);
     }
   });
 });
@@ -1614,6 +1755,10 @@ function showStudentSection(sectionId, options = {}) {
     renderPrivateMessages();
   } else if (targetId === "videos") {
     loadServerVideos().then(() => renderVideos());
+  } else if (targetId === "announcements") {
+    renderAnnouncements();
+  } else if (targetId === "live-sessions") {
+    renderStudentLiveSessions();
   } else {
     markNotificationsReadBySection(targetId, { render: false });
   }
@@ -1865,6 +2010,12 @@ function updateSectionNotificationBadges() {
   wrapSectionLinkLabels();
   studentSectionLinks.forEach((link) => {
     const sectionId = link.dataset.studentSectionLink;
+    // Do not show an unread count badge for the Announcements section
+    if (sectionId === "announcements") {
+      link.querySelector(".nav-unread-count")?.remove();
+      return;
+    }
+
     const unread = getUnreadNotificationCount(sectionId);
     link.querySelector(".nav-unread-count")?.remove();
     if (!unread) return;
@@ -4676,6 +4827,21 @@ document.addEventListener("click", async (event) => {
 
       await loadServerCourses("", { force: false });
       renderCustomCourses();
+
+      // Refresh server-driven resources so deleted course postings disappear
+      try {
+        await Promise.all([
+          loadServerInvitations(),
+          loadServerVideos(),
+          loadAnnouncements()
+        ]);
+        renderInvitations();
+        renderStudentLiveSessions();
+        renderVideos();
+        renderAnnouncements();
+      } catch (refreshErr) {
+        console.warn('Failed to fully refresh server resources after course delete', refreshErr && refreshErr.message);
+      }
     } catch (error) {
       window.alert(error.message || "Unable to remove course.");
     }
@@ -5801,15 +5967,62 @@ async function renderAnnouncements() {
     studentAnnouncements.replaceChildren();
     if (studentAnnouncementClass) studentAnnouncementClass.textContent = selectedClassroomTitle;
 
-    const notice = document.createElement("p");
-    notice.className = "text-secondary mb-0";
-    notice.textContent = "Course announcements are now shown inside the course workspace.";
-    studentAnnouncements.appendChild(notice);
+    const visibleAnnouncements = announcements.filter((announcement) => isVisibleForStudentCourseItem(announcement));
+    if (!visibleAnnouncements.length) {
+      const empty = document.createElement("p");
+      empty.className = "text-secondary mb-0";
+      empty.textContent = "No announcements available for your enrolled courses.";
+      studentAnnouncements.appendChild(empty);
+    } else {
+      visibleAnnouncements.forEach((announcement) => {
+        studentAnnouncements.appendChild(renderAnnouncementCard(announcement, { admin: false }));
+      });
+    }
+    observeMotionElements(studentAnnouncements);
   }
 }
 
 function getAnnouncements() {
   return announcementsCache;
+}
+
+function getStudentEnrolledCourseIds() {
+  const explicitIds = Array.isArray(currentStudent.enrolledCourses)
+    ? currentStudent.enrolledCourses.map((courseId) => String(courseId || "").trim()).filter(Boolean)
+    : [];
+
+  if (explicitIds.length) return explicitIds;
+
+  return getCustomCourses().filter((course) => {
+    const courseId = String(course._id || course.id || "");
+    const enrolledList = Array.isArray(serverCourseEnrolledStudents[courseId])
+      ? serverCourseEnrolledStudents[courseId]
+      : [];
+    return enrolledList.some((student) => String(student._id || student.id) === String(currentStudent._id || currentStudent.id));
+  }).map((course) => String(course._id || course.id || "").trim()).filter(Boolean);
+}
+
+function getStudentEnrolledCourses() {
+  const enrolledIds = getStudentEnrolledCourseIds();
+  return getCustomCourses().filter((course) => enrolledIds.includes(String(course._id || course.id || "").trim()));
+}
+
+function getStudentCourseIdentifiers() {
+  const courses = getStudentEnrolledCourses();
+  return courses.flatMap((course) => {
+    return [
+      String(course._id || course.id || "").trim().toLowerCase(),
+      String(course.title || "").trim().toLowerCase(),
+      String(course.invitationCode || "").trim().toLowerCase()
+    ].filter(Boolean);
+  });
+}
+
+function isVisibleForStudentCourseItem(item = {}) {
+  const classroom = String(item.classroom || "").trim().toLowerCase();
+  if (!classroom || classroom === "all") return getStudentEnrolledCourseIds().length > 0;
+  const identifiers = getStudentCourseIdentifiers();
+  return identifiers.includes(classroom);
 }
 
 async function refreshAnnouncementViews() {
@@ -6358,11 +6571,8 @@ function renderVideoCard(video, options = {}) {
     const wrapper = document.createElement("article");
     wrapper.className = "col-12";
 
-    const card = document.createElement("button");
+    const card = document.createElement("div");
     card.className = "announcement-item video-announcement-item";
-    card.dataset.videoAction = "watch";
-    card.dataset.videoId = video._id || video.id;
-    card.type = "button";
 
     let thumbnail;
     if (source.thumbnailUrl) {
@@ -6401,13 +6611,29 @@ function renderVideoCard(video, options = {}) {
       createTextElement("span", "", "Opens player")
     );
 
-    const action = document.createElement("span");
-    action.className = "btn btn-primary btn-sm video-announcement-action";
-    action.textContent = "Watch";
+    const actions = document.createElement("div");
+    actions.className = "d-flex flex-wrap gap-2";
+
+    const watchButton = document.createElement("button");
+    watchButton.className = "btn btn-primary btn-sm";
+    watchButton.type = "button";
+    watchButton.dataset.videoAction = "watch";
+    watchButton.dataset.videoId = video._id || video.id;
+    watchButton.textContent = "Watch";
+    actions.appendChild(watchButton);
+
+    const copyButton = document.createElement("button");
+    copyButton.className = "btn btn-outline-secondary btn-sm";
+    copyButton.type = "button";
+    copyButton.dataset.videoAction = "copy";
+    copyButton.dataset.videoId = video._id || video.id;
+    copyButton.textContent = "Copy";
+    copyButton.setAttribute("aria-label", `Copy link for ${video.title}`);
+    actions.appendChild(copyButton);
 
     meta.append(classroom, time);
-    content.append(meta, title, details);
-    card.append(thumbnail, content, action);
+    content.append(meta, title, details, actions);
+    card.append(thumbnail, content);
     wrapper.appendChild(card);
 
     return wrapper;
@@ -6508,6 +6734,27 @@ function renderVideos() {
     }
 
     observeMotionElements(adminVideos);
+  }
+
+  if (studentVideos) {
+    studentVideos.replaceChildren();
+
+    const visibleVideos = serverVideos
+      .filter((video) => isVisibleForStudentCourseItem(video))
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    if (!visibleVideos.length) {
+      const empty = document.createElement("div");
+      empty.className = "col-12 text-secondary mb-0";
+      empty.textContent = "No videos posted yet for your enrolled courses.";
+      studentVideos.appendChild(empty);
+    } else {
+      visibleVideos.forEach((video) => {
+        studentVideos.appendChild(renderVideoCard(video, { admin: false }));
+      });
+    }
+
+    observeMotionElements(studentVideos);
   }
 }
 
@@ -8740,6 +8987,16 @@ function renderInvitationCard(invitation, options = {}) {
   actions.className = "d-flex flex-wrap gap-2";
   actions.appendChild(link);
 
+  if (!options.admin) {
+    const copyButton = document.createElement("button");
+    copyButton.className = "btn btn-outline-secondary btn-sm";
+    copyButton.type = "button";
+    copyButton.dataset.copyLiveSessionLink = invitation.link || "";
+    copyButton.textContent = "Copy";
+    copyButton.setAttribute("aria-label", `Copy live session link for ${invitation.title}`);
+    actions.appendChild(copyButton);
+  }
+
   if (options.admin) {
     const removeButton = document.createElement("button");
     removeButton.className = "btn btn-outline-danger btn-sm";
@@ -8760,6 +9017,29 @@ function renderInvitationCard(invitation, options = {}) {
   }
 
   return article;
+}
+
+function renderStudentLiveSessions() {
+  if (!studentLiveSessions) return;
+
+  const invitations = getInvitations()
+    .filter((invitation) => isVisibleForStudentCourseItem(invitation))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  studentLiveSessions.replaceChildren();
+
+  if (!invitations.length) {
+    const empty = document.createElement("p");
+    empty.className = "text-secondary mb-0";
+    empty.textContent = "No live sessions posted yet for your enrolled courses.";
+    studentLiveSessions.appendChild(empty);
+  } else {
+    invitations.forEach((invitation) => {
+      studentLiveSessions.appendChild(renderInvitationCard(invitation, { admin: false }));
+    });
+  }
+
+  observeMotionElements(studentLiveSessions);
 }
 
 function renderInvitations() {
@@ -9780,6 +10060,47 @@ function stopPrivateMessageAutoRefresh() {
   privateMessageRefreshTimer = null;
 }
 
+// Resource auto-refresh (announcements, videos, invitations)
+const RESOURCE_REFRESH_INTERVAL_MS = 15000;
+let resourceRefreshTimer = null;
+let resourceRefreshInProgress = false;
+
+async function refreshResourcesOnce() {
+  if (resourceRefreshInProgress) return;
+  resourceRefreshInProgress = true;
+  try {
+    await Promise.all([
+      loadServerInvitations(),
+      loadServerVideos(),
+      loadAnnouncements()
+    ]);
+    try { renderInvitations(); } catch (e) {}
+    try { renderStudentLiveSessions(); } catch (e) {}
+    try { renderVideos(); } catch (e) {}
+    try { renderAnnouncements(); } catch (e) {}
+  } finally {
+    resourceRefreshInProgress = false;
+  }
+}
+
+function startResourceAutoRefresh() {
+  if (resourceRefreshTimer) return;
+  resourceRefreshTimer = setInterval(() => {
+    refreshResourcesOnce().catch(() => {});
+  }, RESOURCE_REFRESH_INTERVAL_MS);
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refreshResourcesOnce().catch(() => {});
+  });
+  window.addEventListener('focus', () => refreshResourcesOnce().catch(() => {}));
+}
+
+function stopResourceAutoRefresh() {
+  if (!resourceRefreshTimer) return;
+  clearInterval(resourceRefreshTimer);
+  resourceRefreshTimer = null;
+}
+
 function setupPrivateMessageAutoRefresh() {
   startPrivateMessageAutoRefresh();
 
@@ -10206,6 +10527,35 @@ function computeDashboardMetricsForAdmin() {
   };
 }
 
+function computeAdminCompletionRateSync() {
+  const courses = getCustomCourses();
+  if (!courses.length) {
+    return { percent: 0, totalLearners: 0, totalCompletedLearners: 0 };
+  }
+
+  let totalLearners = 0;
+  let totalCompletedLearners = 0;
+
+  courses.forEach((course) => {
+    const courseId = String(course._id || course.id || "");
+    if (!courseId) return;
+    const enrolled = Array.isArray(serverCourseEnrolledStudents[courseId]) ? serverCourseEnrolledStudents[courseId] : [];
+    if (!enrolled.length) return;
+
+    enrolled.forEach((learner) => {
+      const summary = getStudentCourseProgressSummary(courseId, course, learner);
+      if (!summary) return;
+      // Skip learners with no required items
+      if ((summary.requiredItems || 0) === 0) return;
+      totalLearners += 1;
+      if ((summary.completedItems || 0) >= (summary.requiredItems || 0)) totalCompletedLearners += 1;
+    });
+  });
+
+  const percent = totalLearners ? Math.round((totalCompletedLearners / totalLearners) * 100) : 0;
+  return { percent, totalLearners, totalCompletedLearners };
+}
+
 function computeAdminOpenReportsCounts() {
   // Quiz pending: submissions with manual question types but no manual scores
   const quizSubmissions = Array.isArray(window.serverQuizSubmissions) ? window.serverQuizSubmissions : serverQuizSubmissions;
@@ -10264,7 +10614,16 @@ function computeAdminCompletionRateSync() {
 
 async function preloadAdminCompletionData() {
   const courses = getCustomCourses();
-  if (!courses.length) return null;
+  if (!courses.length) {
+    const dashboard = document.querySelector('#dashboard');
+    if (dashboard) {
+      const completionEl = dashboard.querySelector('[data-metric="completion-rate"] .metric-value');
+      const completionSmall = dashboard.querySelector('[data-metric="completion-rate"] small');
+      if (completionEl) completionEl.textContent = `0%`;
+      if (completionSmall) completionSmall.textContent = `No learner progress yet`;
+    }
+    return null;
+  }
 
   for (const course of courses) {
     const courseId = String(course._id || course.id || "");
@@ -10376,6 +10735,7 @@ loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "", { force: fal
   renderAssignments();
   await loadServerInvitations();
   renderInvitations();
+  renderStudentLiveSessions();
 
   renderCustomCourses();
     // Update dashboard summary metrics after courses render
@@ -10391,5 +10751,8 @@ loadServerCourses(adminApp ? "" : currentUserForCourses?._id || "", { force: fal
   renderPrivateMessages();
   await ensureClassChatLoaded();
   renderNotificationCenter();
+  renderNotificationCenter();
+  // Start periodic refresh so student pages receive admin-posted resources promptly
+  try { startResourceAutoRefresh(); } catch (e) {}
   observeMotionElements();
 });
