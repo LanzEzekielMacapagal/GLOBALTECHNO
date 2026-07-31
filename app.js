@@ -2711,7 +2711,6 @@ function renderCourseResourceItem(resource) {
 
   const content = document.createElement("div");
   content.className = "course-resource-content";
-  if (resource.description) content.appendChild(createTextElement("p", "text-secondary small mb-2", resource.description));
 
   const attachments = Array.isArray(resource.attachments) && resource.attachments.length
     ? resource.attachments
@@ -2985,6 +2984,12 @@ function renderCourseResourceForm(courseId) {
   title.placeholder = "Reviewer title";
   title.required = true;
 
+  const description = document.createElement("textarea");
+  description.className = "form-control form-control-sm";
+  description.name = "description";
+  description.rows = 3;
+  description.placeholder = "Reviewer description (optional)";
+
   const fileLabel = document.createElement("label");
   fileLabel.className = "form-label small fw-bold mb-0";
   fileLabel.textContent = "Attach reviewer files";
@@ -3074,6 +3079,7 @@ function renderCourseResourceForm(courseId) {
   form.append(
     createTextElement("strong", "small", "Upload reviewer"),
     title,
+    description,
     fileLabel,
     addFileButton,
     file,
@@ -3858,10 +3864,10 @@ function renderCourseQuizItem(quiz) {
           const isCorrect = adminApp && question.correctAnswer === value;
           const isSubmitted = getSubmittedAnswer(submission, question, index) === value;
           optionRow.className = `course-quiz-option${isCorrect ? " course-quiz-option-correct" : ""}${isSubmitted ? " course-quiz-option-selected" : ""}`;
-          optionRow.append(
-            createTextElement("span", "course-quiz-letter", value),
-            createTextElement("span", "", label)
-          );
+          optionRow.append(createTextElement("span", "course-quiz-letter", value));
+          if (type === "multiple-choice" || value !== label) {
+            optionRow.appendChild(createTextElement("span", "", label));
+          }
           options.appendChild(optionRow);
         });
 
@@ -3989,11 +3995,10 @@ function renderCourseQuizItem(quiz) {
             input.value = value;
             input.required = true;
 
-            label.append(
-              input,
-              createTextElement("span", "course-quiz-letter", value),
-              createTextElement("span", "", labelText)
-            );
+            label.append(input, createTextElement("span", "course-quiz-letter", value));
+            if (type === "multiple-choice" || value !== labelText) {
+              label.appendChild(createTextElement("span", "", labelText));
+            }
             choices.appendChild(label);
           });
           answerBlock.appendChild(choices);
@@ -4399,7 +4404,7 @@ function renderCourseManualGradingPanel(courseId) {
   summary.className = "course-quiz-summary";
   const summaryText = document.createElement("span");
   summaryText.append(
-    createTextElement("strong", "", "Manual Grading"),
+    createTextElement("strong", "", "Quiz Grading"),
     createTextElement("small", "text-secondary d-block", "Essay, modified true/false, and enumeration submissions")
   );
   // show pending/checked counts directly in the summary so they're visible when collapsed
@@ -4415,7 +4420,9 @@ function renderCourseManualGradingPanel(courseId) {
   const content = document.createElement("div");
   content.className = "course-quiz-form vstack gap-2";
 
-  if (manualTasks.length) {
+  if (!manualTasks.length) {
+    content.appendChild(createTextElement("p", "text-secondary small mb-0", "No pending submissions need grading for this course yet."));
+  } else {
     manualTasks.forEach((task) => {
       const quiz = task.quiz;
       const submission = task.submission;
@@ -5060,9 +5067,10 @@ document.addEventListener("submit", async (event) => {
     return;
   }
 
+  const description = resourceForm.elements.description ? resourceForm.elements.description.value.trim() : "";
   const formData = new FormData();
   formData.append("title", title);
-  formData.append("description", "");
+  formData.append("description", description);
   selectedFiles.forEach((file) => formData.append("attachments", file));
 
   try {
@@ -7624,13 +7632,18 @@ function createGradeForm(courseId, student, options = {}) {
       else if (item.score === "NOT_GRADED") scoreText = "Not Yet Graded";
       else scoreText = `${item.score}/${item.total}`;
       score.textContent = scoreText;
+      if (item.score === null || item.score === undefined || item.score === "NOT_GRADED") {
+        score.classList.add("bg-danger-light");
+      }
 
       const statusText = document.createElement("div");
       statusText.className = "admin-grade-card-status";
       if (item.score === null || item.score === undefined) {
         statusText.textContent = "Not yet submitted";
+        statusText.classList.add("bg-danger-light");
       } else if (item.score === "NOT_GRADED") {
         statusText.textContent = "Waiting for grading";
+        statusText.classList.add("bg-danger-light");
       } else {
         statusText.textContent = "Graded";
       }

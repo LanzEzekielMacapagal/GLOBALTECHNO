@@ -2442,6 +2442,10 @@ body {
   gap: 0.75rem;
 }
 
+.bg-danger-light {
+  color: #d9534f !important;
+}
+
 .admin-grade-card::before {
   content: "";
   position: absolute;
