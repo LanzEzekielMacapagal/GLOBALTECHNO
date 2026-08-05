@@ -712,55 +712,6 @@ function renderCourseResourcesPanel(course, courseId) {
 
   panel.append(guidanceBox, postedBox);
 
-  if (!adminApp) {
-    const liveSection = document.createElement("section");
-    liveSection.className = "course-resource-box";
-    liveSection.append(
-      createTextElement("h4", "h6 mb-1", "Live sessions"),
-      createTextElement("small", "text-secondary", "Meetings linked to this course")
-    );
-
-    const liveList = document.createElement("div");
-    liveList.className = "course-post-list mt-2";
-    const invitations = getCourseInvitations(courseId, course.title, course.invitationCode || createInvitationCode(course.title, course.id))
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    if (!invitations.length) {
-      liveList.appendChild(createTextElement("p", "text-secondary small mb-0", "No live sessions scheduled for this course yet."));
-    } else {
-      invitations.forEach((invitation) => {
-        liveList.appendChild(renderSidebarLiveSessionItem(invitation));
-      });
-    }
-
-    liveSection.appendChild(liveList);
-    panel.appendChild(liveSection);
-
-    const announcementSection = document.createElement("section");
-    announcementSection.className = "course-resource-box";
-    announcementSection.append(
-      createTextElement("h4", "h6 mb-1", "Announcements"),
-      createTextElement("small", "text-secondary", "Latest updates from the admin")
-    );
-
-    const announcementList = document.createElement("div");
-    announcementList.className = "course-post-list mt-2";
-    const announcements = getAnnouncements()
-      .filter((announcement) => announcement.classroom === "all" || String(announcement.classroom) === String(courseId))
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    if (!announcements.length) {
-      announcementList.appendChild(createTextElement("p", "text-secondary small mb-0", "No announcements posted for this course yet."));
-    } else {
-      announcements.forEach((announcement) => {
-        announcementList.appendChild(renderSidebarAnnouncementItem(announcement));
-      });
-    }
-
-    announcementSection.appendChild(announcementList);
-    panel.appendChild(announcementSection);
-  }
-
   const courseVideos = getCourseVideos(courseId);
   const videoTitle = document.createElement("div");
   videoTitle.className = "course-resource-section-title";

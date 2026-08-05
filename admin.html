@@ -377,7 +377,7 @@
               <div class="row g-2">
                 <div class="col-6"><button class="btn btn-light w-100 border" type="button">Users</button></div>
                 <div class="col-6"><button class="btn btn-light w-100 border" type="button">Roles</button></div>
-                <div class="col-6"><button class="btn btn-light w-100 border" type="button">Permissions</button></div>
+                <div class="col-6"><button class="btn btn-light w-100 border" type="button" data-bs-toggle="modal" data-bs-target="#permissionsModal">Permissions</button></div>
                 <div class="col-6"><button class="btn btn-light w-100 border" type="button">Certificates</button></div>
               </div>
             </div>
@@ -408,6 +408,73 @@
           </div>
         </form>
       </div>
+    </div>
+
+    <div class="modal fade gth-confirm-modal" id="permissionsModal" tabindex="-1" aria-labelledby="permissionsModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-xl">
+        <div class="modal-content">
+          <div class="modal-header">
+            <div>
+              <p class="section-label mb-1">Course Access</p>
+              <h2 class="modal-title fs-5" id="permissionsModalLabel">Permissions</h2>
+              <p class="text-secondary small mb-0">Grant course access and manage trainee onboarding requests.</p>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div class="table-responsive shadow-none rounded-4 overflow-hidden border border-1 d-none d-sm-block">
+              <table class="table table-borderless table-hover table-sm align-middle mb-0 permissions-table">
+                <tbody>
+                  <tr>
+                    <td class="fw-semibold">Jane Doe</td>
+                    <td class="text-secondary">jane.doe@example.com</td>
+                    <td>Advanced Leadership</td>
+                    <td class="text-end">
+                      <button type="button" class="btn btn-sm btn-primary px-4">Grant Access</button>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="fw-semibold">John Smith</td>
+                    <td class="text-secondary">john.smith@example.com</td>
+                    <td>Team Productivity</td>
+                    <td class="text-end">
+                      <button type="button" class="btn btn-sm btn-primary px-4">Grant Access</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="d-block d-sm-none">
+              <div class="list-group">
+                <div class="list-group-item p-3 mb-2 rounded-4 border border-1 bg-white shadow-sm">
+                  <div class="d-flex justify-content-between align-items-start gap-3">
+                    <div>
+                      <div class="fw-semibold">Jane Doe</div>
+                      <div class="text-secondary small">jane.doe@example.com</div>
+                      <div class="text-muted small mt-2">Advanced Leadership</div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary">Grant Access</button>
+                  </div>
+                </div>
+                <div class="list-group-item p-3 rounded-4 border border-1 bg-white shadow-sm">
+                  <div class="d-flex justify-content-between align-items-start gap-3">
+                    <div>
+                      <div class="fw-semibold">John Smith</div>
+                      <div class="text-secondary small">john.smith@example.com</div>
+                      <div class="text-muted small mt-2">Team Productivity</div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary">Grant Access</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
     </div>
 
     <div class="modal fade" id="videoModal" tabindex="-1" aria-labelledby="videoModalLabel" aria-hidden="true">
