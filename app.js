@@ -11,6 +11,7 @@ const courseSearchForms = document.querySelectorAll(".course-search");
 const dashboardJumps = document.querySelectorAll("[data-open-section]");
 const announcementForm = document.querySelector("#announcementForm");
 const announcementSubject = document.querySelector("#announcementSubject");
+const announcementPublishAt = document.querySelector("#announcementPublishAt");
 const adminAnnouncements = document.querySelector("#adminAnnouncements");
 const studentAnnouncements = document.querySelector("#studentAnnouncements");
 const studentAnnouncementClass = document.querySelector("#studentAnnouncementClass");
@@ -2641,7 +2642,7 @@ function renderCourseResourceItem(resource) {
   const item = document.createElement("details");
   item.className = "course-resource-item";
   item.dataset.resourceId = resource.id;
-
+  
   const summary = document.createElement("summary");
   summary.className = "course-resource-summary course-resource-summary-tile";
 
@@ -2662,9 +2663,7 @@ function renderCourseResourceItem(resource) {
   const summaryBadge = document.createElement("span");
   summaryBadge.className = "badge text-bg-info";
   summaryBadge.textContent = badgeText;
-
   summary.append(summaryMeta, summaryBadge);
-
   const content = document.createElement("div");
   content.className = "course-resource-content";
 
@@ -5678,6 +5677,19 @@ function formatDateTime(value) {
   }).format(new Date(value));
 }
 
+function getAnnouncementEffectiveTime(announcement) {
+  if (!announcement) return Date.now();
+  const publishAt = announcement.publishAt ? new Date(announcement.publishAt).getTime() : NaN;
+  if (!Number.isNaN(publishAt)) return publishAt;
+  return new Date(announcement.createdAt).getTime();
+}
+
+function isAnnouncementPublished(announcement) {
+  if (!announcement || !announcement.publishAt) return true;
+  const publishAt = new Date(announcement.publishAt).getTime();
+  return Number.isNaN(publishAt) ? true : publishAt <= Date.now();
+}
+
 function isPastDue(value) {
   return Boolean(value) && new Date(value).getTime() <= Date.now();
 }
@@ -5703,9 +5715,12 @@ function renderAnnouncementCard(announcement, options = {}) {
     meta.appendChild(classroom);
   }
 
+  const publishAt = announcement.publishAt ? new Date(announcement.publishAt) : null;
+  const isScheduled = publishAt && publishAt.getTime() > Date.now();
+
   const time = document.createElement("small");
   time.className = "text-secondary";
-  time.textContent = formatDate(announcement.createdAt);
+  time.textContent = isScheduled ? `Scheduled for ${formatDateTime(publishAt)}` : formatDate(announcement.createdAt);
   meta.appendChild(time);
 
   const toggleButton = document.createElement("button");
@@ -5725,11 +5740,17 @@ function renderAnnouncementCard(announcement, options = {}) {
   subject.className = "h6 mb-1";
   subject.textContent = getAnnouncementDisplaySubject(announcement.subject);
 
+  body.appendChild(subject);
+
+  if (isScheduled) {
+    body.appendChild(createTextElement("p", "small text-secondary mb-2", `Scheduled to publish on ${formatDateTime(publishAt)}`));
+  }
+
   const message = document.createElement("p");
   message.className = "mb-0 text-secondary";
   message.textContent = announcement.message;
 
-  body.append(subject, message);
+  body.append(message);
 
   const comments = getAnnouncementComments(announcement.id);
   const commentsSection = document.createElement("div");
@@ -5915,7 +5936,7 @@ function renderCourseAnnouncementsPanel(course, courseId) {
 async function renderAnnouncements() {
   const announcements = (await loadAnnouncements()).sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-    return new Date(b.createdAt) - new Date(a.createdAt);
+    return getAnnouncementEffectiveTime(b) - getAnnouncementEffectiveTime(a);
   });
 
   await Promise.all(announcements.map((announcement) => loadAnnouncementComments(announcement.id)));
@@ -5931,7 +5952,7 @@ async function renderAnnouncements() {
     studentAnnouncements.replaceChildren();
     if (studentAnnouncementClass) studentAnnouncementClass.textContent = selectedClassroomTitle;
 
-    const visibleAnnouncements = announcements.filter((announcement) => isVisibleForStudentCourseItem(announcement));
+    const visibleAnnouncements = announcements.filter((announcement) => isAnnouncementPublished(announcement) && isVisibleForStudentCourseItem(announcement));
     if (!visibleAnnouncements.length) {
       const empty = document.createElement("p");
       empty.className = "text-secondary mb-0";
@@ -6005,7 +6026,8 @@ announcementForm?.addEventListener("submit", async (event) => {
     classroom: document.querySelector("#announcementClassroom").value,
     subject: sanitizeAnnouncementSubject(String(document.querySelector("#announcementSubject").value || "").trim() || "Announcement"),
     message: document.querySelector("#announcementMessage").value.trim(),
-    pinned: document.querySelector("#announcementPinned").checked
+    pinned: document.querySelector("#announcementPinned").checked,
+    publishAt: document.querySelector("#announcementPublishAt").value || undefined
   };
 
   // include author so server can record who posted
@@ -6016,15 +6038,18 @@ announcementForm?.addEventListener("submit", async (event) => {
   const savedAnnouncement = await postAnnouncement(announcement);
   if (!savedAnnouncement) return;
 
-  addNotification({
-    type: "announcement",
-    section: "announcements",
-    classroom: savedAnnouncement.classroom,
-    audience: { role: "student", classroom: savedAnnouncement.classroom },
-    title: `New announcement: ${savedAnnouncement.subject}`,
-    message: savedAnnouncement.message,
-    createdAt: savedAnnouncement.createdAt
-  });
+  const shouldNotify = isAnnouncementPublished(savedAnnouncement);
+  if (shouldNotify) {
+    addNotification({
+      type: "announcement",
+      section: "announcements",
+      classroom: savedAnnouncement.classroom,
+      audience: { role: "student", classroom: savedAnnouncement.classroom },
+      title: `New announcement: ${savedAnnouncement.subject}`,
+      message: savedAnnouncement.message,
+      createdAt: savedAnnouncement.createdAt
+    });
+  }
 
   announcementForm.reset();
   await refreshAnnouncementViews();

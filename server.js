@@ -339,6 +339,10 @@ const announcementSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  publishAt: {
+    type: Date,
+    default: null,
+  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -2886,12 +2890,14 @@ server.delete("/courses/:courseId/assignments/:assignmentId/submissions/:submiss
 
 // Post an announcement
 server.post("/announcements/add", (req, res) => {
+  const publishAt = req.body.publishAt ? new Date(req.body.publishAt) : null;
   let newAnnouncement = new Announcement({
     classroom: req.body.classroom || "all",
     subject: req.body.subject,
     author: req.body.author || "Admin",
     message: req.body.message,
     pinned: req.body.pinned || false,
+    publishAt: publishAt && !Number.isNaN(publishAt.getTime()) ? publishAt : null,
   });
 
   newAnnouncement
