@@ -2694,12 +2694,17 @@ function renderCourseResourceItem(resource) {
   const summary = document.createElement("summary");
   summary.className = "course-resource-summary course-resource-summary-tile";
 
+  const summaryMeta = document.createElement("div");
+  summaryMeta.className = "course-resource-summary-meta";
+
+  const summaryIcon = createTextElement("span", "course-resource-summary-icon", "📄");
   const summaryText = document.createElement("div");
   summaryText.className = "course-resource-summary-text";
   summaryText.append(
     createTextElement("strong", "d-block", resource.title || "Reviewer item"),
     createTextElement("small", "text-secondary", resource.description || "Open to view the uploaded files")
   );
+  summaryMeta.append(summaryIcon, summaryText);
 
   const attachmentCount = Array.isArray(resource.attachments) ? resource.attachments.length : 0;
   const badgeText = attachmentCount > 0 ? `${attachmentCount} file${attachmentCount > 1 ? "s" : ""}` : "Open";
@@ -2707,7 +2712,7 @@ function renderCourseResourceItem(resource) {
   summaryBadge.className = "badge text-bg-info";
   summaryBadge.textContent = badgeText;
 
-  summary.append(summaryText, summaryBadge);
+  summary.append(summaryMeta, summaryBadge);
 
   const content = document.createElement("div");
   content.className = "course-resource-content";
@@ -7241,7 +7246,6 @@ function renderFileTile(file = {}, options = {}) {
   });
 
   meta.append(
-    createTextElement("span", "file-pill", getFileTypeLabel(file)),
     fileNameLink,
     createTextElement("small", "text-secondary", `${getFileKindLabel(file)}${file.size ? ` - ${formatFileSize(file.size)}` : ""}`)
   );
