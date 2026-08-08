@@ -21,3 +21,15 @@ test("quiz manual grading panel shows an empty-state notice when there are no pe
     /if \(!manualTasks\.length\) \{[\s\S]*No pending submissions need grading for this course yet\./m
   );
 });
+
+test("teacher registration submits the teacher role from the admin form", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+
+  assert.match(appSource, /role:\s*"teacher"/);
+});
+
+test("user schema accepts teacher role", () => {
+  const serverSource = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
+
+  assert.match(serverSource, /enum:\s*\[\s*"admin"\s*,\s*"teacher"\s*,\s*"user"\s*\]/);
+});

@@ -379,7 +379,7 @@
                 <button class="btn btn-outline-secondary btn-sm" type="button">Settings</button>
               </div>
               <div class="row g-2">
-                <div class="col-6"><button class="btn btn-light w-100 border" type="button">Users</button></div>
+                <div class="col-6"><button class="btn btn-light w-100 border" type="button" data-bs-toggle="modal" data-bs-target="#teacherModal">Teachers</button></div>
                 <div class="col-6"><button class="btn btn-light w-100 border" type="button">Roles</button></div>
                 <div class="col-6"><button class="btn btn-light w-100 border" type="button" data-bs-toggle="modal" data-bs-target="#permissionsModal">Permissions</button></div>
                 <div class="col-6"><button class="btn btn-light w-100 border" type="button">Certificates</button></div>
@@ -391,6 +391,31 @@
         </div>
       </div>
     </main>
+
+    <div class="modal fade" id="teacherModal" tabindex="-1" aria-labelledby="teacherModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" id="teacherForm">
+          <div class="modal-header">
+            <div>
+              <p class="section-label mb-1">Create account</p>
+              <h2 class="modal-title fs-5" id="teacherModalLabel">Register Teacher</h2>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body vstack gap-3">
+            <div class="alert alert-info small mb-0 d-none" data-teacher-status role="status"></div>
+            <label class="form-label mb-0">Full name<input class="form-control mt-1" id="teacherFullName" type="text" placeholder="Enter teacher name"></label>
+            <label class="form-label mb-0">Email<input class="form-control mt-1" id="teacherEmail" type="email" placeholder="teacher@example.com" required></label>
+            <label class="form-label mb-0">Username<input class="form-control mt-1" id="teacherUsername" type="text" placeholder="teacherusername" required></label>
+            <label class="form-label mb-0">Password<input class="form-control mt-1" id="teacherPassword" type="password" placeholder="Create password" required></label>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Create Teacher</button>
+          </div>
+        </form>
+      </div>
+    </div>
 
     <div class="modal fade" id="courseModal" tabindex="-1" aria-labelledby="courseModalLabel" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered">

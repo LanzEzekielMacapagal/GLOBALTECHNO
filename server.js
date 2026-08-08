@@ -123,7 +123,7 @@ const userSchema = new mongoose.Schema({
   role: {
     type: String,
     default: "user",
-    enum: ["admin", "user"],
+    enum: ["admin", "teacher", "user"],
   },
   enrolledCourses: {
     type: [{
@@ -997,50 +997,75 @@ server.get("/error", (req, res) => {
 // =============================================
 
 // Register a new user
-server.post("/users/register", (req, res) => {
-  User.findOne({ username: req.body.username })
-    .then((existingUser) => {
-      if (existingUser != null) {
-        return res.status(409).send({
-          code: 409,
-          message: "Username already exists. Please choose another.",
-        });
-      }
+server.post("/users/register", async (req, res) => {
+  try {
+    const fullName = String(req.body.fullName || "").trim();
+    const email = String(req.body.email || "").trim().toLowerCase();
+    const username = String(req.body.username || "").trim();
+    const password = String(req.body.password || "");
 
-      let newUser = new User({
-        fullName: req.body.fullName,
-        email: req.body.email,
-        username: req.body.username,
-        password: req.body.password,
-        role: req.body.role || "user",
-        enrolledCourses: [],
+    if (!fullName || !email || !username || !password) {
+      return res.status(400).send({
+        code: 400,
+        message: "Full name, email, username, and password are required.",
       });
+    }
 
-      newUser
-        .save()
-        .then((savedUser) => {
-          res.status(201).send({
-            code: 201,
-            message: "Registration successful!",
-            data: {
-              ...savedUser.toObject(),
-              enrolledCourses: savedUser.enrolledCourses || [],
-            },
-          });
-        })
-        .catch((saveErr) => {
-          res.status(500).send({
-            code: 500,
-            message: "There is an error saving the user.",
-          });
-        });
-    })
-    .catch((err) => {
-      res.status(500).send({
-        code: 500,
-        message: "There is an error checking for existing user.",
+    const [existingByUsername, existingByEmail, existingByFullName] = await Promise.all([
+      User.findOne({ username }).lean(),
+      User.findOne({ email }).lean(),
+      User.findOne({ fullName }).lean()
+    ]);
+
+    if (existingByUsername) {
+      return res.status(409).send({
+        code: 409,
+        message: "Username already exists. Please choose another.",
       });
+    }
+
+    if (existingByEmail) {
+      return res.status(409).send({
+        code: 409,
+        message: "Email address already exists. Please use another email.",
+      });
+    }
+
+    if (existingByFullName) {
+      return res.status(409).send({
+        code: 409,
+        message: "Teacher name already exists. Please use another full name.",
+      });
+    }
+
+    const requestedRole = String(req.body.role || "user").trim().toLowerCase();
+    const allowedRole = ["admin", "teacher", "user"].includes(requestedRole) ? requestedRole : "user";
+
+    const savedUser = await new User({
+      fullName,
+      email,
+      username,
+      password,
+      role: allowedRole,
+      enrolledCourses: [],
+    }).save();
+
+    return res.status(201).send({
+      code: 201,
+      message: "Registration successful!",
+      data: {
+        ...savedUser.toObject(),
+        enrolledCourses: savedUser.enrolledCourses || [],
+      },
     });
+  } catch (error) {
+    console.error("User save failed during registration.", error);
+    return res.status(500).send({
+      code: 500,
+      message: "There is an error saving the user.",
+      details: error?.message || "Unknown save error",
+    });
+  }
 });
 
 // Login user
@@ -2343,10 +2368,6 @@ server.post("/courses/:courseId/reviewers", upload.fields([{ name: "attachments"
           url: `/uploads/assignments/${String(file.filename || "")}`
         }))
       : [];
-
-    if (!uploadedFiles.length) {
-      return res.status(400).send({ code: 400, message: "Please attach at least one file." });
-    }
 
     const reviewer = await Reviewer.create({
       id: `reviewer-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
