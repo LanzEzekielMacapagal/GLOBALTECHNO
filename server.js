@@ -971,6 +971,11 @@ server.get("/admin", (req, res) => {
   res.sendFile(path.join(__dirname, "admin.html"));
 });
 
+// Teacher dashboard page
+server.get("/teacher", (req, res) => {
+  res.sendFile(path.join(__dirname, "teacher.html"));
+});
+
 // Client / Student portal page
 server.get("/client", (req, res) => {
   res.sendFile(path.join(__dirname, "client.html"));

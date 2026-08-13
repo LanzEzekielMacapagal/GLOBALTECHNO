@@ -10331,7 +10331,9 @@ async function initializePrivateMessages() {
 }
 
 function redirectAdminIfLoggedOut() {
-  if (adminApp && sessionStorage.getItem("gthAdminLoggedIn") !== "true") {
+  const teacherLoggedIn = sessionStorage.getItem("gthTeacherLoggedIn") === "true";
+  const adminLoggedIn = sessionStorage.getItem("gthAdminLoggedIn") === "true";
+  if (adminApp && !adminLoggedIn && !teacherLoggedIn) {
     window.location.replace("login.html");
   }
 }
@@ -10341,6 +10343,7 @@ window.addEventListener("pageshow", redirectAdminIfLoggedOut);
 
 adminLogout?.addEventListener("click", () => {
   sessionStorage.removeItem("gthAdminLoggedIn");
+  sessionStorage.removeItem("gthTeacherLoggedIn");
   sessionStorage.removeItem("gthCurrentUser");
   window.location.replace("index.html");
 });
@@ -10373,14 +10376,25 @@ portalLoginForm?.addEventListener("submit", async (event) => {
     if (result.data?.role === "admin") {
       sessionStorage.setItem("gthCurrentUser", JSON.stringify(result.data));
       sessionStorage.setItem("gthAdminLoggedIn", "true");
+      sessionStorage.removeItem("gthTeacherLoggedIn");
       sessionStorage.removeItem("gthClientLoggedIn");
       window.location.replace("admin.html");
+      return;
+    }
+
+    if (result.data?.role === "teacher") {
+      sessionStorage.setItem("gthCurrentUser", JSON.stringify(result.data));
+      sessionStorage.setItem("gthTeacherLoggedIn", "true");
+      sessionStorage.removeItem("gthAdminLoggedIn");
+      sessionStorage.removeItem("gthClientLoggedIn");
+      window.location.replace("teacher.html");
       return;
     }
 
     sessionStorage.setItem("gthCurrentUser", JSON.stringify(result.data));
     sessionStorage.setItem("gthClientLoggedIn", "true");
     sessionStorage.removeItem("gthAdminLoggedIn");
+    sessionStorage.removeItem("gthTeacherLoggedIn");
     window.location.replace("client.html");
   } catch (error) {
     portalLoginError.textContent = error.message === "Failed to fetch"
