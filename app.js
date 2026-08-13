@@ -7689,6 +7689,7 @@ async function renderGradebook() {
 
     const header = document.createElement("div");
     header.className = "gradebook-course-header";
+
     const headerText = document.createElement("div");
     headerText.append(
       createTextElement("p", "section-label mb-1", "Course grading"),
@@ -7696,7 +7697,21 @@ async function renderGradebook() {
       createTextElement("small", "text-secondary", "Record each enrolled learner's period grades. Final grade is calculated automatically.")
     );
 
-    header.append(headerText);
+    const courseActions = document.createElement("div");
+    courseActions.className = "gradebook-course-actions";
+
+    const revealGradesButton = document.createElement("button");
+    revealGradesButton.type = "button";
+    revealGradesButton.className = "btn btn-sm gradebook-course-action";
+    revealGradesButton.textContent = "Reveal Grades";
+
+    const revealScoreButton = document.createElement("button");
+    revealScoreButton.type = "button";
+    revealScoreButton.className = "btn btn-sm gradebook-course-action gradebook-course-action-secondary";
+    revealScoreButton.textContent = "Reveal Score";
+
+    courseActions.append(revealGradesButton, revealScoreButton);
+    header.append(headerText, courseActions);
 
     const rows = document.createElement("div");
     rows.className = "gradebook-rows";
