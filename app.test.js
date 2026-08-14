@@ -33,3 +33,16 @@ test("user schema accepts teacher role", () => {
 
   assert.match(serverSource, /enum:\s*\[\s*"admin"\s*,\s*"teacher"\s*,\s*"user"\s*\]/);
 });
+
+test("grade reveal action toggles to revealed state with red styling", () => {
+  const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+
+  assert.match(appSource, /"Revealed Grades"/);
+  assert.match(appSource, /classList\.toggle\("gradebook-course-action-revealed"/);
+});
+
+test("score reveal action keeps the red revealed styling after toggling", () => {
+  const stylesSource = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+
+  assert.match(stylesSource, /\.gradebook-course-action-secondary\.gradebook-course-action-revealed\s*\{/);
+});

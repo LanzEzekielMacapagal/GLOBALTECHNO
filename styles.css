@@ -2755,9 +2755,21 @@ body {
   line-height: 1.2;
 }
 
+.gradebook-course-action-revealed {
+  border-color: #d33b3b;
+  background: rgba(211, 59, 59, 0.1);
+  color: #d33b3b;
+}
+
 .gradebook-course-action-secondary {
   border-color: rgba(71, 170, 200, 0.9);
   color: var(--gth-teal);
+}
+
+.gradebook-course-action-secondary.gradebook-course-action-revealed {
+  border-color: #d33b3b;
+  background: rgba(211, 59, 59, 0.1);
+  color: #d33b3b;
 }
 
 .gradebook-average {

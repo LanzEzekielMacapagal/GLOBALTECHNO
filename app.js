@@ -7704,11 +7704,19 @@ async function renderGradebook() {
     revealGradesButton.type = "button";
     revealGradesButton.className = "btn btn-sm gradebook-course-action";
     revealGradesButton.textContent = "Reveal Grades";
+    revealGradesButton.addEventListener("click", () => {
+      const isRevealed = revealGradesButton.classList.toggle("gradebook-course-action-revealed");
+      revealGradesButton.textContent = isRevealed ? "Revealed Grades" : "Reveal Grades";
+    });
 
     const revealScoreButton = document.createElement("button");
     revealScoreButton.type = "button";
     revealScoreButton.className = "btn btn-sm gradebook-course-action gradebook-course-action-secondary";
     revealScoreButton.textContent = "Reveal Score";
+    revealScoreButton.addEventListener("click", () => {
+      const isRevealed = revealScoreButton.classList.toggle("gradebook-course-action-revealed");
+      revealScoreButton.textContent = isRevealed ? "Revealed Score" : "Reveal Score";
+    });
 
     courseActions.append(revealGradesButton, revealScoreButton);
     header.append(headerText, courseActions);
