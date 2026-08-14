@@ -1124,11 +1124,19 @@ function renderCourseAssignmentItem(assignment) {
   
   const assignmentPoints = getAssignmentPoints(assignment);
   const isGraded = hasAssignmentScore(submission);
+  const hideScores = shouldHideStudentCourseScores(assignment.courseId || "");
+  const revealedText = isGraded ? `${Number(submission.score)}/${assignmentPoints} pts` : submission ? "Submitted" : extraChance ? "Extra attempt" : assignmentExpired ? "Closed" : "Open";
   const summaryBadge = createTextElement(
     "span",
     `badge ${isGraded ? "text-bg-primary" : submission ? "text-bg-success" : assignmentAvailable ? "text-bg-info" : "text-bg-warning"}`,
-    isGraded ? `${Number(submission.score)}/${assignmentPoints} pts` : submission ? "Submitted" : extraChance ? "Extra attempt" : assignmentExpired ? "Closed" : "Open"
+    revealedText
   );
+  if (!adminApp && isGraded && hideScores) {
+    summaryBadge.dataset.gradeRevealTarget = "true";
+    summaryBadge.dataset.revealedValue = revealedText;
+    summaryBadge.dataset.hiddenValue = "Hidden";
+    summaryBadge.textContent = "Hidden";
+  }
   summary.append(summaryText, summaryBadge);
 
   const meta = document.createElement("div");
@@ -1161,8 +1169,16 @@ function renderCourseAssignmentItem(assignment) {
     const submitted = document.createElement("div");
     submitted.className = "course-quiz-result";
     const isGraded = hasAssignmentScore(submission);
+    const hideScores = shouldHideStudentCourseScores(assignment.courseId || "");
+    const assignmentScoreBadge = createTextElement("span", "badge text-bg-success", isGraded ? `${Number(submission.score)}/${getAssignmentPoints(assignment)} pts` : "Submitted");
+    if (!adminApp && isGraded && hideScores) {
+      assignmentScoreBadge.dataset.gradeRevealTarget = "true";
+      assignmentScoreBadge.dataset.revealedValue = `${Number(submission.score)}/${getAssignmentPoints(assignment)} pts`;
+      assignmentScoreBadge.dataset.hiddenValue = "Hidden";
+      assignmentScoreBadge.textContent = "Hidden";
+    }
     submitted.append(
-      createTextElement("span", "badge text-bg-success", isGraded ? `${Number(submission.score)}/${getAssignmentPoints(assignment)} pts` : "Submitted"),
+      assignmentScoreBadge,
       createTextElement("small", "text-secondary", `Submitted on ${formatDateTime(submission.submittedAt)}`),
       createTextElement("small", "text-secondary d-block mt-1", isGraded ? "Graded by the admin" : "Admin will grade this")
     );
@@ -1794,6 +1810,23 @@ function saveStoredItems(key, items) {
     console.warn(`Unable to save ${key}. Browser storage may be full or unavailable.`);
     return false;
   }
+}
+
+function getCourseRevealState(courseId = "", storageKey = "gthCourseGradeRevealState") {
+  if (!courseId) return false;
+  const state = getStoredItems(storageKey, {});
+  return Boolean(state[String(courseId)]);
+}
+
+function setCourseRevealState(courseId = "", isRevealed = false, storageKey = "gthCourseGradeRevealState") {
+  if (!courseId) return false;
+  const state = getStoredItems(storageKey, {});
+  state[String(courseId)] = Boolean(isRevealed);
+  return saveStoredItems(storageKey, state);
+}
+
+function shouldHideStudentCourseScores(courseId = "") {
+  return !adminApp && !getCourseRevealState(courseId);
 }
 
 function setFormStatus(form, message = "", type = "danger") {
@@ -3755,7 +3788,15 @@ function renderCourseQuizItem(quiz) {
   if (quiz.dueAt) {
     summaryText.appendChild(createTextElement("small", quizExpired && !submission ? "text-danger d-block" : "text-secondary d-block", `Due ${formatDateTime(quiz.dueAt)}`));
   }
-  const summaryBadge = createTextElement("span", `badge ${submission ? "text-bg-success" : quizAvailable ? "text-bg-info" : "text-bg-warning"}`, submission ? `${formatQuizScore(score)}/${totalPoints} points` : extraChance ? "Extra attempt" : quizExpired ? "Closed" : "Open");
+  const hideScores = shouldHideStudentCourseScores(quiz.courseId || "");
+  const revealedText = submission ? `${formatQuizScore(score)}/${totalPoints} points` : extraChance ? "Extra attempt" : quizExpired ? "Closed" : "Open";
+  const summaryBadge = createTextElement("span", `badge ${submission ? "text-bg-success" : quizAvailable ? "text-bg-info" : "text-bg-warning"}`, revealedText);
+  if (!adminApp && submission && hideScores) {
+    summaryBadge.dataset.gradeRevealTarget = "true";
+    summaryBadge.dataset.revealedValue = revealedText;
+    summaryBadge.dataset.hiddenValue = "Hidden";
+    summaryBadge.textContent = "Hidden";
+  }
   summary.append(summaryText, summaryBadge);
 
   const meta = document.createElement("div");
@@ -3874,14 +3915,24 @@ function renderCourseQuizItem(quiz) {
         ? Object.values(submission.manualScores).reduce((sum, score) => sum + (score || 0), 0)
         : 0;
       
-      result.append(
-        createTextElement("span", "badge text-bg-success", `Score: ${formatQuizScore(score)}/${totalPoints} points`)
-      );
+      const quizScoreBadge = createTextElement("span", "badge text-bg-success", `Score: ${formatQuizScore(score)}/${totalPoints} points`);
+      if (!adminApp && shouldHideStudentCourseScores(quiz.courseId || "")) {
+        quizScoreBadge.dataset.gradeRevealTarget = "true";
+        quizScoreBadge.dataset.revealedValue = `Score: ${formatQuizScore(score)}/${totalPoints} points`;
+        quizScoreBadge.dataset.hiddenValue = "Hidden";
+        quizScoreBadge.textContent = "Hidden";
+      }
+      result.append(quizScoreBadge);
       
       if (hasManualScores && manualScoresTotalPoints > 0) {
-        result.append(
-          createTextElement("span", "badge text-bg-info", `✓ Admin Graded: ${manualScoresTotal}/${manualScoresTotalPoints} points`)
-        );
+        const manualScoreBadge = createTextElement("span", "badge text-bg-info", `✓ Admin Graded: ${manualScoresTotal}/${manualScoresTotalPoints} points`);
+        if (!adminApp && shouldHideStudentCourseScores(quiz.courseId || "")) {
+          manualScoreBadge.dataset.gradeRevealTarget = "true";
+          manualScoreBadge.dataset.revealedValue = `✓ Admin Graded: ${manualScoresTotal}/${manualScoresTotalPoints} points`;
+          manualScoreBadge.dataset.hiddenValue = "Hidden";
+          manualScoreBadge.textContent = "Hidden";
+        }
+        result.append(manualScoreBadge);
       }
       
       result.append(
@@ -7516,6 +7567,16 @@ function createAssignmentEditForm(assignment) {
   return form;
 }
 
+function applyCourseGradeRevealState(coursePanel, isRevealed) {
+  if (!coursePanel) return;
+
+  coursePanel.querySelectorAll("[data-grade-reveal-target='true']").forEach((scoreEl) => {
+    const hiddenValue = scoreEl.dataset.hiddenValue || "Hidden";
+    const revealedValue = scoreEl.dataset.revealedValue || scoreEl.textContent || hiddenValue;
+    scoreEl.textContent = isRevealed ? revealedValue : hiddenValue;
+  });
+}
+
 function createGradeForm(courseId, student, options = {}) {
   const grade = getStudentGrade(courseId, student.id) || {};
   const finalGrade = calculateFinalGrade(grade);
@@ -7611,6 +7672,11 @@ function createGradeForm(courseId, student, options = {}) {
       if (item.score === null || item.score === undefined) scoreText = "Not Yet Submitted";
       else if (item.score === "NOT_GRADED") scoreText = "Not Yet Graded";
       else scoreText = `${item.score}/${item.total}`;
+
+      const isNumericScore = item.score !== null && item.score !== undefined && item.score !== "NOT_GRADED";
+      score.dataset.revealedValue = scoreText;
+      score.dataset.hiddenValue = isNumericScore ? "Hidden" : scoreText;
+      score.dataset.isNumericScore = String(isNumericScore);
       score.textContent = scoreText;
       if (item.score === null || item.score === undefined || item.score === "NOT_GRADED") {
         score.classList.add("bg-danger-light");
@@ -7703,19 +7769,24 @@ async function renderGradebook() {
     const revealGradesButton = document.createElement("button");
     revealGradesButton.type = "button";
     revealGradesButton.className = "btn btn-sm gradebook-course-action";
-    revealGradesButton.textContent = "Reveal Grades";
+    const isCourseRevealed = getCourseRevealState(courseId);
+    revealGradesButton.classList.toggle("gradebook-course-action-revealed", isCourseRevealed);
+    revealGradesButton.textContent = isCourseRevealed ? "Revealed Grades" : "Reveal Grades";
     revealGradesButton.addEventListener("click", () => {
+      const coursePanel = revealGradesButton.closest(".gradebook-course");
       const isRevealed = revealGradesButton.classList.toggle("gradebook-course-action-revealed");
       revealGradesButton.textContent = isRevealed ? "Revealed Grades" : "Reveal Grades";
+      setCourseRevealState(courseId, isRevealed);
+      applyCourseGradeRevealState(coursePanel, isRevealed);
     });
 
     const revealScoreButton = document.createElement("button");
     revealScoreButton.type = "button";
     revealScoreButton.className = "btn btn-sm gradebook-course-action gradebook-course-action-secondary";
-    revealScoreButton.textContent = "Reveal Score";
+    revealScoreButton.textContent = "Reveal Answers";
     revealScoreButton.addEventListener("click", () => {
       const isRevealed = revealScoreButton.classList.toggle("gradebook-course-action-revealed");
-      revealScoreButton.textContent = isRevealed ? "Revealed Score" : "Reveal Score";
+      revealScoreButton.textContent = isRevealed ? "Revealed Answers" : "Reveal Answers";
     });
 
     courseActions.append(revealGradesButton, revealScoreButton);
